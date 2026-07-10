@@ -106,7 +106,7 @@ on import since `errors.py` does not exist yet.
 
 ## Phase 3 — Loader: happy path + explicit-path contract
 
-- [ ] 3.1 (RED) Write the happy-path section of
+- [x] 3.1 (RED) Write the happy-path section of
       `tests/unit/config/test_loader.py` (file will grow across phases 3-6):
       - loading a 2-entry `databases:` YAML file (written to `tmp_path`)
         returns exactly 2 `ConnectionProfile` objects with names and
@@ -117,13 +117,13 @@ on import since `errors.py` does not exist yet.
         (explicit-path contract; no cwd/repo-root default).
       - loading from an arbitrarily-named file at an arbitrary `tmp_path`
         location (not `config.local.yaml`, not repo root) succeeds.
-- [ ] 3.2 (GREEN) Implement the happy-path skeleton of
+- [x] 3.2 (GREEN) Implement the happy-path skeleton of
       `src/schema_comparator/config/loader.py`: `load_profiles(config_path)`
       signature (required positional, no default), file existence check
       deferred to Phase 4, `yaml.safe_load` parse, iteration over
       `databases:` mapping building `ConnectionProfile` list (no trim/dup
       validation yet — added in Phase 5).
-- [ ] 3.3 Run the Phase 3 subset of `test_loader.py` and confirm all pass.
+- [x] 3.3 Run the Phase 3 subset of `test_loader.py` and confirm all pass.
 
 ## Phase 4 — Loader: missing-file and malformed-YAML fail-fast
 
