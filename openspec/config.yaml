@@ -1,0 +1,112 @@
+schema: spec-driven
+
+context: |
+  Project: schema-drift comparator for SQL Server microservices (dominio seguros).
+  Tech stack: Python (local CLI), execution is local-only, no server component.
+  Purpose: compare SQL Server schemas across several microservices that share
+  data structure, detect drift (missing tables/columns, mismatched
+  types/sizes, renamed fields) and generate diff reports.
+  Architecture: not yet defined — greenfield project, no code exists yet.
+  Testing: not yet defined — no test runner detected (empty project).
+  Style: not yet defined — to be established during sdd-foundation.
+
+scale: team
+
+strict_tdd: false
+
+project:
+  status: foundation-defined
+  stack:
+    languages: [python]
+    frameworks: []
+    package_managers: [pip, venv]
+    architecture: "modular monolith CLI (config -> connectors -> discovery -> compare -> report)"
+  commands:
+    install: ["python -m venv .venv", "pip install -e ."]
+    build: []
+    test: ["pytest"]
+    lint: []
+    format: []
+    typecheck: []
+
+foundation:
+  product_brief: docs/product/brief.md
+  functional_scope: docs/product/functional-scope.md
+  glossary: docs/product/glossary.md
+  technical_baseline: docs/architecture/technical-baseline.md
+  decisions: docs/architecture/decisions/README.md
+  roadmap: docs/roadmap.md
+  references_raw: docs/references/raw/README.md
+  references_processed: docs/references/processed/README.md
+  open_questions:
+    - "Approx. number of microservice databases to compare is unknown; assumed 3-20 for v1 design (see docs/architecture/technical-baseline.md decision #5). Revisit if real count is much larger."
+
+capabilities:
+  - name: python
+    source: declared
+  - name: sqlserver
+    source: declared
+
+testing:
+  strict_tdd_mode: disabled
+  detected: 2026-07-10
+  test_runner:
+    command: ""
+    framework: ""
+  test_layers:
+    unit: false
+    integration: false
+    e2e: false
+  coverage:
+    available: false
+    command: ""
+  quality_tools:
+    linter:
+      available: false
+      command: ""
+    type_checker:
+      available: false
+      command: ""
+    formatter:
+      available: false
+      command: ""
+  notes: >
+    Empty project — no pyproject.toml, requirements.txt, or test runner
+    present yet. Strict TDD defaulted to false because no test runner exists
+    to enforce it. Recommend adopting pytest + pytest-cov (see stack-python-testing)
+    once the project scaffold is created in sdd-foundation, then re-run sdd-init
+    (or update this block manually) to flip strict_tdd_mode to enabled.
+
+rules:
+  foundation:
+    - Ask one blocking question at a time
+    - Do not generate application code before scaffold/project setup is approved
+    - >-
+      RESOLVED: SQL Server connectivity approach decided as pyodbc (direct),
+      supporting both SQL auth and Windows integrated auth per connection
+      profile. See docs/architecture/technical-baseline.md decisions #1-#2.
+    - >-
+      RESOLVED: schema discovery method decided as live DB connection
+      (INFORMATION_SCHEMA / sys.* catalog views) for v1; DDL-export mode
+      deferred. See docs/architecture/technical-baseline.md decision #3.
+  proposal:
+    - Include rollback plan for risky changes
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+  apply:
+    - Follow existing code patterns
+    tdd: false           # Set to true to enable RED-GREEN-REFACTOR once a test runner is set up
+    test_command: ""
+  verify:
+    test_command: ""
+    build_command: ""
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas

@@ -1,0 +1,36 @@
+change: "scaffold-project"
+status: "ready-for-verify"
+last_updated: 2026-07-10T00:00:00Z
+blocking_questions: []
+phases:
+  proposal:
+    status: "done"
+    artifact: "openspec/changes/scaffold-project/proposal-lite.md"
+    summary: "Lite proposal: greenfield scaffold — pyproject.toml, src/schema_comparator/ subpackages (config/connectors/discovery/compare/report/tui), cli.py placeholder, pytest tests/unit+integration. No business logic."
+    key_decisions:
+      - "route: lite (small, mechanical setup, low architectural risk)"
+      - "Package layout follows docs/architecture/technical-baseline.md planned structure verbatim"
+  tasks:
+    status: "done"
+    artifact: "openspec/changes/scaffold-project/tasks.md"
+    summary: "3 work phases (packaging, package skeleton + CLI stub, tests + hygiene) plus wrap-up; no RED-GREEN-REFACTOR since strict_tdd=false and no test runner exists pre-scaffold. Forecast: no decision gate needed, single PR, low 400-line risk."
+    key_decisions:
+      - "Ordered scaffold-first then smoke-tests, since this change itself installs pytest"
+      - "No PR splitting recommended — additive-only, low line count, tight coupling between package and tests"
+  apply:
+    status: "done"
+    artifact: "openspec/changes/scaffold-project/apply-progress.md"
+    summary: "Full greenfield scaffold created and verified in a real venv: pyproject.toml (PEP 621, src-layout, pytest dev extra), src/schema_comparator/ with 6 empty subpackages + cli.py placeholder, tests/unit+integration smoke tests, .gitignore. pytest 2 passed; cli exits 0."
+    key_decisions:
+      - "Omitted readme= from [project] in pyproject.toml (no README.md exists yet) — would break pip install -e otherwise; no observable-behavior impact"
+      - "Fixed em dash -> ASCII hyphen in cli.py placeholder string after hitting a Windows cp1252 console encoding glitch during verification"
+assumptions:
+  - id: sdd-apply-001
+    phase: sdd-apply
+    statement: "Omitted the `readme` field from `[project]` in pyproject.toml since no README.md exists yet in the repo; adding the reference would break `pip install -e .`."
+    reversibility: high
+    basis: "Neither proposal-lite.md nor tasks.md mention creating a README.md in this change's scope; internal packaging-metadata detail with no observable-behavior or public-contract impact."
+    recorded_at: 2026-07-10T00:00:00Z
+    status: resolved
+    resolution: "Confirmed during verify: `pip install -e \".[dev]\"` succeeds (exit 0) with no `readme` field in pyproject.toml. Assumption validated — omitting the field has no impact on installability or any acceptance check."
+    resolved_at: 2026-07-10T12:15:00Z
