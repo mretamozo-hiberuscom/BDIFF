@@ -24,6 +24,16 @@ drift.
 - [x] Interactive TUI (`textual`), opt-in via `--tui` flag, alongside the
       existing always-on HTML/PDF/console outputs (archived:
       `openspec/changes/archive/2026-07-10-interactive-tui/`)
+- [x] Accept ADO.NET-style connection string fragments (`Data Source=`,
+      `Initial Catalog=`, `User Id=`, ...) and translate them to the ODBC
+      keywords `pyodbc` requires, auto-prepending `Driver=...`. Revises
+      technical-baseline.md decision #2 (archived:
+      `openspec/changes/archive/2026-07-10-connection-string-translation/`).
+- [ ] Expand the TUI to manage connection profiles (list, add, edit,
+      delete, checkbox selection of which profiles to compare), matching
+      the original technical-baseline.md decision #7 vision — supersedes
+      the current read-only-viewer-only scope shipped in
+      `interactive-tui`.
 
 ## Milestone 3 (v2) — Spreadsheet export
 
