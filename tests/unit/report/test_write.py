@@ -107,3 +107,51 @@ def test_write_reports_writes_to_the_current_working_directory(
 
     assert list(tmp_path.glob("schema-diff-report-*.html"))
     assert list(tmp_path.glob("schema-diff-report-*.pdf"))
+
+
+def test_write_reports_default_render_summary_matches_prior_console_output(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    out = io.StringIO()
+
+    write_reports(comparison_result_with_findings(), out=out)
+
+    assert "Schema Drift Report - Console Summary" in out.getvalue()
+
+
+def test_write_reports_calls_custom_render_summary_when_provided(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    out = io.StringIO()
+    received = []
+
+    write_reports(
+        comparison_result_with_findings(),
+        out=out,
+        render_summary=received.append,
+    )
+
+    assert len(received) == 1
+    assert received[0] == comparison_result_with_findings()
+    assert "Schema Drift Report - Console Summary" not in out.getvalue()
+
+
+def test_write_reports_isolates_render_summary_failure_from_html_pdf(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    out = io.StringIO()
+
+    def _boom(result):
+        raise RuntimeError("summary boom")
+
+    write_reports(
+        comparison_result_with_findings(), out=out, render_summary=_boom
+    )
+
+    output = out.getvalue()
+    assert "[ERROR] Console summary generation failed" in output
+    assert list(tmp_path.glob("schema-diff-report-*.html"))
+    assert list(tmp_path.glob("schema-diff-report-*.pdf"))

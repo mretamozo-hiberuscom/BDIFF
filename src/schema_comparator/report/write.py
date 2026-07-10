@@ -4,6 +4,7 @@ isolation (REQ-reporting-and-output-007) and shared-timestamp naming
 
 import sys
 from datetime import datetime
+from typing import Callable
 
 from schema_comparator.compare.models import ComparisonResult
 from schema_comparator.report.console import render_console
@@ -12,12 +13,32 @@ from schema_comparator.report.html import render_html
 from schema_comparator.report.pdf import export_pdf
 
 
-def write_reports(result: ComparisonResult, *, out=sys.stdout) -> None:
+def _default_console_summary(result: ComparisonResult, *, out=sys.stdout) -> None:
+    print(render_console(result), file=out)
+
+
+def write_reports(
+    result: ComparisonResult,
+    *,
+    out=sys.stdout,
+    render_summary: Callable[[ComparisonResult], None] | None = None,
+) -> None:
     """Always attempt all three outputs; one failing MUST NOT block the
     others. Failures are printed to `out` as clearly labeled messages,
-    never raised past this function."""
+    never raised past this function.
+
+    `render_summary`, when omitted, defaults to the plain console summary
+    written to this call's `out` (not necessarily `sys.stdout`) — bound
+    at call time rather than as a plain parameter default, so a caller
+    overriding `out` without overriding `render_summary` still sees the
+    console summary land in `out`."""
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     html_str: str | None = None
+    effective_render_summary = (
+        render_summary
+        if render_summary is not None
+        else (lambda result: _default_console_summary(result, out=out))
+    )
 
     try:
         html_str = render_html(result)
@@ -40,6 +61,6 @@ def write_reports(result: ComparisonResult, *, out=sys.stdout) -> None:
         print(f"[ERROR] PDF report generation failed: {exc}", file=out)
 
     try:
-        print(render_console(result), file=out)
+        effective_render_summary(result)
     except Exception as exc:
         print(f"[ERROR] Console summary generation failed: {exc}", file=out)
