@@ -23,21 +23,21 @@ def connect(
     `pyodbc.connect`) in the whole package. The login timeout and the
     query timeout share the same `timeout_seconds` value: the former is
     passed to `connect_fn`, the latter is applied via `connection.timeout`
-    immediately after a successful connect. The connection is always
-    closed before this context manager exits, whether or not the caller's
-    block raised.
+    immediately after a successful connect. Both `pyodbc.connect`'s
+    `timeout` kwarg and `connection.timeout`'s setter require a plain int
+    (a float raises `TypeError: 'float' object cannot be interpreted as
+    an integer` either way), so `timeout_seconds` is cast to `int` once
+    and that same int is used for both. The connection is always closed
+    before this context manager exits, whether or not the caller's block
+    raised.
 
     Driver errors (`pyodbc.Error`) are intentionally left untranslated here
     and propagate unchanged to the caller; translation into domain errors
     is `discovery`'s responsibility, not this connection boundary's.
     """
-    # pyodbc.connect's `timeout` kwarg is passed straight through to the
-    # underlying C API, which requires a plain int (a float here raises
-    # `TypeError: 'float' object cannot be interpreted as an integer`).
-    # `connection.timeout` has no such restriction, so it keeps the
-    # original (possibly fractional) value.
-    conn = connect_fn(profile.connection_string, timeout=int(timeout_seconds))
-    conn.timeout = timeout_seconds
+    timeout = int(timeout_seconds)
+    conn = connect_fn(profile.connection_string, timeout=timeout)
+    conn.timeout = timeout
     try:
         yield conn
     finally:

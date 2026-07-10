@@ -8,8 +8,21 @@ from schema_comparator.connectors import DEFAULT_TIMEOUT_SECONDS, connect
 
 class _FakeConnection:
     def __init__(self):
-        self.timeout = None
+        self._timeout = None
         self.closed = False
+
+    @property
+    def timeout(self):
+        return self._timeout
+
+    @timeout.setter
+    def timeout(self, value):
+        # Mirrors real pyodbc.Connection.timeout: it also only accepts a
+        # plain int, not a float (this fake previously accepted anything,
+        # which let a real TypeError reach production undetected).
+        if not isinstance(value, int):
+            raise TypeError("'float' object cannot be interpreted as an integer")
+        self._timeout = value
 
     def close(self):
         self.closed = True
