@@ -57,10 +57,10 @@ without tests passing; it is simply the recommended, and followed, order.
 
 ## Phase 0 — Dependency setup
 
-- [ ] 0.1 Add `PyYAML>=6.0` to `[project].dependencies` in `pyproject.toml`
+- [x] 0.1 Add `PyYAML>=6.0` to `[project].dependencies` in `pyproject.toml`
       (currently `[]`). Reinstall editable package (`pip install -e .`) so
       `import yaml` resolves in the dev environment.
-- [ ] 0.2 Create empty test package scaffolding: `tests/unit/config/`
+- [x] 0.2 Create empty test package scaffolding: `tests/unit/config/`
       directory with `__init__.py` (or confirm pytest rootdir config allows
       no `__init__.py`, matching existing `tests/unit/` convention).
 
@@ -69,7 +69,7 @@ without tests passing; it is simply the recommended, and followed, order.
 RED before GREEN: write the exception-hierarchy tests first; they will fail
 on import since `errors.py` does not exist yet.
 
-- [ ] 1.1 (RED) Write `tests/unit/config/test_errors.py`:
+- [x] 1.1 (RED) Write `tests/unit/config/test_errors.py`:
       - assert `ConfigFileNotFoundError`, `ConfigParseError`,
         `ProfileValidationError` are all subclasses of `ConfigError`, which
         is a subclass of `Exception`.
@@ -79,11 +79,11 @@ on import since `errors.py` does not exist yet.
         messages, and that `.duplicate_name("X")` /
         `.empty_connection_string("X")` messages contain the given name
         `"X"`.
-- [ ] 1.2 (GREEN) Implement `src/schema_comparator/config/errors.py`: the
+- [x] 1.2 (GREEN) Implement `src/schema_comparator/config/errors.py`: the
       `ConfigError` base and three subclasses with the factory classmethods
       per design.md §5, with pre-composed, secret-safe messages only (no
       connection-string interpolation anywhere in this file).
-- [ ] 1.3 Run `pytest tests/unit/config/test_errors.py` and confirm all pass.
+- [x] 1.3 Run `pytest tests/unit/config/test_errors.py` and confirm all pass.
 
 ## Phase 2 — Data model (`models.py`)
 

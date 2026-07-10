@@ -8,7 +8,9 @@ version = "0.1.0"
 description = "SQL Server schema-drift comparator across microservices."
 requires-python = ">=3.11"
 license = { text = "MIT" }
-dependencies = []
+dependencies = [
+    "PyYAML>=6.0",
+]
 
 [project.optional-dependencies]
 dev = [
