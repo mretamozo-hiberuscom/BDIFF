@@ -46,6 +46,18 @@ _INTEGRATED_SECURITY_KEY = "integrated security"
 _INTEGRATED_SECURITY_TRUE_VALUES = {"true", "sspi", "yes"}
 _INTEGRATED_SECURITY_FALSE_VALUES = {"false", "no"}
 
+# Encrypt/TrustServerCertificate are pass-through keywords (same spelling in
+# both dialects), but their *values* are not: ADO.NET/SqlClient writes
+# True/False, while the Microsoft ODBC Driver for SQL Server only documents
+# yes/mandatory and no/optional (plus strict, 18.0+) -- passing "True"
+# verbatim raises SQLSTATE 08001 ("invalid value specified for connection
+# string attribute") at connect time. Only the literal true/false spelling is
+# normalized; already-ODBC values (yes/no/mandatory/optional/strict) are
+# left untouched.
+_BOOLEAN_VALUE_KEYS = {"encrypt", "trustservercertificate"}
+_BOOLEAN_TRUE_VALUES = {"true"}
+_BOOLEAN_FALSE_VALUES = {"false"}
+
 _DEFAULT_DRIVER_TOKEN = "Driver={ODBC Driver 18 for SQL Server}"
 
 
@@ -133,6 +145,14 @@ def translate(raw: str, *, name: str) -> str:
             output[_RENAME_MAP[folded_key]] = value
             recognized_any = True
         elif folded_key in _ODBC_PASSTHROUGH_KEYS:
+            if folded_key in _BOOLEAN_VALUE_KEYS:
+                folded_value = value.casefold()
+                if folded_value in _BOOLEAN_TRUE_VALUES:
+                    value = "yes"
+                elif folded_value in _BOOLEAN_FALSE_VALUES:
+                    value = "no"
+                # Any other value (yes/no/mandatory/optional/strict/...) is
+                # already valid ODBC vocabulary and passes through as-is.
             output.pop(key, None)
             output[key] = value  # preserve original casing for passthrough
             recognized_any = True

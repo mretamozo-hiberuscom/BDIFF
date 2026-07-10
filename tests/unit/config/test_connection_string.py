@@ -93,6 +93,37 @@ def test_integrated_security_false_variants_are_dropped(value: str) -> None:
     assert "Trusted_Connection" not in result
 
 
+@pytest.mark.parametrize("keyword", ["Encrypt", "TrustServerCertificate"])
+@pytest.mark.parametrize("value", ["True", "TRUE", "true"])
+def test_adonet_true_boolean_value_normalized_to_odbc_yes(keyword: str, value: str) -> None:
+    # The Microsoft ODBC Driver for SQL Server only documents yes/mandatory
+    # and no/optional (plus strict, 18.0+) as valid Encrypt/
+    # TrustServerCertificate values -- ADO.NET's True/False literals raise
+    # SQLSTATE 08001 ("invalid value specified for connection string
+    # attribute") at connect time. This must be normalized, not passed
+    # through verbatim.
+    result = translate(f"Server=srv;{keyword}={value};", name="x")
+    assert f"{keyword}=yes" in result
+    assert f"{keyword}={value}" not in result
+
+
+@pytest.mark.parametrize("keyword", ["Encrypt", "TrustServerCertificate"])
+@pytest.mark.parametrize("value", ["False", "FALSE", "false"])
+def test_adonet_false_boolean_value_normalized_to_odbc_no(keyword: str, value: str) -> None:
+    result = translate(f"Server=srv;{keyword}={value};", name="x")
+    assert f"{keyword}=no" in result
+    assert f"{keyword}={value}" not in result
+
+
+@pytest.mark.parametrize("keyword", ["Encrypt", "TrustServerCertificate"])
+@pytest.mark.parametrize("value", ["yes", "no", "Mandatory", "Optional", "Strict"])
+def test_already_odbc_boolean_value_passes_through_unchanged(keyword: str, value: str) -> None:
+    # Values already in ODBC's own vocabulary (including the 18.0+-only
+    # Mandatory/Optional/Strict literals) must never be rewritten.
+    result = translate(f"Server=srv;{keyword}={value};", name="x")
+    assert f"{keyword}={value}" in result
+
+
 def test_unrecognized_keyword_alongside_recognized_keyword_passes_through() -> None:
     result = translate("Server=srv;AppName=foo;", name="x")
     assert "AppName=foo" in result
@@ -186,8 +217,8 @@ def test_mixed_autos_shaped_string_translates_correctly() -> None:
     assert "UID=USR_x" in result
     assert "PWD=xxxxxxxxx" in result
     assert "Integrated Security" not in result
-    assert "Encrypt=True" in result
-    assert "TrustServerCertificate=True" in result
+    assert "Encrypt=yes" in result
+    assert "TrustServerCertificate=yes" in result
 
 
 # --- Phase 9: cross-cutting secret-safety guardrail -------------------------
