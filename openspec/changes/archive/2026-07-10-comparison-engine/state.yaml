@@ -1,0 +1,46 @@
+change: "comparison-engine"
+status: "archived"
+last_updated: 2026-07-10T00:00:00Z
+blocking_questions: []
+owner:
+  author: "Manuel Retamozo Garcia"
+  branch: "feat/scaffold-project"
+classification: "normal"
+delivery_strategy: "exception-ok"
+execution_mode: "auto"
+phases:
+  exploration:
+    status: done
+    artifact: "openspec/changes/archive/2026-07-10-comparison-engine/exploration.md"
+    summary: "Recommended a two-pass union-of-identities mechanism with a flat, typed diff result model; scoped this change to the union mechanism plus missing-table detection as an end-to-end proof, deferring missing-column and mismatch detection to future changes."
+  proposal:
+    status: done
+    artifact: "openspec/changes/archive/2026-07-10-comparison-engine/proposal.md"
+    summary: "N-way union-of-objects comparison engine with missing-table detection as the first functional diff category; missing-column, mismatch detection, and report generation are explicitly out of scope."
+  spec:
+    status: done
+    artifact: "openspec/changes/archive/2026-07-10-comparison-engine/specs/comparison-engine/spec.md"
+    summary: "New comparison-engine spec: input contract (2+ named snapshots, unique profile names), union-of-objects baseline over qualified table identity, missing-table detection, deterministic ordering, and degenerate identical-snapshots case; missing-column/mismatch/report generation explicitly excluded."
+  clarify:
+    status: done
+    questions_asked: 0
+    summary: "Resolved without a user question: MissingTable carries only qualified table identity + missing profile(s), no column metadata snapshot (per proposal's explicit non-goals)."
+  design:
+    status: done
+    artifact: "openspec/changes/archive/2026-07-10-comparison-engine/design.md"
+    summary: "Pure N-way engine under compare/: models.py (ComparisonResult/MissingTable), errors.py (precondition validation), engine.py (two-pass union-of-identities + deterministic evaluation). No new dependencies; no changes to discovery/."
+  tasks:
+    status: done
+    artifact: "openspec/changes/archive/2026-07-10-comparison-engine/tasks.md"
+    summary: "5 phases, 15 tasks: data model, precondition-validation errors, engine algorithm (two-pass union + evaluate), unit tests (11 spec scenarios), verification. Single PR under exception-ok; ~480-560 estimated changed lines, medium 400-line-budget risk."
+  apply:
+    status: done
+    artifact: "openspec/changes/archive/2026-07-10-comparison-engine/apply-progress.md"
+    summary: "Single batch: compare/models.py, errors.py, engine.py, __init__.py, plus tests/unit/compare/ (14 tests). 84 passed / 1 skipped full suite. No deviations from design."
+  verify:
+    status: done
+    artifact: "openspec/changes/archive/2026-07-10-comparison-engine/verify-report.md"
+    summary: "PASS. 84 passed / 1 skipped, 0 CRITICAL/WARNING findings. All 11 spec scenarios traced to passing tests; design and tasks conformance confirmed; non-goals compliance confirmed."
+  archive:
+    status: done
+    artifact: "openspec/changes/archive/2026-07-10-comparison-engine/archive-report.md"

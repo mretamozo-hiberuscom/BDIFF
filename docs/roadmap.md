@@ -9,8 +9,8 @@ drift.
 - [x] Connection profile config (multi-database, no hardcoded credentials)
 - [x] Schema extraction via live connection (tables + columns: name, type,
       size/precision/scale, nullable)
-- [ ] N-way comparison engine (union-of-objects baseline diff)
-- [ ] Missing-table detection
+- [x] N-way comparison engine (union-of-objects baseline diff)
+- [x] Missing-table detection
 - [ ] Missing-column detection
 - [ ] Type/size/nullability mismatch detection
 - [ ] HTML report generation
@@ -50,5 +50,9 @@ configuration are in place on `feat/scaffold-project`, verified PASS.
 
 `schema-extraction` is done (archived: `openspec/changes/archive/2026-07-10-schema-extraction/`).
 
-Next up: the **N-way comparison engine** (union-of-objects baseline diff),
-as its own SDD change.
+`comparison-engine` is done (archived: `openspec/changes/archive/2026-07-10-comparison-engine/`),
+including missing-table detection as its first functional diff category.
+Missing-column detection and type/size/nullability mismatch detection
+remain separate, not-yet-started roadmap items.
+
+Next up: **missing-column detection**, as its own SDD change.
