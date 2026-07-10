@@ -214,14 +214,17 @@ on import since `errors.py` does not exist yet.
 
 ## Phase 7 — Full-suite verification
 
-- [ ] 7.1 Run the full suite: `pytest tests/unit/config/ -v` — all tests
-      green.
-- [ ] 7.2 Run `pytest` (whole repo) to confirm no regression in the
+- [x] 7.1 Run the full suite: `pytest tests/unit/config/ -v` — all tests
+      green. (41/41 passed.)
+- [x] 7.2 Run `pytest` (whole repo) to confirm no regression in the
       existing `tests/unit/test_import_smoke.py` /
-      `tests/integration/test_structure_smoke.py` smoke tests.
-- [ ] 7.3 Spot-check coverage against design.md §8's per-scenario matrix:
+      `tests/integration/test_structure_smoke.py` smoke tests. (43/43
+      passed, whole repo.)
+- [x] 7.3 Spot-check coverage against design.md §8's per-scenario matrix:
       confirm every spec.md scenario (6 requirements, 17 scenarios total)
       has at least one corresponding test written above; note any gap
-      before calling this change apply-ready.
-- [ ] 7.4 Confirm `pyproject.toml` dependency change is the only
+      before calling this change apply-ready. (All 17 scenarios mapped;
+      no gaps found — see apply-progress.md coverage table.)
+- [x] 7.4 Confirm `pyproject.toml` dependency change is the only
       `dependencies` edit (no accidental `pyodbc`/`textual` addition).
+      (Confirmed: `dependencies = ["PyYAML>=6.0"]` only.)

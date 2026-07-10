@@ -1,5 +1,5 @@
 change: "connection-profile-config"
-status: "tasks-ready"
+status: "ready-for-verify"
 last_updated: 2026-07-10T00:00:00Z
 blocking_questions: []
 approvals:
@@ -73,3 +73,11 @@ phases:
       - "No PR-splitting/chaining recommended: proposal.md already carries a size:exception delivery approval, and the module's actual footprint (5 small production files + 3 test files) stays under typical split thresholds"
     notes:
       - "Skill files skills/sdd-tasks/SKILL.md and skills/_shared/sdd-phase-common.md were not found in the repo at time of writing (Glob skills/**/*.md returned no results); proceeded via graceful-degradation using openspec/config.yaml rules.tasks (group by phase, hierarchical numbering, one-session-sized tasks), consistent with prior phases' documented approach."
+  apply:
+    status: "done"
+    artifact: "openspec/changes/connection-profile-config/apply-progress.md"
+    summary: "All 8 phases (0-7) implemented: PyYAML dependency, ConfigError hierarchy, ConnectionProfile frozen slotted dataclass with redacting repr, load_profiles(config_path) with duplicate-key-detecting SafeLoader and full fail-fast validation pipeline, config.example.yaml (both auth modes), and config/__init__.py public API. RED->GREEN order followed per phase with real pytest execution at each step. 41/41 tests passing in tests/unit/config/; 43/43 whole-repo (no regressions). All 17 spec scenarios covered with no gaps. 6 commits landed directly on feat/scaffold-project per the pre-approved size:exception delivery strategy."
+    key_decisions:
+      - "Test asserts (AttributeError, TypeError) instead of AttributeError alone for the extra-attribute-rejection scenario, to match a CPython 3.13 frozen+slots dataclass quirk (zero-arg super() binding to the pre-rebuild class) -- recorded as assumption sdd-apply-001, reversibility high, no production-code or public-contract impact."
+    notes:
+      - "Skill files skills/sdd-apply/SKILL.md and skills/_shared/sdd-phase-common.md were resolved from the ospec-workflow plugin cache (version 2.24.0) rather than the repo's skills/ directory, which does not exist in this project; followed those instructions exactly."
