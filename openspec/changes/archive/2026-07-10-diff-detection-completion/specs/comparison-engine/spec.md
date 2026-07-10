@@ -1,167 +1,100 @@
-# Comparison Engine Specification
+# Spec Delta: Comparison Engine
 
-## Purpose
+Status: extends the existing baseline at
+`openspec/specs/comparison-engine/spec.md` (capability `comparison-engine`).
+This delta ADDS two new Requirements (missing-column detection, column
+attribute-mismatch detection), MODIFIES the existing ordering requirement
+(REQ-comparison-engine-004) to pin a concrete cross-type tie-break, and
+NARROWS the baseline's Non-Goals section. It does not fork a new domain and
+does not modify the baseline file directly; merging happens at archive time.
 
-Provide a pure, side-effect-free N-way comparison engine that consumes 2+
-named `SchemaSnapshot` values (from `schema-extraction`) and produces a
-deterministic, order-independent `ComparisonResult` built on a union-of-
-objects baseline over qualified table identity, including missing-table
-detection as the first fully implemented diff category.
-
-## Non-Goals
-
-This capability MUST NOT implement likely-rename heuristics or report
-generation/rendering (HTML, PDF, or console/TUI output). These remain out of
-scope and are addressed by separate future changes. Missing-column detection
-and column type/size/precision/scale/nullability mismatch detection are in
-scope as of REQ-comparison-engine-006 and REQ-comparison-engine-007; the
-result model MUST remain extensible for likely-rename heuristics and report
-generation without requiring a reshape.
+Scope reminder (per proposal.md): this change is Change A of a two-change
+split. It produces diff-entry data only (`MissingColumn`, `ColumnMismatch`
+siblings of the existing `MissingTable`). HTML/PDF/console rendering,
+likely-rename heuristics, and any change to `discovery/` snapshot models
+remain out of scope and are addressed by later changes.
 
 ## Clarifications
 
 ### Session 2026-07-10
 
-- Q: Should the `MissingTable` diff entry carry only the qualified table
-  identity plus the profile(s) it's missing from, or should it also snapshot
-  the column metadata of that table from the profile(s) where it DOES exist?
-  → A: **identity-and-profile-only** — `MissingTable` MUST carry only the
-  qualified table identity (`schema_name`, `table_name`) and the profile
-  lacking the table. It MUST NOT snapshot or embed column metadata from
-  profiles where the table exists. Missing-column detection and any related
-  data is out of scope for this change per the Non-Goals above; the proposal's
-  own extensibility approach is to add new diff-entry type variants to the
-  flat sequence for future detection categories, not to enrich existing
-  entry types with data outside their own concern. Pre-emptively snapshotting
-  column metadata here would be speculative design for a not-yet-specified
-  future change and risks locking in a shape that missing-column detection's
-  own future exploration phase has not yet chosen.
-
-### Session 2026-07-10 (diff-detection-completion)
-
-- Q: Does `ColumnMismatch` produce one entry per column (naming every
-  present profile's attributes) or one entry per divergent profile pair?
-  → A: **One entry per column.** A single `ColumnMismatch` entry names the
+- **Q: Does `ColumnMismatch` produce one entry per column (naming every
+  present profile's attributes) or one entry per divergent profile pair?**
+  A: **One entry per column.** A single `ColumnMismatch` entry names the
   `ColumnAttributes` of every profile that has the column, keyed by profile
   name, whenever at least one pairwise difference exists among them. This
   matches `MissingTable`'s existing "one finding, N profiles named" style
   and avoids fragmenting a single 3+-way type variance into multiple
-  pairwise entries. See REQ-comparison-engine-007.
-- Q: What is the deterministic type-rank ordering among diff-entry kinds
-  sharing the same qualified table identity?
-  → A: `MissingTable` < `MissingColumn` < `ColumnMismatch`, then column name
+  pairwise entries, which would complicate both the result model and any
+  later report grouping. See REQ-comparison-engine-007.
+
+- **Q: What is the deterministic type-rank ordering among diff-entry kinds
+  sharing the same qualified table identity?**
+  A: `MissingTable` < `MissingColumn` < `ColumnMismatch`, then column name
   ascending within `MissingColumn`/`ColumnMismatch`. This extends, rather
   than replaces, REQ-comparison-engine-004's existing table-identity-first
-  ordering.
-- Q: Can a table already reported as `MissingTable` for a given profile
-  also produce `MissingColumn` entries for that same profile/table?
-  → A: **No.** Column-level detection (`MissingColumn` and `ColumnMismatch`)
-  is only evaluated for profiles in which the table itself is present. A
-  profile missing the table entirely is fully covered by its existing
+  ordering. See the MODIFIED REQ-comparison-engine-004 below.
+
+- **Q: Can a table already reported as `MissingTable` for a given profile
+  also produce `MissingColumn` entries for that same profile/table?**
+  A: **No.** Column-level detection (`MissingColumn` and `ColumnMismatch`)
+  is only evaluated for profiles in which the table itself is present.
+  A profile missing the table entirely is fully covered by its existing
   `MissingTable` entry; it MUST NOT additionally receive `MissingColumn`
   entries for that table's columns. See REQ-comparison-engine-006.
-- Q: Is `ColumnMismatch.values_by_profile` (or equivalent) ordered
-  deterministically?
-  → A: **Yes.** It MUST be ordered ascending by profile name, consistent
-  with the order-independence-from-input guarantee already normative for
-  the rest of the engine. See REQ-comparison-engine-007.
-- Q: Which column attributes participate in mismatch comparison, and is
-  `ordinal_position` excluded?
-  → A: The comparable attribute set (`ColumnAttributes`) is exactly
+
+- **Q: Is `ColumnMismatch.values_by_profile` (or equivalent) ordered
+  deterministically?**
+  A: **Yes.** It MUST be ordered ascending by profile name, consistent with
+  the order-independence-from-input guarantee already normative for the
+  rest of the engine (`compared_profiles`, table-identity ordering). See
+  REQ-comparison-engine-007.
+
+- **Q: Which column attributes participate in mismatch comparison, and is
+  `ordinal_position` excluded?**
+  A: The comparable attribute set (`ColumnAttributes`) is exactly
   `data_type`, `character_maximum_length`, `numeric_precision`,
   `numeric_scale`, and `is_nullable`. `ordinal_position` is explicitly
-  excluded — a column declared in a different order, with all other
-  attributes identical, is not drift. `name` is also excluded (it is the
-  column's identity, not an attribute of it). See REQ-comparison-engine-007.
+  excluded — a column simply declared in a different order, with all other
+  attributes identical, is not drift. `name` is also excluded from the
+  comparable set (it is the column's identity, not an attribute of it; two
+  columns are compared under the same name by construction). See
+  REQ-comparison-engine-007.
+### Session 2026-07-10 (final clarify pass)
 
-## Requirements
+No material ambiguities found; reviewed on 2026-07-10. The five previously
+flagged risks (`ColumnMismatch` entry-count semantics, cross-type ordering,
+missing-table/missing-column double-reporting, `ordinal_position` exclusion,
+`values_by_profile` ordering) are each pinned as explicit MUST requirements
+with Given/When/Then scenarios in REQ-comparison-engine-004,
+REQ-comparison-engine-006, and REQ-comparison-engine-007 above. Column-name
+matching for union/presence purposes is not separately restated here because
+it follows the same string-identity convention REQ-comparison-engine-002
+already establishes for qualified table identity; this is a consistent
+extension, not a new ambiguity, and is left to `sdd-design` to implement
+using the same convention.
+## MODIFIED Non-Goals
 
-### Requirement: Accept N-Way Named Snapshot Input {#REQ-comparison-engine-001}
+The baseline's Non-Goals section currently reads:
 
-The system MUST accept a sequence of 2 or more `SchemaSnapshot` values as the
-sole input to comparison. Each snapshot MUST carry a `profile_name`. The
-system MUST reject, with a clear domain error (no raw stack trace), any input
-of fewer than 2 snapshots or any input containing 2+ snapshots that share the
-same `profile_name`. The system MUST NOT proceed with a union computation
-when a precondition is violated.
+> This capability MUST NOT implement missing-column detection, column
+> type/size/precision/scale/nullability mismatch detection, likely-rename
+> heuristics, or report generation/rendering. These remain out of scope and
+> are addressed by separate future changes; the result model MUST remain
+> extensible for them without requiring a reshape.
 
-#### Scenario: Valid multi-profile input is accepted
+It is narrowed to:
 
-- GIVEN 3 `SchemaSnapshot` values with distinct profile names `a`, `b`, `c`
-- WHEN the comparison engine is invoked with these snapshots
-- THEN it SHALL return a `ComparisonResult` that names all of `a`, `b`, `c`
-  as compared profiles
+> This capability MUST NOT implement likely-rename heuristics or report
+> generation/rendering (HTML, PDF, or console/TUI output). These remain out
+> of scope and are addressed by separate future changes. Missing-column
+> detection and column type/size/precision/scale/nullability mismatch
+> detection are in scope as of REQ-comparison-engine-006 and
+> REQ-comparison-engine-007; the result model MUST remain extensible for
+> likely-rename heuristics and report generation without requiring a
+> reshape.
 
-#### Scenario: Fewer than 2 snapshots is rejected
-
-- GIVEN a single `SchemaSnapshot` for profile `a`
-- WHEN the comparison engine is invoked with only that snapshot
-- THEN it SHALL raise a clear domain error indicating at least 2 snapshots
-  are required
-- AND no `ComparisonResult` SHALL be returned
-
-#### Scenario: Duplicate profile names is rejected
-
-- GIVEN 2 `SchemaSnapshot` values that both carry `profile_name` `staging`
-- WHEN the comparison engine is invoked with these snapshots
-- THEN it SHALL raise a clear domain error indicating duplicate profile
-  names among inputs
-- AND no `ComparisonResult` SHALL be returned
-
-### Requirement: Compute Union-of-Objects Baseline {#REQ-comparison-engine-002}
-
-The system MUST derive the baseline as the union of every distinct qualified
-table identity (`schema_name`, `table_name`) observed across all input
-snapshots. The baseline SHALL NOT be one designated/reference snapshot. The
-union computation MUST be independent of the order in which snapshots are
-supplied to the engine.
-
-#### Scenario: Union includes tables from every snapshot
-
-- GIVEN snapshot `a` with table `sales.Invoice`, snapshot `b` with table
-  `sales.Invoice` and `sales.Payment`, snapshot `c` with table
-  `archive.Invoice`
-- WHEN the union baseline is computed
-- THEN it SHALL contain `sales.Invoice`, `sales.Payment`, and
-  `archive.Invoice` as 3 distinct qualified table identities
-
-#### Scenario: Union membership is independent of input order
-
-- GIVEN the same set of snapshots supplied in two different input orders
-- WHEN the union baseline is computed for each order
-- THEN both computations SHALL produce an identical set of qualified table
-  identities
-
-### Requirement: Detect Missing Tables {#REQ-comparison-engine-003}
-
-For every qualified table identity in the union baseline, the system MUST
-determine which of the N input profiles lack that table and MUST emit one
-`MissingTable` diff entry per missing occurrence, identifying the qualified
-table identity and the profile that lacks it. A table present in every input
-snapshot MUST NOT produce a diff entry.
-
-#### Scenario: Table missing from one of three profiles
-
-- GIVEN table `sales.Payment` exists in snapshots `a` and `b` but not in
-  snapshot `c`
-- WHEN comparison is performed across `a`, `b`, `c`
-- THEN the result SHALL include exactly one `MissingTable` entry identifying
-  `sales.Payment` and profile `c`
-
-#### Scenario: Table missing from multiple profiles
-
-- GIVEN table `archive.Invoice` exists only in snapshot `a` among 3 compared
-  snapshots
-- WHEN comparison is performed
-- THEN the result SHALL include one `MissingTable` entry for `archive.Invoice`
-  naming profile `b` and a separate entry naming profile `c`
-
-#### Scenario: Table present everywhere produces no entry
-
-- GIVEN table `sales.Invoice` exists in every compared snapshot
-- WHEN comparison is performed
-- THEN the result SHALL NOT include any `MissingTable` entry for
-  `sales.Invoice`
+## MODIFIED Requirements
 
 ### Requirement: Return Deterministically Ordered Results {#REQ-comparison-engine-004}
 
@@ -209,21 +142,7 @@ produce an identical ordered result regardless of input order.
 - THEN the entry for column `amount` SHALL precede the entry for column
   `zip_code`
 
-### Requirement: Handle Degenerate Comparison Cases {#REQ-comparison-engine-005}
-
-When all compared snapshots contain an identical set of qualified table
-identities, the system MUST return a `ComparisonResult` naming all compared
-profiles with an empty diff-entry sequence, rather than an error. Inputs of
-fewer than 2 snapshots remain a precondition violation per
-REQ-comparison-engine-001, not a degenerate success case.
-
-#### Scenario: Identical snapshots produce an empty diff
-
-- GIVEN 2 snapshots with distinct profile names that both contain exactly
-  the same qualified table identities
-- WHEN comparison is performed
-- THEN the result SHALL name both profiles as compared
-- AND the diff-entry sequence SHALL be empty
+## ADDED Requirements
 
 ### Requirement: Detect Missing Columns {#REQ-comparison-engine-006}
 
@@ -383,4 +302,4 @@ it.
 
 MUST/SHALL denote absolute requirements; MUST NOT/SHALL NOT denote absolute
 prohibitions; SHOULD/MAY denote recommended or optional behavior. No
-SHOULD/MAY-level requirements apply in this capability.
+SHOULD/MAY-level requirements are introduced by this delta.

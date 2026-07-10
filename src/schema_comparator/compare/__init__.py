@@ -6,10 +6,19 @@ from schema_comparator.compare.errors import (
     DuplicateProfileNameError,
     InsufficientSnapshotsError,
 )
-from schema_comparator.compare.models import ComparisonResult, MissingTable
+from schema_comparator.compare.models import (
+    ColumnAttributes,
+    ColumnMismatch,
+    ComparisonResult,
+    MissingColumn,
+    MissingTable,
+)
 
 __all__ = [
+    "ColumnAttributes",
+    "ColumnMismatch",
     "ComparisonResult",
+    "MissingColumn",
     "MissingTable",
     "compare_snapshots",
     "ComparisonError",
