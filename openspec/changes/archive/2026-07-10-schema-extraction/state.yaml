@@ -1,0 +1,67 @@
+change: "schema-extraction"
+status: "archived"
+last_updated: 2026-07-10T16:00:00Z
+owner:
+  author: "Manuel Retamozo Garcia"
+  branch: "feat/scaffold-project"
+classification: "normal"
+delivery_strategy: "exception-ok"
+execution_mode: "auto"
+phases:
+  exploration:
+    status: done
+    artifact: "openspec/changes/schema-extraction/exploration.md"
+    summary: "Direct pyodbc + INFORMATION_SCHEMA extraction recommended; snapshot tables and requested column metadata only."
+    key_decisions:
+      - "Use qualified table identity to prevent cross-schema collisions."
+      - "Translate driver failures using profile-safe messages; never expose ODBC text."
+  proposal:
+    status: done
+    artifact: "openspec/changes/schema-extraction/proposal.md"
+    summary: "New schema-extraction capability: read-only pyodbc INFORMATION_SCHEMA snapshots with qualified table identity and safe errors."
+    key_decisions:
+      - "Use direct pyodbc and INFORMATION_SCHEMA for this metadata slice."
+      - "Keep all extraction in-memory and exclude comparison, UI, reports, and writes."
+  spec:
+    status: done
+    artifacts:
+      - "openspec/changes/schema-extraction/specs/schema-extraction/spec.md"
+    summary: "Full schema-extraction spec: normalized metadata, qualified identity, deterministic order, read-only safety, and database-free unit verification."
+    key_decisions:
+      - "Tables use schema plus table name as their identity."
+      - "Snapshot ordering is deterministic by table identity and column ordinal."
+      - "Driver failures are translated without exposing connection or infrastructure details."
+  clarify:
+    status: done
+    questions_asked: 1
+    summary: "Resolved timeout enforcement ambiguity: explicit ~30s timeout on connection and catalog query, translated via existing network/connectivity error category (REQ-schema-extraction-005)."
+  design:
+    status: done
+    artifact: "openspec/changes/schema-extraction/design.md"
+    summary: "connectors/ owns the sole pyodbc.connect boundary and the shared ~30s login+query timeout; discovery/ owns the single INFORMATION_SCHEMA JOIN query, qualified-identity grouping, deterministic sort, and connect/query error translation into DriverUnavailableError/ConnectionFailedError/MetadataAccessError."
+    key_decisions:
+      - "Single INFORMATION_SCHEMA.COLUMNS JOIN TABLES query (WHERE TABLE_TYPE='BASE TABLE') instead of two separate queries."
+      - "Ordering enforced in Python at snapshot-build time (schema+table, then ordinal+name), not relied upon from SQL."
+      - "One DEFAULT_TIMEOUT_SECONDS constant applied via pyodbc.connect(timeout=) for login and connection.timeout for the catalog query; both expiries translate to ConnectionFailedError."
+      - "Hand-written FakeConnection/FakeCursor test doubles (not autospec) injected via a connect_fn seam, since pyodbc C-extension types don't autospec cleanly."
+  tasks:
+    status: done
+    artifact: "openspec/changes/schema-extraction/tasks.md"
+    summary: "6-phase breakdown (models/dependency, connectors boundary, catalog query/normalization, error translation/service, unit tests, verification). All 6 MUST requirements covered-by-design; no blockers."
+    key_decisions:
+      - "Single PR delivery under accepted size:exception (delivery_strategy exception-ok); ~550-650 estimated changed lines, Medium 400-line budget risk."
+      - "Suggested work units map to design's connectors/discovery module split for reviewer navigation, without requiring chained PRs."
+  apply:
+    status: done
+    artifact: "openspec/changes/schema-extraction/apply-progress.md"
+    summary: "All 6 phases implemented in a single batch under size:exception delivery: pyodbc dependency, discovery models, connectors.connect() with shared 30s timeout, single-JOIN catalog query with Python-side grouping/sort, error translation + service orchestration, and full unit/integration test coverage. 70 passed, 1 skipped (live-DB test correctly isolated). Note: this field was corrected from a stale 'pending' value during archive; apply-progress.md and verify-report.md both confirm the phase completed and passed before verify ran."
+    notes:
+      - "state.yaml previously listed apply.status as pending despite apply-progress.md documenting a completed, fully-tested implementation and verify-report.md independently reproducing PASS; corrected here during archive for accurate phase history."
+  verify:
+    status: done
+    artifact: "openspec/changes/schema-extraction/verify-report.md"
+    summary: "PASS — 6/6 MUST requirements verified (incl. timeout clarification), 70 passed / 1 skipped, 0 CRITICAL/WARNING findings, 1 non-blocking SUGGESTION on test layout."
+  archive:
+    status: "done"
+    artifact: "openspec/changes/schema-extraction/archive-report.md"
+    summary: "Created the schema-extraction baseline spec (openspec/specs/schema-extraction/spec.md), recorded a PASS archive report, and moved the change folder to openspec/changes/archive/2026-07-10-schema-extraction/."

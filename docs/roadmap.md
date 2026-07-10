@@ -6,8 +6,8 @@ First usable slice. Goal: a developer can run the tool locally against
 configured SQL Server connections and get a report showing table/column
 drift.
 
-- [ ] Connection profile config (multi-database, no hardcoded credentials)
-- [ ] Schema extraction via live connection (tables + columns: name, type,
+- [x] Connection profile config (multi-database, no hardcoded credentials)
+- [x] Schema extraction via live connection (tables + columns: name, type,
       size/precision/scale, nullable)
 - [ ] N-way comparison engine (union-of-objects baseline diff)
 - [ ] Missing-table detection
@@ -46,5 +46,9 @@ drift.
 `pyproject.toml`, the `src/schema_comparator/` package skeleton, and pytest
 configuration are in place on `feat/scaffold-project`, verified PASS.
 
-Next up: the first Milestone 1 capability, **connection profile config**
-(multi-database, no hardcoded credentials), as its own SDD change.
+`connection-profile-config` is done (archived: `openspec/changes/archive/2026-07-10-connection-profile-config/`).
+
+`schema-extraction` is done (archived: `openspec/changes/archive/2026-07-10-schema-extraction/`).
+
+Next up: the **N-way comparison engine** (union-of-objects baseline diff),
+as its own SDD change.
