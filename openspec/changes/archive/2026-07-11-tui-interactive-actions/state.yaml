@@ -25,6 +25,13 @@ approvals:
     applies_to:
       - tui-interactive-actions
 assumptions: []
+
+reconciliation:
+  - date: 2026-07-11
+    with_change: "reports-output-directory"
+    finding: "Both changes' spec deltas modify REQ-reporting-and-output-002 concurrently (this change: TUI-launched conditional skip; reports-output-directory: reportes/ dir + Excel naming)."
+    resolution: "Merged REQ-reporting-and-output-002 text (reportes/ + Excel naming + TUI-conditional-skip clause, 7 scenarios) applied identically to both changes' specs/reporting-and-output/spec.md delta files, matching the already-merged implementation in report/write.py (_REPORTS_DIR + generate_reports:bool). Safe to archive either change first."
+
 phases:
   proposal:
     status: "done"
@@ -62,4 +69,6 @@ phases:
     status: "done"
     summary: "Manual reconciliation against tasks.md's Spec/Design Reconciliation table, design.md, and both spec deltas: all 5 requirements (REQ-interactive-tui-011/012/013, REQ-reporting-and-output-001/002) covered by implementation and tests. Full suite 300 passed/1 skipped, 99% coverage, no lint/type errors. One pre-existing WARNING carried over unresolved: Excel export (report/excel.py, write_reports) has no corresponding requirement in openspec/specs/reporting-and-output/spec.md's baseline (Purpose section only names HTML/PDF/console); this change's own spec delta explicitly notes and does not attempt to close this gap. Task 6.4 (manual interactive Pilot-free smoke test with a real terminal) not exercised in this session -- left for the user."
   archive:
-    status: "pending"
+    status: "done"
+    artifact: "openspec/changes/tui-interactive-actions/archive-report.md"
+    summary: "REQ-reporting-and-output-001 gained trigger-independence text; REQ-reporting-and-output-002's merge (already applied via reports-output-directory's archive) verified consistent. interactive-tui Non-Goals narrowed; REQ-interactive-tui-011/012/013 added. Excel-spec-drift WARNING resolved by reports-output-directory's earlier archive."

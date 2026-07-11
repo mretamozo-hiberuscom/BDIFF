@@ -55,4 +55,6 @@ phases:
     result: "PASS"
     summary: "All 5 MUST requirements (REQ-cli-distribution-001..005) verified against implementation and tests: first-run provisioning, idempotent skip, self-heal after venv deletion, unmodified argument/exit-code forwarding, fail-loud provisioning failure with no partial ready marker. No CRITICAL/WARNING findings."
   archive:
-    status: "pending"
+    status: "done"
+    artifact: "openspec/changes/cli-distribution/archive-report.md"
+    summary: "New cli-distribution capability baseline created at openspec/specs/cli-distribution/spec.md from the change-local spec delta; no other capability touched. No reconciliation needed against the two other ready-for-archive changes (different domains)."

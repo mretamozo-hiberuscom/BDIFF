@@ -22,6 +22,12 @@ gates:
     reason: "Lite route + small classification; no residual ambiguity — reportes/ name fixed per proposal Decision, no clarify-gate question needed."
 assumptions:
   - "\"raiz del proyecto\" se interpreta como el directorio de invocacion del CLI (cwd), igual que el requirement REQ-reporting-and-output-002 actual, ya que este CLI no tiene una nocion separada de project-root vs cwd."
+
+reconciliation:
+  - date: 2026-07-11
+    with_change: "tui-interactive-actions"
+    finding: "Both changes' spec deltas modify REQ-reporting-and-output-002 concurrently (this change: reportes/ dir + Excel naming; tui-interactive-actions: TUI-launched conditional skip). The prior 'no overlap' note in this delta was inaccurate."
+    resolution: "Merged REQ-reporting-and-output-002 text (reportes/ + Excel naming + TUI-conditional-skip clause, 7 scenarios) applied identically to both changes' specs/reporting-and-output/spec.md delta files, matching the already-merged implementation in report/write.py (_REPORTS_DIR + generate_reports:bool). Safe to archive either change first."
 phases:
   proposal:
     status: "done"
@@ -51,4 +57,6 @@ phases:
     result: "PASS"
     summary: "All 4 scenarios in REQ-reporting-and-output-002 (MODIFIED) verified against implementation: shared timestamp (unchanged, still tested), reportes/ subdirectory location, auto-creation on absence, per-format failure isolation preserved (mkdir call lives inside existing per-format try/except). No CRITICAL/WARNING findings. Pre-existing Excel spec-drift (Excel implemented in code but absent from baseline spec.md) is resolved by this change's delta once archived, since the delta's REQ-002 text now explicitly names Excel."
   archive:
-    status: "pending"
+    status: "done"
+    artifact: "openspec/changes/reports-output-directory/archive-report.md"
+    summary: "REQ-reporting-and-output-002 replaced in the baseline with the reconciled merged text (reportes/+Excel naming plus the tui-interactive-actions TUI-conditional-skip clause). No other capability touched."
