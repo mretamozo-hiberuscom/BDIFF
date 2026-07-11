@@ -3,11 +3,33 @@
 # Copy this file to `config.local.yaml` (git-ignored) and replace the
 # placeholder values with your real connection strings. NEVER commit
 # `config.local.yaml`. Each key under `databases:` is a human-readable
-# profile name used in diff reports; each value is a raw ODBC connection
-# string passed as-is to the connector.
+# profile name used in diff reports; each value is a connection string
+# passed to the connector.
+#
+# Two dialects are accepted (both get translated to ODBC before use):
+#   1. ODBC (native, no translation needed) — Driver=...;Server=...;
+#      Database=...;UID=...;PWD=...;
+#   2. ADO.NET/SqlClient style — Data Source=...;Initial Catalog=...;
+#      User Id=...;Password=...; — as commonly copied from a
+#      microservice's own appsettings.json/.env. `Driver={ODBC Driver 17
+#      for SQL Server}` is auto-prepended if missing, so you can start
+#      straight from `Data Source=...` and omit `Driver=...` entirely;
+#      mixed strings (some ODBC keywords + some ADO.NET keywords
+#      together) are also supported.
 databases:
-  # SQL Server authentication (username + password)
-  example-sql-auth: "Driver={ODBC Driver 18 for SQL Server};Server=your-server;Database=YourDb;UID=your-user;PWD=your-password;TrustServerCertificate=yes;"
+  # ODBC, SQL Server authentication (username + password)
+  example-sql-auth: "Driver={ODBC Driver 17 for SQL Server};Server=your-server;Database=YourDb;UID=your-user;PWD=your-password;TrustServerCertificate=yes;"
 
-  # Windows integrated authentication (no username/password)
-  example-windows-auth: "Driver={ODBC Driver 18 for SQL Server};Server=your-server;Database=YourOtherDb;Trusted_Connection=yes;"
+  # ODBC, Windows integrated authentication (no username/password)
+  example-windows-auth: "Driver={ODBC Driver 17 for SQL Server};Server=your-server;Database=YourOtherDb;Trusted_Connection=yes;"
+
+  # ADO.NET/SqlClient style — copied as-is from an appsettings.json/.env,
+  # no Driver=... needed (auto-prepended). SQL Server authentication.
+  example-adonet-sql-auth: "Data Source=your-server;Initial Catalog=YourDb;User Id=your-user;Password=your-password;Encrypt=True;TrustServerCertificate=True;"
+
+  # ADO.NET/SqlClient style, Windows integrated authentication.
+  example-adonet-windows-auth: "Data Source=your-server;Initial Catalog=YourOtherDb;Integrated Security=True;Encrypt=True;TrustServerCertificate=True;"
+
+  # Mixed dialect — also supported (some ODBC keywords alongside ADO.NET
+  # ones in the same value); last occurrence of a duplicate keyword wins.
+  example-mixed: "Driver={ODBC Driver 18 for SQL Server};Data Source=your-server;Initial Catalog=YourDb;User Id=your-user;Password=your-password;Integrated Security=False;Encrypt=True;TrustServerCertificate=True;"

@@ -157,7 +157,7 @@ def test_only_unknown_keywords_raises_unrecognized_format_error() -> None:
 
 def test_driver_auto_prepended_when_absent() -> None:
     result = translate("Data Source=srv1;Initial Catalog=PolizaDB;", name="x")
-    assert result.startswith("Driver={ODBC Driver 18 for SQL Server};")
+    assert result.startswith("Driver={ODBC Driver 17 for SQL Server};")
     assert result.count("Driver=") == 1
 
 

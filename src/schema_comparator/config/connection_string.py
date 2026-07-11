@@ -58,7 +58,7 @@ _BOOLEAN_VALUE_KEYS = {"encrypt", "trustservercertificate"}
 _BOOLEAN_TRUE_VALUES = {"true"}
 _BOOLEAN_FALSE_VALUES = {"false"}
 
-_DEFAULT_DRIVER_TOKEN = "Driver={ODBC Driver 18 for SQL Server}"
+_DEFAULT_DRIVER_TOKEN = "Driver={ODBC Driver 17 for SQL Server}"
 
 
 def _tokenize(raw: str, *, name: str) -> list[str]:
