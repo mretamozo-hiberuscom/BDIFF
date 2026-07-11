@@ -8,11 +8,12 @@ from schema_comparator.compare.models import (
     MissingColumn,
     MissingTable,
 )
+from schema_comparator.report.attributes import format_attributes
 
 _TYPE_LABELS = {
-    MissingTable: "Missing tables",
-    MissingColumn: "Missing columns",
-    ColumnMismatch: "Column mismatches",
+    MissingTable: "Tablas faltantes",
+    MissingColumn: "Columnas faltantes",
+    ColumnMismatch: "Discrepancias de columnas",
 }
 
 
@@ -23,38 +24,43 @@ def render_console(result: ComparisonResult) -> str:
     output, so it is independent of whether those steps succeeded.
     """
     lines: list[str] = []
-    lines.append("Schema Drift Report - Console Summary")
-    lines.append(f"Compared profiles: {', '.join(result.compared_profiles)}")
+    lines.append("Reporte de Diferencias de Esquema - Resumen de Consola")
+    lines.append(f"Perfiles comparados: {', '.join(result.compared_profiles)}")
     lines.append("")
 
     if not result.entries:
-        lines.append("No drift detected across all compared profiles.")
+        lines.append("No se detectaron diferencias entre los perfiles comparados.")
         return "\n".join(lines)
 
     counts = dict.fromkeys(_TYPE_LABELS, 0)
     for entry in result.entries:
         counts[type(entry)] += 1
-    lines.append("Findings by category:")
+    lines.append("Hallazgos por categoría:")
     for entry_type, label in _TYPE_LABELS.items():
         lines.append(f"  {label}: {counts[entry_type]}")
     lines.append("")
 
-    lines.append("Per-table breakdown:")
+    lines.append("Detalle por tabla:")
     for (schema, table), entries in groupby(result.entries, key=lambda e: e.qualified_name):
         table_entries = list(entries)
-        lines.append(f"  {schema}.{table}: {len(table_entries)} finding(s)")
+        lines.append(f"  {schema}.{table}: {len(table_entries)} hallazgo(s)")
         for entry in table_entries:
             if isinstance(entry, MissingTable):
-                lines.append(f"    - missing table (from {entry.missing_from_profile})")
+                lines.append(f"    - tabla faltante (de {entry.missing_from_profile})")
             elif isinstance(entry, MissingColumn):
+                present = ", ".join(
+                    f"{profile}={format_attributes(attrs)}"
+                    for profile, attrs in entry.present_attributes
+                )
+                suffix = f" (presente como {present})" if present else ""
                 lines.append(
-                    f"    - {entry.column_name}: missing column "
-                    f"(from {entry.missing_from_profile})"
+                    f"    - {entry.column_name}: columna faltante "
+                    f"(de {entry.missing_from_profile}){suffix}"
                 )
             else:
                 profiles = ", ".join(p for p, _ in entry.values_by_profile)
                 lines.append(
-                    f"    - {entry.column_name}: attribute mismatch across {profiles}"
+                    f"    - {entry.column_name}: discrepancia de atributos entre {profiles}"
                 )
 
     return "\n".join(lines)

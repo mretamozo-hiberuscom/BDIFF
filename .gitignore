@@ -9,3 +9,4 @@ dist/
 .coverage
 schema-diff-report-*.html
 schema-diff-report-*.pdf
+schema-diff-report-*.xlsx

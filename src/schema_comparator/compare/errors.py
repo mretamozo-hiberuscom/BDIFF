@@ -11,8 +11,9 @@ class InsufficientSnapshotsError(ComparisonError):
     @classmethod
     def for_count(cls, count: int) -> "InsufficientSnapshotsError":
         return cls(
-            f"Comparison requires at least 2 snapshots, got {count}. "
-            "Provide 2 or more named schema snapshots to compare."
+            f"La comparación requiere al menos 2 instantáneas, se "
+            f"recibieron {count}. Proporcioná 2 o más instantáneas de "
+            "esquema con nombre para comparar."
         )
 
 
@@ -23,6 +24,7 @@ class DuplicateProfileNameError(ComparisonError):
     def for_names(cls, names: list[str]) -> "DuplicateProfileNameError":
         joined = ", ".join(sorted(set(names)))
         return cls(
-            "Comparison requires distinct profile names among inputs; "
-            f"duplicate profile name(s) found: {joined}."
+            "La comparación requiere nombres de perfil distintos entre las "
+            f"entradas; se encontraron nombre(s) de perfil duplicado(s): "
+            f"{joined}."
         )

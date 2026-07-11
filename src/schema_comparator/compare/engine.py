@@ -108,12 +108,23 @@ def _evaluate_columns(
                 if column_name not in columns_by_profile[p]
             ]
 
+            present_attrs = tuple(
+                sorted(
+                    (
+                        p,
+                        ColumnAttributes.from_snapshot(columns_by_profile[p][column_name]),
+                    )
+                    for p in present
+                )
+            )
+
             entries.extend(
                 MissingColumn(
                     schema_name=schema_name,
                     table_name=table_name,
                     column_name=column_name,
                     missing_from_profile=profile,
+                    present_attributes=present_attrs,
                 )
                 for profile in sorted(missing)
             )
@@ -121,17 +132,14 @@ def _evaluate_columns(
             if len(present) < 2:
                 continue  # nothing to compare — at most one profile has it
 
-            attrs_by_profile = {
-                p: ColumnAttributes.from_snapshot(columns_by_profile[p][column_name])
-                for p in present
-            }
+            attrs_by_profile = dict(present_attrs)
             if len(set(attrs_by_profile.values())) > 1:
                 entries.append(
                     ColumnMismatch(
                         schema_name=schema_name,
                         table_name=table_name,
                         column_name=column_name,
-                        values_by_profile=tuple(sorted(attrs_by_profile.items())),
+                        values_by_profile=present_attrs,
                     )
                 )
 

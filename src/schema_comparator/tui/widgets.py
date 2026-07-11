@@ -15,7 +15,7 @@ from schema_comparator.tui.formatting import (
     leaf_label,
 )
 
-_NO_SELECTION_MESSAGE = "Select a finding to see details."
+_NO_SELECTION_MESSAGE = "Seleccioná un hallazgo para ver los detalles."
 
 
 class SummaryHeader(Static):
@@ -47,7 +47,7 @@ class FindingsTree(Tree):
     """
 
     def __init__(self, tree_data: TreeData, *args, **kwargs) -> None:
-        super().__init__("Findings", *args, **kwargs)
+        super().__init__("Hallazgos", *args, **kwargs)
         self._tree_data = tree_data
         self.show_root = False
 

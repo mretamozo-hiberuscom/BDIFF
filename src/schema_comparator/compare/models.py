@@ -59,12 +59,22 @@ class MissingColumn:
     Mirrors MissingTable's shape one level deeper: only emitted for
     profiles where the table itself is present — a profile missing the
     table entirely is exclusively covered by MissingTable.
+
+    `present_attributes` carries the `ColumnAttributes` for every profile
+    where the column *does* exist (same `(profile_name, ColumnAttributes)`
+    pair shape as `ColumnMismatch.values_by_profile`, pre-sorted ascending
+    by profile name) — so a report can show the column's type/size/
+    nullability instead of only naming the profile it is missing from.
+    Defaults to an empty tuple only for backward-compatible construction;
+    the engine always populates it when the column is present in at least
+    one profile.
     """
 
     schema_name: str
     table_name: str
     column_name: str
     missing_from_profile: str
+    present_attributes: tuple[tuple[str, ColumnAttributes], ...] = ()
 
     @property
     def qualified_name(self) -> tuple[str, str]:

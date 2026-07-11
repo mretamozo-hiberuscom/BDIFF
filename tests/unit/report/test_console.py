@@ -8,9 +8,9 @@ from schema_comparator.report.console import render_console
 def test_render_console_reports_counts_by_diff_category() -> None:
     output = render_console(comparison_result_with_findings())
 
-    assert "Missing tables: 1" in output
-    assert "Missing columns: 1" in output
-    assert "Column mismatches: 1" in output
+    assert "Tablas faltantes: 1" in output
+    assert "Columnas faltantes: 1" in output
+    assert "Discrepancias de columnas: 1" in output
 
 
 def test_render_console_lists_compared_profiles_and_per_table_breakdown() -> None:
@@ -24,7 +24,7 @@ def test_render_console_lists_compared_profiles_and_per_table_breakdown() -> Non
 def test_render_console_no_drift_message_on_empty_entries_without_zero_counts() -> None:
     output = render_console(comparison_result_empty())
 
-    assert "No drift detected across all compared profiles." in output
+    assert "No se detectaron diferencias entre los perfiles comparados." in output
     assert "0" not in output
 
 

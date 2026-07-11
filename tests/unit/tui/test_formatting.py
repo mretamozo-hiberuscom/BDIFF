@@ -39,7 +39,7 @@ def test_leaf_label_matches_console_missing_table_wording() -> None:
         schema_name="sales", table_name="Payment", missing_from_profile="c"
     )
 
-    assert leaf_label(entry) == "missing table (from c)"
+    assert leaf_label(entry) == "tabla faltante (de c)"
 
 
 def test_leaf_label_matches_console_missing_column_wording() -> None:
@@ -50,7 +50,7 @@ def test_leaf_label_matches_console_missing_column_wording() -> None:
         missing_from_profile="c",
     )
 
-    assert leaf_label(entry) == "notes: missing column (from c)"
+    assert leaf_label(entry) == "notes: columna faltante (de c)"
 
 
 def test_leaf_label_matches_console_column_mismatch_wording() -> None:
@@ -64,7 +64,7 @@ def test_leaf_label_matches_console_column_mismatch_wording() -> None:
         ),
     )
 
-    assert leaf_label(entry) == "amount: attribute mismatch across a, b"
+    assert leaf_label(entry) == "amount: discrepancia de atributos entre a, b"
 
 
 def test_detail_text_for_column_mismatch_lists_all_profiles_and_attributes() -> None:
@@ -80,10 +80,8 @@ def test_detail_text_for_column_mismatch_lists_all_profiles_and_attributes() -> 
 
     text = detail_text(entry)
 
-    assert "a: data_type=decimal" in text
-    assert "b: data_type=decimal" in text
-    assert "numeric_precision=10" in text
-    assert "numeric_precision=12" in text
+    assert "a: decimal(10,2), NOT NULL" in text
+    assert "b: decimal(12,2), NOT NULL" in text
 
 
 def test_detail_text_for_missing_table_shows_missing_from_profile() -> None:
@@ -94,7 +92,7 @@ def test_detail_text_for_missing_table_shows_missing_from_profile() -> None:
     text = detail_text(entry)
 
     assert "sales.Payment" in text
-    assert "missing from profile 'b'" in text
+    assert "faltante en el perfil 'b'" in text
 
 
 def test_detail_text_for_missing_column_shows_missing_from_profile() -> None:
@@ -107,8 +105,8 @@ def test_detail_text_for_missing_column_shows_missing_from_profile() -> None:
 
     text = detail_text(entry)
 
-    assert "column 'notes'" in text
-    assert "missing from profile 'a'" in text
+    assert "sales.Invoice.notes" in text
+    assert "Faltante en el perfil 'a'" in text
 
 
 def test_detail_text_never_renders_values_by_profile_for_missing_entries() -> None:

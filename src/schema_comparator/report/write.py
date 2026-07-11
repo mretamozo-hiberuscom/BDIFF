@@ -1,6 +1,6 @@
-"""Orchestrate HTML/PDF/console report generation with per-format failure
-isolation (REQ-reporting-and-output-007) and shared-timestamp naming
-(REQ-reporting-and-output-002)."""
+"""Orchestrate HTML/PDF/Excel/console report generation with per-format
+failure isolation (REQ-reporting-and-output-007) and shared-timestamp
+naming (REQ-reporting-and-output-002)."""
 
 import sys
 from datetime import datetime
@@ -9,6 +9,7 @@ from typing import Callable
 from schema_comparator.compare.models import ComparisonResult
 from schema_comparator.report.console import render_console
 from schema_comparator.report.errors import PdfExportError
+from schema_comparator.report.excel import export_excel
 from schema_comparator.report.html import render_html
 from schema_comparator.report.pdf import export_pdf
 
@@ -23,7 +24,7 @@ def write_reports(
     out=sys.stdout,
     render_summary: Callable[[ComparisonResult], None] | None = None,
 ) -> None:
-    """Always attempt all three outputs; one failing MUST NOT block the
+    """Always attempt all four outputs; one failing MUST NOT block the
     others. Failures are printed to `out` as clearly labeled messages,
     never raised past this function.
 
@@ -45,22 +46,31 @@ def write_reports(
         html_path = f"schema-diff-report-{timestamp}.html"
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(html_str)
-        print(f"HTML report written: {html_path}", file=out)
+        print(f"Reporte HTML generado: {html_path}", file=out)
     except Exception as exc:
-        print(f"[ERROR] HTML report generation failed: {exc}", file=out)
+        print(f"[ERROR] Falló la generación del reporte HTML: {exc}", file=out)
 
     try:
         if html_str is None:
-            raise PdfExportError("skipped: HTML rendering did not complete")
+            raise PdfExportError("omitido: la generación de HTML no se completó")
         pdf_bytes = export_pdf(html_str)
         pdf_path = f"schema-diff-report-{timestamp}.pdf"
         with open(pdf_path, "wb") as f:
             f.write(pdf_bytes)
-        print(f"PDF report written: {pdf_path}", file=out)
+        print(f"Reporte PDF generado: {pdf_path}", file=out)
     except Exception as exc:
-        print(f"[ERROR] PDF report generation failed: {exc}", file=out)
+        print(f"[ERROR] Falló la generación del reporte PDF: {exc}", file=out)
+
+    try:
+        xlsx_bytes = export_excel(result)
+        xlsx_path = f"schema-diff-report-{timestamp}.xlsx"
+        with open(xlsx_path, "wb") as f:
+            f.write(xlsx_bytes)
+        print(f"Reporte Excel generado: {xlsx_path}", file=out)
+    except Exception as exc:
+        print(f"[ERROR] Falló la generación del reporte Excel: {exc}", file=out)
 
     try:
         effective_render_summary(result)
     except Exception as exc:
-        print(f"[ERROR] Console summary generation failed: {exc}", file=out)
+        print(f"[ERROR] Falló la generación del resumen de consola: {exc}", file=out)

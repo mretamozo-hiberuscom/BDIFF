@@ -22,8 +22,8 @@ def test_write_reports_html_failure_still_attempts_pdf_and_console(
     write_reports(comparison_result_with_findings(), out=out)
 
     output = out.getvalue()
-    assert "[ERROR] HTML report generation failed" in output
-    assert "Schema Drift Report - Console Summary" in output
+    assert "[ERROR] Falló la generación del reporte HTML" in output
+    assert "Reporte de Diferencias de Esquema - Resumen de Consola" in output
 
 
 def test_write_reports_pdf_failure_still_leaves_html_written_and_console_printed(
@@ -41,10 +41,10 @@ def test_write_reports_pdf_failure_still_leaves_html_written_and_console_printed
     write_reports(comparison_result_with_findings(), out=out)
 
     output = out.getvalue()
-    assert "[ERROR] PDF report generation failed" in output
+    assert "[ERROR] Falló la generación del reporte PDF" in output
     html_files = list(tmp_path.glob("schema-diff-report-*.html"))
     assert len(html_files) == 1
-    assert "Schema Drift Report - Console Summary" in output
+    assert "Reporte de Diferencias de Esquema - Resumen de Consola" in output
 
 
 def test_write_reports_console_failure_still_leaves_html_and_pdf_written(
@@ -60,7 +60,7 @@ def test_write_reports_console_failure_still_leaves_html_and_pdf_written(
     write_reports(comparison_result_with_findings(), out=out)
 
     output = out.getvalue()
-    assert "[ERROR] Console summary generation failed" in output
+    assert "[ERROR] Falló la generación del resumen de consola" in output
     assert list(tmp_path.glob("schema-diff-report-*.html"))
     assert list(tmp_path.glob("schema-diff-report-*.pdf"))
 
@@ -117,7 +117,7 @@ def test_write_reports_default_render_summary_matches_prior_console_output(
 
     write_reports(comparison_result_with_findings(), out=out)
 
-    assert "Schema Drift Report - Console Summary" in out.getvalue()
+    assert "Reporte de Diferencias de Esquema - Resumen de Consola" in out.getvalue()
 
 
 def test_write_reports_calls_custom_render_summary_when_provided(
@@ -152,6 +152,6 @@ def test_write_reports_isolates_render_summary_failure_from_html_pdf(
     )
 
     output = out.getvalue()
-    assert "[ERROR] Console summary generation failed" in output
+    assert "[ERROR] Fall\u00f3 la generaci\u00f3n del resumen de consola" in output
     assert list(tmp_path.glob("schema-diff-report-*.html"))
     assert list(tmp_path.glob("schema-diff-report-*.pdf"))

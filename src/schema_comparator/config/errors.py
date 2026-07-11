@@ -20,9 +20,9 @@ class ConfigFileNotFoundError(ConfigError):
     @classmethod
     def at_path(cls, path: str) -> "ConfigFileNotFoundError":
         return cls(
-            f"Connection profile config file not found at '{path}'. "
-            "Copy config.example.yaml to config.local.yaml and edit it "
-            "with your real connection strings."
+            f"No se encontró el archivo de configuración de perfiles de "
+            f"conexión en '{path}'. Copiá config.example.yaml a "
+            "config.local.yaml y editalo con tus cadenas de conexión reales."
         )
 
 
@@ -32,17 +32,19 @@ class ConfigParseError(ConfigError):
     @classmethod
     def invalid_yaml(cls) -> "ConfigParseError":
         return cls(
-            "Connection profile config file is malformed or not valid "
-            "YAML. See config.example.yaml for the expected format."
+            "El archivo de configuración de perfiles de conexión está "
+            "malformado o no es un YAML válido. Consultá config.example.yaml "
+            "para ver el formato esperado."
         )
 
     @classmethod
     def invalid_shape(cls) -> "ConfigParseError":
         return cls(
-            "Connection profile config file must be a YAML mapping with a "
-            "top-level 'databases:' key whose value is itself a mapping of "
-            "profile name to connection string. See config.example.yaml "
-            "for the expected format."
+            "El archivo de configuración de perfiles de conexión debe ser "
+            "un mapeo YAML con una clave de nivel superior 'databases:' "
+            "cuyo valor sea a su vez un mapeo de nombre de perfil a cadena "
+            "de conexión. Consultá config.example.yaml para ver el formato "
+            "esperado."
         )
 
 
@@ -52,30 +54,33 @@ class ProfileValidationError(ConfigError):
     @classmethod
     def empty_name(cls) -> "ProfileValidationError":
         return cls(
-            "A connection profile name is empty or blank. Every entry "
-            "under 'databases:' must have a non-empty name."
+            "El nombre de un perfil de conexión está vacío o en blanco. "
+            "Cada entrada bajo 'databases:' debe tener un nombre no vacío."
         )
 
     @classmethod
     def duplicate_name(cls, name: str) -> "ProfileValidationError":
         return cls(
-            f"Duplicate connection profile name '{name}' (name comparison "
-            "is case-insensitive). Each profile name must be unique."
+            f"Nombre de perfil de conexión duplicado '{name}' (la "
+            "comparación de nombres no distingue mayúsculas/minúsculas). "
+            "Cada nombre de perfil debe ser único."
         )
 
     @classmethod
     def empty_connection_string(cls, name: str) -> "ProfileValidationError":
         return cls(
-            f"Connection profile '{name}' has an empty or blank connection "
-            "string. Every profile must have a non-empty connection string."
+            f"El perfil de conexión '{name}' tiene una cadena de conexión "
+            "vacía o en blanco. Cada perfil debe tener una cadena de "
+            "conexión no vacía."
         )
 
     @classmethod
     def unrecognized_connection_string_format(cls, name: str) -> "ProfileValidationError":
         return cls(
-            f"Connection profile '{name}' has a connection string in an "
-            "unrecognized or malformed format (no recognized ODBC/ADO.NET "
-            "keyword found, or an unterminated '{' brace group). Check the "
-            "profile's connection string against config.example.yaml for "
-            "the expected format."
+            f"El perfil de conexión '{name}' tiene una cadena de conexión "
+            "en un formato no reconocido o malformado (no se encontró "
+            "ninguna palabra clave ODBC/ADO.NET reconocida, o un grupo de "
+            "llaves '{' sin cerrar). Revisá la cadena de conexión del "
+            "perfil contra config.example.yaml para ver el formato "
+            "esperado."
         )

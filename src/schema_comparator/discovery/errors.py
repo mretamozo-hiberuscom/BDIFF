@@ -18,9 +18,10 @@ class DriverUnavailableError(DiscoveryError):
     @classmethod
     def for_profile(cls, profile_name: str) -> "DriverUnavailableError":
         return cls(
-            f"Schema extraction for '{profile_name}' failed: the required "
-            "ODBC driver is not available. Verify Microsoft ODBC Driver 17 "
-            "or 18 for SQL Server is installed on this machine."
+            f"La extracción de esquema para '{profile_name}' falló: el "
+            "driver ODBC requerido no está disponible. Verificá que "
+            "Microsoft ODBC Driver 17 o 18 para SQL Server esté instalado "
+            "en esta máquina."
         )
 
 
@@ -31,9 +32,10 @@ class ConnectionFailedError(DiscoveryError):
     @classmethod
     def for_profile(cls, profile_name: str) -> "ConnectionFailedError":
         return cls(
-            f"Schema extraction for '{profile_name}' failed: could not "
-            "establish or maintain a connection within the timeout. Verify "
-            "network connectivity and that the server is reachable."
+            f"La extracción de esquema para '{profile_name}' falló: no se "
+            "pudo establecer o mantener la conexión dentro del tiempo "
+            "límite. Verificá la conectividad de red y que el servidor sea "
+            "accesible."
         )
 
 
@@ -43,9 +45,10 @@ class MetadataAccessError(DiscoveryError):
     @classmethod
     def for_profile(cls, profile_name: str) -> "MetadataAccessError":
         return cls(
-            f"Schema extraction for '{profile_name}' failed: the "
-            "connection could not read required catalog metadata. Verify "
-            "the profile's principal has metadata-read permission."
+            f"La extracción de esquema para '{profile_name}' falló: la "
+            "conexión no pudo leer los metadatos de catálogo requeridos. "
+            "Verificá que el usuario del perfil tenga permisos de lectura "
+            "de metadatos."
         )
 
 

@@ -115,8 +115,9 @@ def test_identical_snapshots_produce_an_empty_diff() -> None:
 
 
 def test_column_missing_from_one_profile_of_matched_table() -> None:
+    notes = make_column("notes")
     a = make_snapshot_with_tables(
-        "a", make_table("sales", "Invoice", make_column("notes"))
+        "a", make_table("sales", "Invoice", notes)
     )
     b = make_snapshot_with_tables("b", make_table("sales", "Invoice"))
 
@@ -128,34 +129,43 @@ def test_column_missing_from_one_profile_of_matched_table() -> None:
             table_name="Invoice",
             column_name="notes",
             missing_from_profile="b",
+            present_attributes=(("a", ColumnAttributes.from_snapshot(notes)),),
         ),
     )
 
 
 def test_column_missing_from_a_subset_of_matched_tables_profiles() -> None:
+    notes_a = make_column("notes")
+    notes_b = make_column("notes")
     a = make_snapshot_with_tables(
-        "a", make_table("sales", "Invoice", make_column("notes"))
+        "a", make_table("sales", "Invoice", notes_a)
     )
     b = make_snapshot_with_tables(
-        "b", make_table("sales", "Invoice", make_column("notes"))
+        "b", make_table("sales", "Invoice", notes_b)
     )
     c = make_snapshot_with_tables("c", make_table("sales", "Invoice"))
     d = make_snapshot_with_tables("d", make_table("sales", "Invoice"))
 
     result = compare_snapshots([a, b, c, d])
 
+    present_attributes = (
+        ("a", ColumnAttributes.from_snapshot(notes_a)),
+        ("b", ColumnAttributes.from_snapshot(notes_b)),
+    )
     assert result.entries == (
         MissingColumn(
             schema_name="sales",
             table_name="Invoice",
             column_name="notes",
             missing_from_profile="c",
+            present_attributes=present_attributes,
         ),
         MissingColumn(
             schema_name="sales",
             table_name="Invoice",
             column_name="notes",
             missing_from_profile="d",
+            present_attributes=present_attributes,
         ),
     )
 
@@ -351,21 +361,23 @@ def test_column_can_be_both_missing_and_mismatched_simultaneously() -> None:
 
     result = compare_snapshots([a, b, c])
 
+    present_attributes = (
+        ("a", ColumnAttributes.from_snapshot(attrs_a)),
+        ("b", ColumnAttributes.from_snapshot(attrs_b)),
+    )
     assert result.entries == (
         MissingColumn(
             schema_name="sales",
             table_name="Invoice",
             column_name="amount",
             missing_from_profile="c",
+            present_attributes=present_attributes,
         ),
         ColumnMismatch(
             schema_name="sales",
             table_name="Invoice",
             column_name="amount",
-            values_by_profile=(
-                ("a", ColumnAttributes.from_snapshot(attrs_a)),
-                ("b", ColumnAttributes.from_snapshot(attrs_b)),
-            ),
+            values_by_profile=present_attributes,
         ),
     )
 

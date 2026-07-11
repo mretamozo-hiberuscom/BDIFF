@@ -18,9 +18,9 @@ async def test_app_shows_header_with_profiles_and_counts() -> None:
         rendered = str(header.render())
 
     assert "a, b, c" in rendered
-    assert "Missing tables: 1" in rendered
-    assert "Missing columns: 1" in rendered
-    assert "Column mismatches: 1" in rendered
+    assert "Tablas faltantes: 1" in rendered
+    assert "Columnas faltantes: 1" in rendered
+    assert "Discrepancias de columnas: 1" in rendered
 
 
 @pytest.mark.asyncio
@@ -31,7 +31,7 @@ async def test_app_shows_no_drift_message_for_empty_result() -> None:
         assert len(app.query(FindingsTree)) == 0
         static_texts = [str(w.render()) for w in app.query("#no-drift-message")]
 
-    assert any("No drift detected" in text for text in static_texts)
+    assert any("No se detectaron diferencias" in text for text in static_texts)
 
 
 @pytest.mark.asyncio
@@ -120,8 +120,8 @@ async def test_app_selecting_leaf_updates_detail_panel() -> None:
         detail = app.query_one(DetailPanel)
         rendered = str(detail.render())
 
-    assert "a: data_type=decimal" in rendered
-    assert "b: data_type=decimal" in rendered
+    assert "a: decimal(10,2), NOT NULL" in rendered
+    assert "b: decimal(12,2), NOT NULL" in rendered
 
 
 @pytest.mark.asyncio
@@ -156,4 +156,4 @@ def test_run_tui_catches_app_exception_and_reports_to_stderr(capsys) -> None:
         run_tui(result)  # must not raise
 
     captured = capsys.readouterr()
-    assert "[ERROR] Interactive TUI failed" in captured.err
+    assert "[ERROR] Falló la interfaz interactiva" in captured.err

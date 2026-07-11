@@ -21,12 +21,12 @@ def export_pdf(html: str) -> bytes:
     try:
         result = pisa.CreatePDF(src=html, dest=buffer)
     except Exception as exc:  # xhtml2pdf/reportlab exception types vary
-        raise PdfExportError(f"PDF conversion failed: {exc}") from exc
+        raise PdfExportError(f"Falló la conversión a PDF: {exc}") from exc
 
     if result.err:
         raise PdfExportError(
-            f"PDF conversion reported {result.err} error(s) "
-            "(unsupported CSS or malformed HTML)."
+            f"La conversión a PDF reportó {result.err} error(es) "
+            "(CSS no soportado o HTML malformado)."
         )
 
     return buffer.getvalue()

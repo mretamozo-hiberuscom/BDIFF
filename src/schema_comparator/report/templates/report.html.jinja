@@ -1,38 +1,48 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
 <head>
   <meta charset="utf-8">
-  <title>Schema Drift Report</title>
+  <title>Reporte de Diferencias de Esquema</title>
   <style>
 {{ pico_css_inline | safe }}
     .diff-missing-table  { background-color: #fde2e1; }
     .diff-missing-column { background-color: #fff3cd; }
     .diff-column-mismatch { background-color: #d9edf7; }
-    td.cell-missing       { text-align: center; color: #999999; }
+    td.cell-missing       { text-align: center; font-size: 1.15rem; }
     .no-drift              { border: 1px solid #2e7d32; padding: 1rem; }
+    .legend { list-style: none; padding: 0; display: flex; gap: 1.5rem; flex-wrap: wrap; }
+    .legend li { display: flex; align-items: center; gap: 0.4rem; }
+    .legend-swatch { display: inline-block; width: 14px; height: 14px; border: 1px solid #999999; }
   </style>
 </head>
 <body>
   <main class="container">
-    <h1>Schema Drift Report</h1>
-    <p>Compared profiles: {{ compared_profiles | join(", ") }}</p>
+    <h1>Reporte de Diferencias de Esquema</h1>
+    <p>Perfiles comparados: {{ compared_profiles | join(", ") }}</p>
+
+    <ul class="legend">
+      <li><span class="legend-swatch diff-missing-table"></span> Tabla faltante</li>
+      <li><span class="legend-swatch diff-missing-column"></span> Columna faltante</li>
+      <li><span class="legend-swatch diff-column-mismatch"></span> Discrepancia de atributos</li>
+      <li>❌ No presente en ese perfil</li>
+    </ul>
 
     {% if not has_findings %}
-      <p class="no-drift">No drift detected across all compared profiles.</p>
+      <p class="no-drift">No se detectaron diferencias entre los perfiles comparados.</p>
     {% else %}
       {% for group in groups %}
         <h2>{{ group.schema_name }}.{{ group.table_name }}</h2>
         <table>
           <thead>
             <tr>
-              <th>Column</th>
+              <th>Columna</th>
               {% for profile in compared_profiles %}<th>{{ profile }}</th>{% endfor %}
             </tr>
           </thead>
           <tbody>
             {% for row in group.rows %}
               <tr class="diff-{{ row.diff_type | lower_kebab }}">
-                <td>{{ row.column_name or "(table)" }}</td>
+                <td>{{ row.column_name or "(tabla)" }}</td>
                 {% for profile in compared_profiles %}
                   {% set cell = row.cells[profile] %}
                   <td class="{{ 'cell-missing' if cell and cell.kind == 'missing' else '' }}">

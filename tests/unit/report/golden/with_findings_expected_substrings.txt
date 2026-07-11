@@ -1,4 +1,4 @@
-Compared profiles: a, b, c
+Perfiles comparados: a, b, c
 <th>a</th>
 <th>b</th>
 <th>c</th>

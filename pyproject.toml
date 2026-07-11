@@ -14,6 +14,7 @@ dependencies = [
     "Jinja2>=3.1",
     "xhtml2pdf>=0.2.13",
     "textual>=0.60",
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]

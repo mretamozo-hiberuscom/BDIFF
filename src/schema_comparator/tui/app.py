@@ -12,7 +12,7 @@ from schema_comparator.compare.models import ComparisonResult
 from schema_comparator.tui.formatting import build_tree_data, header_text
 from schema_comparator.tui.widgets import DetailPanel, FindingsTree, SummaryHeader
 
-_NO_DRIFT_MESSAGE = "No drift detected across all compared profiles."
+_NO_DRIFT_MESSAGE = "No se detectaron diferencias entre los perfiles comparados."
 
 
 class SchemaComparatorApp(App):
@@ -37,7 +37,7 @@ class SchemaComparatorApp(App):
             yield Static(_NO_DRIFT_MESSAGE, id="no-drift-message")
         else:
             yield Input(
-                placeholder="Filter by table, column, or diff type…",
+                placeholder="Filtrar por tabla, columna o tipo de diferencia…",
                 id="filter-input",
             )
             yield FindingsTree(self._tree_data, id="findings-tree")
@@ -72,4 +72,4 @@ def run_tui(result: ComparisonResult) -> None:
     try:
         app.run()
     except Exception as exc:
-        print(f"[ERROR] Interactive TUI failed: {exc}", file=sys.stderr)
+        print(f"[ERROR] Falló la interfaz interactiva: {exc}", file=sys.stderr)

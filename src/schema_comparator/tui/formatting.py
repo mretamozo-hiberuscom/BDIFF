@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from itertools import groupby
 
 from schema_comparator.compare.models import ColumnMismatch, ComparisonResult, DiffEntry, MissingColumn, MissingTable
+from schema_comparator.report.attributes import format_attributes
 from schema_comparator.report.console import _TYPE_LABELS
 
 
@@ -52,32 +53,33 @@ def leaf_label(entry: DiffEntry) -> str:
     TUI's leaf text is never a second, drifting implementation of that
     formatting."""
     if isinstance(entry, MissingTable):
-        return f"missing table (from {entry.missing_from_profile})"
+        return f"tabla faltante (de {entry.missing_from_profile})"
     if isinstance(entry, MissingColumn):
-        return f"{entry.column_name}: missing column (from {entry.missing_from_profile})"
+        return f"{entry.column_name}: columna faltante (de {entry.missing_from_profile})"
     profiles = ", ".join(p for p, _ in entry.values_by_profile)
-    return f"{entry.column_name}: attribute mismatch across {profiles}"
+    return f"{entry.column_name}: discrepancia de atributos entre {profiles}"
 
 
 def detail_text(entry: DiffEntry) -> str:
     """Single-dispatch detail-panel content for a selected finding."""
     if isinstance(entry, ColumnMismatch):
         schema, table = entry.qualified_name
-        lines = [f"Column: {schema}.{table}.{entry.column_name}", ""]
+        lines = [f"Columna: {schema}.{table}.{entry.column_name}", ""]
         for profile, attrs in entry.values_by_profile:
-            lines.append(
-                f"  {profile}: data_type={attrs.data_type}, "
-                f"char_max_length={attrs.character_maximum_length}, "
-                f"numeric_precision={attrs.numeric_precision}, "
-                f"numeric_scale={attrs.numeric_scale}, "
-                f"is_nullable={attrs.is_nullable}"
-            )
+            lines.append(f"  {profile}: {format_attributes(attrs)}")
         return "\n".join(lines)
 
-    # MissingTable / MissingColumn share the same simpler shape.
+    if isinstance(entry, MissingColumn):
+        schema, table = entry.qualified_name
+        lines = [f"Columna: {schema}.{table}.{entry.column_name}", ""]
+        lines.append(f"  Faltante en el perfil '{entry.missing_from_profile}'")
+        for profile, attrs in entry.present_attributes:
+            lines.append(f"  {profile}: {format_attributes(attrs)}")
+        return "\n".join(lines)
+
+    # MissingTable: simplest shape, no column-level attributes to show.
     schema, table = entry.qualified_name
-    what = "table" if isinstance(entry, MissingTable) else f"column '{entry.column_name}'"
-    return f"{schema}.{table}: {what} missing from profile '{entry.missing_from_profile}'"
+    return f"{schema}.{table}: tabla faltante en el perfil '{entry.missing_from_profile}'"
 
 
 def header_counts(result: ComparisonResult) -> dict[type, int]:
@@ -95,7 +97,7 @@ def header_text(result: ComparisonResult) -> str:
     counts, matching `render_console`'s "Findings by category" totals."""
     counts = header_counts(result)
     profiles = ", ".join(result.compared_profiles)
-    parts = [f"Compared profiles: {profiles}"]
+    parts = [f"Perfiles comparados: {profiles}"]
     parts += [f"{label}: {counts[t]}" for t, label in _TYPE_LABELS.items()]
     return " | ".join(parts)
 

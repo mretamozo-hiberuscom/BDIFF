@@ -26,6 +26,28 @@ def comparison_result_with_findings() -> ComparisonResult:
                 table_name="Invoice",
                 column_name="notes",
                 missing_from_profile="c",
+                present_attributes=(
+                    (
+                        "a",
+                        ColumnAttributes(
+                            data_type="varchar",
+                            character_maximum_length=255,
+                            numeric_precision=None,
+                            numeric_scale=None,
+                            is_nullable=True,
+                        ),
+                    ),
+                    (
+                        "b",
+                        ColumnAttributes(
+                            data_type="varchar",
+                            character_maximum_length=255,
+                            numeric_precision=None,
+                            numeric_scale=None,
+                            is_nullable=True,
+                        ),
+                    ),
+                ),
             ),
             ColumnMismatch(
                 schema_name="sales",

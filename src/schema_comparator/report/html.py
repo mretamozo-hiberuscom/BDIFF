@@ -1,15 +1,16 @@
 """Render a self-contained HTML schema-drift report from a ComparisonResult."""
 
-from itertools import groupby
-
 from jinja2 import Environment, PackageLoader, select_autoescape
 
 from schema_comparator.compare.models import (
     ColumnMismatch,
     ComparisonResult,
+    DiffEntry,
     MissingColumn,
     MissingTable,
 )
+from schema_comparator.report.attributes import MISSING_MARKER, format_attributes
+from schema_comparator.report.rows import grouped_rows_by_table
 
 _env = Environment(
     loader=PackageLoader("schema_comparator.report", "templates"),
@@ -27,34 +28,29 @@ def _read_pico_css() -> str:
 _PICO_CSS_INLINE = _read_pico_css()
 
 
-def _format_attributes(attrs) -> str:
-    """`varchar(50), NULL` / `decimal(10,2), NOT NULL` style compact string."""
-    if attrs.character_maximum_length is not None:
-        size = f"({attrs.character_maximum_length})"
-    elif attrs.numeric_precision is not None:
-        scale = f",{attrs.numeric_scale}" if attrs.numeric_scale is not None else ""
-        size = f"({attrs.numeric_precision}{scale})"
-    else:
-        size = ""
-    nullability = "NULL" if attrs.is_nullable else "NOT NULL"
-    return f"{attrs.data_type}{size}, {nullability}"
-
-
-def _row_for_entry(entry, profiles: tuple[str, ...]) -> dict:
+def _row_for_group(entries: list[DiffEntry], profiles: tuple[str, ...]) -> dict:
     """Build a {profile_name: cell_value_or_None} dict, plus row metadata,
-    for one diff entry — the one row-rendering shape shared by all three
-    DiffEntry variants."""
+    for one *group* of same-identity diff entries — typically one entry
+    per profile the table/column is missing from, merged into a single
+    row with one cell marked per missing profile."""
+    first = entries[0]
     cells: dict[str, dict | None] = dict.fromkeys(profiles)
     row_label = None
-    if isinstance(entry, (MissingTable, MissingColumn)):
-        cells[entry.missing_from_profile] = {"kind": "missing", "text": "\u2014"}
-        row_label = entry.column_name if isinstance(entry, MissingColumn) else None
-    elif isinstance(entry, ColumnMismatch):
-        for profile, attrs in entry.values_by_profile:
-            cells[profile] = {"kind": "value", "text": _format_attributes(attrs)}
-        row_label = entry.column_name
+    if isinstance(first, MissingTable):
+        for entry in entries:
+            cells[entry.missing_from_profile] = {"kind": "missing", "text": MISSING_MARKER}
+    elif isinstance(first, MissingColumn):
+        row_label = first.column_name
+        for entry in entries:
+            cells[entry.missing_from_profile] = {"kind": "missing", "text": MISSING_MARKER}
+            for profile, attrs in entry.present_attributes:
+                cells[profile] = {"kind": "value", "text": format_attributes(attrs)}
+    elif isinstance(first, ColumnMismatch):
+        row_label = first.column_name
+        for profile, attrs in first.values_by_profile:
+            cells[profile] = {"kind": "value", "text": format_attributes(attrs)}
     return {
-        "diff_type": type(entry).__name__,
+        "diff_type": type(first).__name__,
         "column_name": row_label,
         "cells": cells,
     }
@@ -63,12 +59,11 @@ def _row_for_entry(entry, profiles: tuple[str, ...]) -> dict:
 def build_context(result: ComparisonResult) -> dict:
     """Build the pure dict-shaped template context for `result` (no Jinja2
     involved). `result.entries` is consumed strictly in engine order — it
-    is grouped via `itertools.groupby` for display, never re-sorted."""
+    is grouped via `grouped_rows_by_table` for display (by table, then by
+    same-identity row), never re-sorted."""
     groups = []
-    for (schema, table), entries in groupby(
-        result.entries, key=lambda e: e.qualified_name
-    ):
-        rows = [_row_for_entry(e, result.compared_profiles) for e in entries]
+    for (schema, table), rows_of_entries in grouped_rows_by_table(result):
+        rows = [_row_for_group(group, result.compared_profiles) for group in rows_of_entries]
         groups.append({"schema_name": schema, "table_name": table, "rows": rows})
     return {
         "compared_profiles": result.compared_profiles,
