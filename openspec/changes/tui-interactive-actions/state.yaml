@@ -1,0 +1,63 @@
+change: "tui-interactive-actions"
+status: "in-progress"
+last_updated: 2026-07-11T00:00:00Z
+blocking_questions: []
+approvals:
+  - id: approval-tui-actions-001
+    gate: process
+    decision: "Seguir el flujo SDD completo (propose -> spec -> design -> tasks -> apply), con TDD estricto donde aplique."
+    source: vscode/askQuestions
+    accepted_at: 2026-07-11T00:00:00Z
+    applies_to:
+      - tui-interactive-actions
+  - id: approval-tui-actions-002
+    gate: excludes-scope
+    decision: "Excludes editados desde el TUI son solo en memoria (esta ejecucion/sesion); nunca se persisten a config.local.yaml ni a ningun archivo."
+    source: vscode/askQuestions
+    accepted_at: 2026-07-11T00:00:00Z
+    applies_to:
+      - tui-interactive-actions
+  - id: approval-tui-actions-003
+    gate: clarify
+    decision: "Con --tui, cuando el TUI interactivo realmente se lanza, la generacion automatica inicial de HTML/PDF/Excel se vuelve condicional (se omite); solo se genera via la nueva accion 'generar reportes' del TUI. Todo otro caso (sin --tui, o --tui con fallback a consola por terminal no interactiva) mantiene la generacion incondicional actual sin cambios."
+    source: vscode/askQuestions
+    accepted_at: 2026-07-11T00:00:00Z
+    applies_to:
+      - tui-interactive-actions
+assumptions: []
+phases:
+  proposal:
+    status: "done"
+    artifact: "openspec/changes/tui-interactive-actions/proposal.md"
+    summary: "Expands the interactive-tui capability with three new actions: in-memory exclude-tables editing (never persisted), re-run comparison (extract+compare) from within the TUI, and on-demand HTML/PDF/Excel report generation from within the TUI. Narrowly modifies reporting-and-output so automatic upfront report generation is skipped specifically when the interactive TUI actually launches (resolved via clarify gate); every other invocation shape is unaffected."
+    key_decisions:
+      - "route: normal (standard SDD route; no routing table in openspec/config.yaml -> graceful-degradation legacy guard sequence applied)"
+      - "Automatic report generation becomes conditional on the TUI actually launching, not merely --tui being passed (Decision 1, clarify-resolved)"
+      - "Exclude editing applies immediately and re-runs comparison atomically; separate 'r' binding re-runs without changing excludes (Decision 2)"
+      - "Run comparison and generate reports execute on a Textual worker (thread=True), never on the UI thread (Decision 3)"
+      - "Report-generation output is captured via io.StringIO, never printed to sys.stdout, to avoid corrupting the TUI's rendered screen (Decision 4)"
+      - "No new spec domain: extends interactive-tui, narrows reporting-and-output; no connection-management screens added (Decision 5)"
+  spec:
+    status: "done"
+    artifacts:
+      - "openspec/changes/tui-interactive-actions/specs/interactive-tui/spec.md"
+      - "openspec/changes/tui-interactive-actions/specs/reporting-and-output/spec.md"
+    summary: "interactive-tui delta ADDS REQ-interactive-tui-011 (edit excludes in memory), REQ-interactive-tui-012 (run comparison from TUI), REQ-interactive-tui-013 (generate reports on demand), and narrows the baseline Non-Goals. reporting-and-output delta MODIFIES REQ-reporting-and-output-001 (trigger-independence clarification, no functional change) and REQ-reporting-and-output-002 (automatic generation now conditional on the interactive TUI actually launching)."
+  clarify:
+    status: "done"
+    questions_asked: 1
+    summary: "Asked whether automatic upfront HTML/PDF/Excel generation should stay unconditional (TUI action purely additive) or become conditional on the interactive TUI actually launching. User selected: generation becomes conditional with --tui (Option B); recorded as approval-tui-actions-003."
+  design:
+    status: "done"
+    artifact: "openspec/changes/tui-interactive-actions/design.md"
+    summary: "New tui/actions.py (pure run_comparison, de-duplicating cli.py's existing extract/filter/compare sequence); tui/widgets.py additions (StatusLog, ExcludeEditor); tui/app.py new bindings (e/r/g) and Textual worker methods with call_from_thread UI updates; report/write.py extracts generate_all_reports and adds write_reports's generate_reports: bool param; cli.py wires the TUI-launched-only conditional and passes profiles/exclude_patterns into the App."
+  tasks:
+    status: "done"
+    artifact: "openspec/changes/tui-interactive-actions/tasks.md"
+    summary: "6 phases, ~35 discrete RED/GREEN/verification tasks. Review workload: ~750-950 changed lines, High 400-line-budget risk, chained PRs recommended (PR1: write.py/cli.py extraction+wiring; PR2: TUI actions/widgets/app), sequential-dependent chain strategy, decision needed before apply: Yes."
+  apply:
+    status: "pending"
+  verify:
+    status: "pending"
+  archive:
+    status: "pending"

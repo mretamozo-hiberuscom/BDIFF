@@ -44,21 +44,27 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _resolve_summary_renderer(use_tui: bool):
+def _resolve_summary_renderer_and_generate_reports(use_tui: bool) -> tuple:
     """Decide which `render_summary` callable (if any) to pass to
-    `write_reports`. Returns `None` to keep `write_reports`'s own
-    default (the plain console summary) when `--tui` is not requested or
-    when the terminal is not interactive."""
+    `write_reports`, and whether automatic HTML/PDF/Excel generation
+    should still happen at startup. Returns
+    `(render_summary_or_None, generate_reports: bool)`.
+
+    Automatic generation is skipped only when the interactive TUI
+    actually launches (`--tui` on an interactive terminal); every other
+    shape (no `--tui`, or `--tui` falling back to the console on a
+    non-interactive terminal) keeps generating unconditionally, per
+    REQ-reporting-and-output-002."""
     if not use_tui:
-        return None
+        return None, True
     if sys.stdout.isatty() and sys.stdin.isatty():
-        return run_tui
+        return run_tui, False
     print(
         "[AVISO] --tui requiere una terminal interactiva; "
         "se usará el resumen de consola simple",
         file=sys.stderr,
     )
-    return None
+    return None, True
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -74,11 +80,11 @@ def main(argv: list[str] | None = None) -> None:
         ]
     result = compare_snapshots(snapshots)
 
-    render_summary = _resolve_summary_renderer(args.tui)
+    render_summary, do_generate = _resolve_summary_renderer_and_generate_reports(args.tui)
     if render_summary is not None:
-        write_reports(result, render_summary=render_summary)
+        write_reports(result, render_summary=render_summary, generate_reports=do_generate)
     else:
-        write_reports(result)  # always all four; no --format flag
+        write_reports(result, generate_reports=do_generate)
 
 
 if __name__ == "__main__":

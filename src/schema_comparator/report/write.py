@@ -28,28 +28,13 @@ def _default_console_summary(result: ComparisonResult, *, out=sys.stdout) -> Non
     print(render_console(result), file=out)
 
 
-def write_reports(
-    result: ComparisonResult,
-    *,
-    out=sys.stdout,
-    render_summary: Callable[[ComparisonResult], None] | None = None,
-) -> None:
-    """Always attempt all four outputs; one failing MUST NOT block the
-    others. Failures are printed to `out` as clearly labeled messages,
-    never raised past this function.
-
-    `render_summary`, when omitted, defaults to the plain console summary
-    written to this call's `out` (not necessarily `sys.stdout`) — bound
-    at call time rather than as a plain parameter default, so a caller
-    overriding `out` without overriding `render_summary` still sees the
-    console summary land in `out`."""
+def generate_all_reports(result: ComparisonResult, *, out=sys.stdout) -> None:
+    """The HTML/PDF/Excel generation steps, extracted verbatim from
+    `write_reports`'s per-format try/except blocks (REQ-reporting-and-
+    output-007's isolation contract is unchanged — this is a pure
+    extraction, not a behavior change)."""
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     html_str: str | None = None
-    effective_render_summary = (
-        render_summary
-        if render_summary is not None
-        else (lambda result: _default_console_summary(result, out=out))
-    )
 
     try:
         html_str = render_html(result)
@@ -79,6 +64,37 @@ def write_reports(
         print(f"Reporte Excel generado: {xlsx_path}", file=out)
     except Exception as exc:
         print(f"[ERROR] Falló la generación del reporte Excel: {exc}", file=out)
+
+
+def write_reports(
+    result: ComparisonResult,
+    *,
+    out=sys.stdout,
+    render_summary: Callable[[ComparisonResult], None] | None = None,
+    generate_reports: bool = True,
+) -> None:
+    """Always attempt all four outputs; one failing MUST NOT block the
+    others. Failures are printed to `out` as clearly labeled messages,
+    never raised past this function.
+
+    `render_summary`, when omitted, defaults to the plain console summary
+    written to this call's `out` (not necessarily `sys.stdout`) — bound
+    at call time rather than as a plain parameter default, so a caller
+    overriding `out` without overriding `render_summary` still sees the
+    console summary land in `out`.
+
+    `generate_reports`, when `False`, skips the HTML/PDF/Excel generation
+    step entirely (used when the interactive TUI launches and file
+    generation is instead triggered on demand from within it); the
+    console/TUI summary is unaffected either way."""
+    effective_render_summary = (
+        render_summary
+        if render_summary is not None
+        else (lambda result: _default_console_summary(result, out=out))
+    )
+
+    if generate_reports:
+        generate_all_reports(result, out=out)
 
     try:
         effective_render_summary(result)

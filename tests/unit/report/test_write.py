@@ -6,7 +6,7 @@ import re
 
 from report.conftest import comparison_result_with_findings
 
-from schema_comparator.report.write import write_reports
+from schema_comparator.report.write import generate_all_reports, write_reports
 
 
 def test_write_reports_html_failure_still_attempts_pdf_and_console(
@@ -169,3 +169,82 @@ def test_write_reports_isolates_render_summary_failure_from_html_pdf(
     assert "[ERROR] Fall\u00f3 la generaci\u00f3n del resumen de consola" in output
     assert list(tmp_path.glob("reportes/schema-diff-report-*.html"))
     assert list(tmp_path.glob("reportes/schema-diff-report-*.pdf"))
+
+
+def test_generate_all_reports_produces_same_outcomes_as_before_extraction(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    out = io.StringIO()
+
+    generate_all_reports(comparison_result_with_findings(), out=out)
+
+    output = out.getvalue()
+    assert "Reporte HTML generado:" in output
+    assert "Reporte PDF generado:" in output
+    assert "Reporte Excel generado:" in output
+    assert list(tmp_path.glob("reportes/schema-diff-report-*.html"))
+    assert list(tmp_path.glob("reportes/schema-diff-report-*.pdf"))
+    assert list(tmp_path.glob("reportes/schema-diff-report-*.xlsx"))
+
+
+def test_generate_all_reports_html_failure_still_attempts_pdf(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "schema_comparator.report.write.render_html",
+        lambda result: (_ for _ in ()).throw(RuntimeError("html boom")),
+    )
+    out = io.StringIO()
+
+    generate_all_reports(comparison_result_with_findings(), out=out)
+
+    output = out.getvalue()
+    assert "[ERROR] Falló la generación del reporte HTML" in output
+    assert "[ERROR] Falló la generación del reporte PDF" in output
+    assert "Reporte Excel generado:" in output
+
+
+def test_write_reports_skips_generation_when_generate_reports_false(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        "schema_comparator.report.write.generate_all_reports",
+        lambda result, *, out=None: calls.append(result),
+    )
+    out = io.StringIO()
+
+    write_reports(comparison_result_with_findings(), out=out, generate_reports=False)
+
+    assert calls == []
+    assert "Reporte de Diferencias de Esquema - Resumen de Consola" in out.getvalue()
+
+
+def test_write_reports_generates_by_default(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        "schema_comparator.report.write.generate_all_reports",
+        lambda result, *, out=None: calls.append(result),
+    )
+    out = io.StringIO()
+
+    write_reports(comparison_result_with_findings(), out=out)
+
+    assert len(calls) == 1
+
+
+def test_write_reports_generate_reports_true_is_unchanged(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    out = io.StringIO()
+
+    write_reports(comparison_result_with_findings(), out=out, generate_reports=True)
+
+    assert list(tmp_path.glob("reportes/schema-diff-report-*.html"))
+    assert list(tmp_path.glob("reportes/schema-diff-report-*.pdf"))
+
