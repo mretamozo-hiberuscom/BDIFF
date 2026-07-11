@@ -4,6 +4,7 @@ naming (REQ-reporting-and-output-002)."""
 
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Callable
 
 from schema_comparator.compare.models import ComparisonResult
@@ -12,6 +13,15 @@ from schema_comparator.report.errors import PdfExportError
 from schema_comparator.report.excel import export_excel
 from schema_comparator.report.html import render_html
 from schema_comparator.report.pdf import export_pdf
+
+_REPORTS_DIR = "reportes"
+
+
+def _report_path(filename: str) -> str:
+    """Ensure `_REPORTS_DIR` exists (relative to the current invocation
+    cwd) and return the joined path for `filename` inside it."""
+    Path(_REPORTS_DIR).mkdir(parents=True, exist_ok=True)
+    return str(Path(_REPORTS_DIR) / filename)
 
 
 def _default_console_summary(result: ComparisonResult, *, out=sys.stdout) -> None:
@@ -43,7 +53,7 @@ def write_reports(
 
     try:
         html_str = render_html(result)
-        html_path = f"schema-diff-report-{timestamp}.html"
+        html_path = _report_path(f"schema-diff-report-{timestamp}.html")
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(html_str)
         print(f"Reporte HTML generado: {html_path}", file=out)
@@ -54,7 +64,7 @@ def write_reports(
         if html_str is None:
             raise PdfExportError("omitido: la generación de HTML no se completó")
         pdf_bytes = export_pdf(html_str)
-        pdf_path = f"schema-diff-report-{timestamp}.pdf"
+        pdf_path = _report_path(f"schema-diff-report-{timestamp}.pdf")
         with open(pdf_path, "wb") as f:
             f.write(pdf_bytes)
         print(f"Reporte PDF generado: {pdf_path}", file=out)
@@ -63,7 +73,7 @@ def write_reports(
 
     try:
         xlsx_bytes = export_excel(result)
-        xlsx_path = f"schema-diff-report-{timestamp}.xlsx"
+        xlsx_path = _report_path(f"schema-diff-report-{timestamp}.xlsx")
         with open(xlsx_path, "wb") as f:
             f.write(xlsx_bytes)
         print(f"Reporte Excel generado: {xlsx_path}", file=out)

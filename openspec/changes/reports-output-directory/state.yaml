@@ -1,0 +1,54 @@
+change: "reports-output-directory"
+status: "ready-for-archive"
+last_updated: 2026-07-11T00:00:00Z
+blocking_questions: []
+route:
+  intended_route: lite
+  actual_route: lite
+  route_rationale: "no routing table in openspec/config.yaml -> graceful-degradation legacy guard sequence; classification=small (bounded, single-capability, mechanical path-join change) -> lite workflow (proposal-lite -> spec delta -> tasks, design skipped)"
+  validated: true
+  validation_errors: []
+approvals:
+  - id: approval-reports-output-directory-001
+    gate: process
+    decision: "Modo lite (proposal-lite.md), sin design.md, dado que es un cambio chico y mecanico dentro de una sola capability (reporting-and-output); igualmente se genero spec delta porque modifica un requirement MUST existente."
+    source: session-context
+    accepted_at: 2026-07-11T00:00:00Z
+    applies_to:
+      - reports-output-directory
+gates:
+  clarify:
+    status: skipped
+    reason: "Lite route + small classification; no residual ambiguity — reportes/ name fixed per proposal Decision, no clarify-gate question needed."
+assumptions:
+  - "\"raiz del proyecto\" se interpreta como el directorio de invocacion del CLI (cwd), igual que el requirement REQ-reporting-and-output-002 actual, ya que este CLI no tiene una nocion separada de project-root vs cwd."
+phases:
+  proposal:
+    status: "done"
+    artifact: "openspec/changes/reports-output-directory/proposal-lite.md"
+    summary: "Lite proposal: write_reports (HTML/PDF/Excel) writes into a fixed reportes/ subdirectory of the CLI's invocation cwd instead of loose into cwd; directory created on demand; console summary unaffected (no file). Name is fixed, not configurable."
+    key_decisions:
+      - "route: lite (small classification; no routing table -> graceful-degradation legacy guard sequence)"
+      - "Fixed, non-configurable reportes/ subdirectory name, relative to invocation cwd (Decision)"
+      - "Out of scope: configurable output dir/flag, timestamp format, per-format content, console summary, the two other in-progress changes (cli-distribution, tui-interactive-actions)"
+  spec:
+    status: "done"
+    artifact: "openspec/changes/reports-output-directory/specs/reporting-and-output/spec.md"
+    summary: "MODIFIED REQ-reporting-and-output-002: HTML/PDF/Excel now written into a reportes/ subdirectory (created if absent) of the invocation cwd instead of loose into cwd; also widens the requirement's stated scope to explicitly cover Excel (previously implemented in code but not named in this requirement's text). Notes non-overlapping concurrent delta from tui-interactive-actions (different requirement, same domain file)."
+  design:
+    status: "skipped"
+    reason: "Lite mode: mechanical path-join + mkdir change, no new architectural decisions or flows warranting a design.md; tasks.md reconciled directly against proposal-lite.md + spec delta."
+  tasks:
+    status: "done"
+    artifact: "openspec/changes/reports-output-directory/tasks.md"
+    summary: "1 phase, 7 RED/GREEN tasks: add a path-join+mkdir helper in report/write.py used by all three per-format write blocks (inside their existing isolated try/except), update success print messages, update unit + integration test glob paths. Review workload: ~50-80 changed lines, Low 400-line-budget risk, single PR, no chaining needed, no apply-time delivery decision required."
+  apply:
+    status: "done"
+    artifact: "openspec/changes/reports-output-directory/apply-progress.md"
+    summary: "All 7 tasks implemented via strict RED-GREEN TDD: _REPORTS_DIR helper in report/write.py, updated unit+integration tests. Targeted tests 11 passed; full suite 260 passed, 1 skipped."
+  verify:
+    status: "done"
+    result: "PASS"
+    summary: "All 4 scenarios in REQ-reporting-and-output-002 (MODIFIED) verified against implementation: shared timestamp (unchanged, still tested), reportes/ subdirectory location, auto-creation on absence, per-format failure isolation preserved (mkdir call lives inside existing per-format try/except). No CRITICAL/WARNING findings. Pre-existing Excel spec-drift (Excel implemented in code but absent from baseline spec.md) is resolved by this change's delta once archived, since the delta's REQ-002 text now explicitly names Excel."
+  archive:
+    status: "pending"

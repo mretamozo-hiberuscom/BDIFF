@@ -53,7 +53,7 @@ def _fixture_result() -> ComparisonResult:
     )
 
 
-def test_write_reports_creates_paired_html_and_pdf_files_with_matching_timestamp_in_cwd(
+def test_write_reports_creates_paired_html_and_pdf_files_with_matching_timestamp_in_reportes_dir(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -61,8 +61,8 @@ def test_write_reports_creates_paired_html_and_pdf_files_with_matching_timestamp
 
     write_reports(result)
 
-    html_files = list(tmp_path.glob("schema-diff-report-*.html"))
-    pdf_files = list(tmp_path.glob("schema-diff-report-*.pdf"))
+    html_files = list(tmp_path.glob("reportes/schema-diff-report-*.html"))
+    pdf_files = list(tmp_path.glob("reportes/schema-diff-report-*.pdf"))
     assert len(html_files) == 1
     assert len(pdf_files) == 1
 
