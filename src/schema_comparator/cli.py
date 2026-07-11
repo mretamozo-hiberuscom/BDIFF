@@ -10,6 +10,7 @@ four report outputs (HTML, PDF, Excel, console/TUI).
 from __future__ import annotations
 
 import argparse
+import functools
 import sys
 
 from schema_comparator.config.loader import load_profiles
@@ -43,7 +44,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _resolve_summary_renderer_and_generate_reports(use_tui: bool) -> tuple:
+def _resolve_summary_renderer_and_generate_reports(
+    use_tui: bool,
+    profiles: list,
+    exclude_patterns: list[str],
+) -> tuple:
     """Decide which `render_summary` callable (if any) to pass to
     `write_reports`, and whether automatic HTML/PDF/Excel generation
     should still happen at startup. Returns
@@ -53,11 +58,20 @@ def _resolve_summary_renderer_and_generate_reports(use_tui: bool) -> tuple:
     actually launches (`--tui` on an interactive terminal); every other
     shape (no `--tui`, or `--tui` falling back to the console on a
     non-interactive terminal) keeps generating unconditionally, per
-    REQ-reporting-and-output-002."""
+    REQ-reporting-and-output-002.
+
+    When the TUI launches, `run_tui` is bound with `profiles` and
+    `exclude_patterns` via `functools.partial` so the TUI's "run
+    comparison" and "generate reports" actions have the data they need
+    instead of receiving empty defaults (`run_tui`'s `profiles=None` ->
+    `self._profiles = []`)."""
     if not use_tui:
         return None, True
     if sys.stdout.isatty() and sys.stdin.isatty():
-        return run_tui, False
+        bound_run_tui = functools.partial(
+            run_tui, profiles=profiles, exclude_patterns=exclude_patterns
+        )
+        return bound_run_tui, False
     print(
         "[AVISO] --tui requiere una terminal interactiva; "
         "se usará el resumen de consola simple",
@@ -75,7 +89,9 @@ def main(argv: list[str] | None = None) -> None:
     exclude_patterns = list(args.exclude_tables or [])
     result = run_comparison(profiles, exclude_patterns)
 
-    render_summary, do_generate = _resolve_summary_renderer_and_generate_reports(args.tui)
+    render_summary, do_generate = _resolve_summary_renderer_and_generate_reports(
+        args.tui, profiles, exclude_patterns
+    )
     if render_summary is not None:
         write_reports(result, render_summary=render_summary, generate_reports=do_generate)
     else:

@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 
 from schema_comparator.cli import build_arg_parser, main
 from schema_comparator.config.models import ConnectionProfile
-from schema_comparator.tui import run_tui
 
 
 def _profiles():
@@ -74,13 +73,21 @@ def test_tui_flag_on_tty_passes_run_tui_as_render_summary() -> None:
         patch("schema_comparator.cli.load_profiles", return_value=_profiles()),
         patch("schema_comparator.cli.run_comparison", return_value=fake_result),
         patch("schema_comparator.cli.write_reports") as m_write,
+        patch("schema_comparator.cli.run_tui") as m_run_tui,
         patch("sys.stdout.isatty", return_value=True),
         patch("sys.stdin.isatty", return_value=True),
     ):
         main(["--config", "config.local.yaml", "--tui"])
 
-    m_write.assert_called_once_with(
-        fake_result, render_summary=run_tui, generate_reports=False
+    assert m_write.call_args.kwargs["generate_reports"] is False
+    render_summary = m_write.call_args.kwargs["render_summary"]
+    # `render_summary` must be `run_tui` bound with this run's `profiles`
+    # and `exclude_patterns` (a bare `run_tui` reference would call it
+    # with empty defaults, leaving the TUI's "run"/"generate reports"
+    # actions with no profiles to work with).
+    render_summary(fake_result)
+    m_run_tui.assert_called_once_with(
+        fake_result, profiles=_profiles(), exclude_patterns=[]
     )
 
 

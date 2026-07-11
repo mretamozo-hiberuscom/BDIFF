@@ -34,9 +34,9 @@ class SchemaComparatorApp(App):
         Binding("q", "quit", "Quit"),
         Binding("escape", "quit", "Quit", show=False),
         Binding("slash", "focus_filter", "Filter"),
-        Binding("e", "focus_exclude_editor", "Excludes"),
-        Binding("r", "run_comparison", "Run"),
-        Binding("g", "generate_reports", "Reports"),
+        Binding("e", "focus_exclude_editor", "Editar excludes"),
+        Binding("r", "run_comparison", "Re-ejecutar comparación"),
+        Binding("g", "generate_reports", "Generar reportes"),
     ]
 
     filter_text: reactive[str] = reactive("")

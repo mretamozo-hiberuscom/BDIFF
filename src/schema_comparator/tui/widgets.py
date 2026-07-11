@@ -99,4 +99,9 @@ class ExcludeEditor(Input):
     separated, matching `--exclude-tables`'s existing CLI syntax."""
 
     def __init__(self, initial_patterns: list[str], **kwargs) -> None:
+        kwargs.setdefault(
+            "placeholder",
+            "Tablas a excluir, separadas por espacio (p. ej. LOG QRTZ) — "
+            "Enter para aplicar y re-ejecutar la comparación",
+        )
         super().__init__(value=" ".join(initial_patterns), **kwargs)
