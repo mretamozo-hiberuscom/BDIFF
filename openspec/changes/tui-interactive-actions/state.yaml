@@ -1,5 +1,5 @@
 change: "tui-interactive-actions"
-status: "in-progress"
+status: "ready-for-archive"
 last_updated: 2026-07-11T00:00:00Z
 blocking_questions: []
 approvals:
@@ -56,8 +56,10 @@ phases:
     artifact: "openspec/changes/tui-interactive-actions/tasks.md"
     summary: "6 phases, ~35 discrete RED/GREEN/verification tasks. Review workload: ~750-950 changed lines, High 400-line-budget risk, chained PRs recommended (PR1: write.py/cli.py extraction+wiring; PR2: TUI actions/widgets/app), sequential-dependent chain strategy, decision needed before apply: Yes."
   apply:
-    status: "pending"
+    status: "done"
+    summary: "PR1 (Phases 1-2, commit 2ea6cf8): report/write.py's generate_all_reports extraction + write_reports's generate_reports:bool param; cli.py's _resolve_summary_renderer_and_generate_reports conditional wiring. PR2 (Phases 3-6, commit 82e745d): tui/actions.py (new, run_comparison), tui/widgets.py (StatusLog, ExcludeEditor), tui/app.py (e/r/g bindings + thread workers + call_from_thread), cli.py/main() de-duplicated via run_comparison, run_tui passthrough. Full suite: 300 passed, 1 skipped; coverage 99% overall. Task 6.4 (manual interactive smoke test) left unchecked -- requires a real interactive terminal, not exercisable from this session."
   verify:
-    status: "pending"
+    status: "done"
+    summary: "Manual reconciliation against tasks.md's Spec/Design Reconciliation table, design.md, and both spec deltas: all 5 requirements (REQ-interactive-tui-011/012/013, REQ-reporting-and-output-001/002) covered by implementation and tests. Full suite 300 passed/1 skipped, 99% coverage, no lint/type errors. One pre-existing WARNING carried over unresolved: Excel export (report/excel.py, write_reports) has no corresponding requirement in openspec/specs/reporting-and-output/spec.md's baseline (Purpose section only names HTML/PDF/console); this change's own spec delta explicitly notes and does not attempt to close this gap. Task 6.4 (manual interactive Pilot-free smoke test with a real terminal) not exercised in this session -- left for the user."
   archive:
     status: "pending"
