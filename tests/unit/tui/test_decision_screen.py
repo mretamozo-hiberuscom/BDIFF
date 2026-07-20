@@ -384,7 +384,9 @@ async def test_missing_column_drop_targets_only_present_profiles_and_generates_s
             assert selection_lists[1].disabled is False
             assert len(selection_lists[1].options) == 1
             assert selection_lists[1].selected == ["profileA"]
-            assert screen.decisions[entries[1]] == (ColumnAction.DROP, ("profileA",))
+            from schema_comparator.tui.decision_screen import MergedMissingColumn
+            merged_col_key = next(k for k in screen.decisions if isinstance(k, MergedMissingColumn))
+            assert screen.decisions[merged_col_key] == (ColumnAction.DROP, ("profileA",))
 
             radio_sets[0].children[3].value = True
             await pilot.pause()
@@ -533,3 +535,126 @@ async def test_multiprofile_missing_table_drop_only_targets_present_profile() ->
                 assert "logs" not in content.lower(), (
                     f"{profile}.sql no debe contener referencias a 'logs' (tabla ya ausente)"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Regression: multi-profile missing column – single consolidated decision
+# ---------------------------------------------------------------------------
+
+def _three_profile_missing_column_entries():
+    """Simulates engine output for a column present in A, absent from B and C."""
+    attr = ColumnAttributes(
+        data_type="varchar",
+        character_maximum_length=50,
+        numeric_precision=None,
+        numeric_scale=None,
+        is_nullable=True,
+    )
+    present_attrs = (("profileA", attr),)
+    entry_b = MissingColumn(
+        schema_name="dbo",
+        table_name="users",
+        column_name="phone",
+        missing_from_profile="profileB",
+        present_attributes=present_attrs,
+    )
+    entry_c = MissingColumn(
+        schema_name="dbo",
+        table_name="users",
+        column_name="phone",
+        missing_from_profile="profileC",
+        present_attributes=present_attrs,
+    )
+    return entry_b, entry_c
+
+
+@pytest.mark.asyncio
+async def test_multiprofile_missing_column_shows_single_decision_card() -> None:
+    """Una columna ausente en 2 perfiles (B, C) debe generar UNA sola tarjeta de decisión (MergedMissingColumn)."""
+    entries = _three_profile_missing_column_entries()
+    profiles = _three_profiles()
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        app = DummyApp(entries, profiles, Path(tmp_dir))
+
+        async with app.run_test() as pilot:
+            screen = app.screen
+            assert isinstance(screen, DecisionScreen)
+
+            # El listado por tabla tiene UNA entrada (dbo.users)
+            list_view = screen.query_one("#findings-list", ListView)
+            assert len(list_view.children) == 1
+
+            # Hay UN SOLO decision dict entry para la columna fusionada
+            assert len(screen.decisions) == 1
+
+            from schema_comparator.tui.decision_screen import MergedMissingColumn
+            merged_key = list(screen.decisions.keys())[0]
+            assert isinstance(merged_key, MergedMissingColumn)
+            assert merged_key.missing_from_profiles == ("profileB", "profileC")
+
+            # La decisión por defecto incluye AMBOS perfiles ausentes como destino
+            (target, dests) = screen.decisions[merged_key]
+            assert target == entries[0].present_attributes[0][1]
+            assert set(dests) == {"profileB", "profileC"}
+
+            # Abrir la tarjeta
+            list_view.focus()
+            list_view.index = 0
+            await pilot.press("enter")
+            await pilot.pause()
+
+            from schema_comparator.tui.decision_screen import ColumnResolutionWidget
+            cards = list(screen.query(ColumnResolutionWidget))
+            # Solo UNA tarjeta para las dos entradas MissingColumn
+            assert len(cards) == 1
+            assert isinstance(cards[0].entry, MergedMissingColumn)
+
+
+@pytest.mark.asyncio
+async def test_multiprofile_missing_column_drop_only_targets_present_profile() -> None:
+    """Al elegir DROP en una columna faltante en múltiples perfiles, solo se elimina en el perfil donde existe (A)."""
+    entries = _three_profile_missing_column_entries()
+    profiles = _three_profiles()
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        app = DummyApp(entries, profiles, tmp_path)
+
+        async with app.run_test() as pilot:
+            screen = app.screen
+            assert isinstance(screen, DecisionScreen)
+
+            # Abrir la tarjeta
+            list_view = screen.query_one("#findings-list", ListView)
+            list_view.focus()
+            list_view.index = 0
+            await pilot.press("enter")
+            await pilot.pause()
+
+            # Cambiar a opción DROP (índice 1 en RadioSet)
+            radio_set = screen.query_one(RadioSet)
+            radio_set.children[1].value = True
+            await pilot.pause()
+
+            from schema_comparator.tui.decision_screen import MergedMissingColumn
+            merged_key = list(screen.decisions.keys())[0]
+            assert isinstance(merged_key, MergedMissingColumn)
+            assert screen.decisions[merged_key] == (ColumnAction.DROP, ("profileA",))
+
+            await pilot.press("g")
+            await pilot.pause()
+
+        scripts_dir = tmp_path / "scripts-db"
+        assert scripts_dir.exists(), "No se generaron scripts SQL"
+
+        a_sql = (scripts_dir / "profileA.sql").read_text(encoding="utf-8")
+        assert "ALTER TABLE [dbo].[users] DROP COLUMN [phone];" in a_sql
+
+        # B y C NO deben contener 'phone'
+        for profile in ("profileB", "profileC"):
+            pf = scripts_dir / f"{profile}.sql"
+            if pf.exists():
+                content = pf.read_text(encoding="utf-8")
+                assert "phone" not in content.lower()
+
