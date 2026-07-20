@@ -494,6 +494,25 @@ way that would corrupt the TUI's rendered screen.
 - AND no raw text SHALL be printed directly to the terminal in a way that
   disrupts the TUI's rendering
 
+### Requirement: Consolidate Missing Columns into Single Decision Cards in DecisionScreen {#REQ-interactive-tui-014}
+
+When displaying findings in `DecisionScreen` for schema consolidation, the system MUST collapse multiple `MissingColumn` entries that share the same schema, table, and column identity across profiles into a single `MergedMissingColumn` decision card. The card MUST display all profiles from which the column is missing (`missing_from_profiles`). When adding the column, destination profiles MUST default to all absent profiles. When choosing to drop the column (`DROP`), destination profiles MUST default exclusively to profiles where the column is present.
+
+#### Scenario: Missing column across multiple profiles renders a single decision card
+
+- GIVEN a table has a column `phone` missing in profiles `profileB` and `profileC`
+- WHEN `DecisionScreen` is opened for schema consolidation
+- THEN a single `MergedMissingColumn` decision card SHALL be rendered for `phone`
+- AND the header SHALL state that the column is missing in `profileB, profileC`
+- AND default destination profiles for adding the column SHALL include both `profileB` and `profileC`
+
+#### Scenario: Dropping a multi-profile missing column targets only present profiles
+
+- GIVEN a column `phone` is missing in `profileB` and `profileC` but present in `profileA`
+- WHEN the user selects "Eliminar columna de perfiles donde existe" on the `MergedMissingColumn` decision card
+- THEN the target destination profile SHALL default exclusively to `profileA`
+- AND generating SQL SHALL output a `DROP COLUMN [phone]` statement for `profileA` only
+
 ## RFC 2119 Keyword Legend
 
 MUST/SHALL denote absolute requirements; MUST NOT/SHALL NOT denote
