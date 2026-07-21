@@ -142,15 +142,19 @@ async def test_decision_screen_updates_decision_on_radio_change() -> None:
             assert len(radio_sets) == 2
             assert len(radio_sets[0].children) == 4  # Two attrs options + drop + ignore
             
-            # Select "Ignore" (index 2) on the first column card
-            radio_sets[0].children[3].value = True
+            # Select first option (index 0) on the first column card
+            radio_sets[0].children[0].value = True
             await pilot.pause()
             
-            # Check first selection list is disabled
+            # Check first selection list is now enabled
             selection_lists = list(screen.query(SelectionList))
             assert len(selection_lists) == 2
-            assert selection_lists[0].disabled is True
-            assert selection_lists[1].disabled is False
+            assert selection_lists[0].disabled is False
+            assert selection_lists[1].disabled is True
+            
+            # Select "Ignore" (index 3) on the first column card
+            radio_sets[0].children[3].value = True
+            await pilot.pause()
             
             # Verify internal decision state has been set to None for that entry
             dec = screen.decisions[entries[0]]
@@ -178,6 +182,15 @@ async def test_decision_screen_saves_sql_scripts() -> None:
             await pilot.press("enter")
             await pilot.pause()
             
+            # Select first option (index 0) on first column card and check profileB
+            radio_sets = list(screen.query(RadioSet))
+            radio_sets[0].children[0].value = True
+            await pilot.pause()
+            
+            sel_lists = list(screen.query(SelectionList))
+            sel_lists[0].select_all()
+            await pilot.pause()
+
             # Press Generate SQL (shortcut G)
             await pilot.press("g")
             await pilot.pause()
@@ -219,18 +232,7 @@ async def test_decision_screen_no_resolutions_notifies_warning() -> None:
             await pilot.press("enter")
             await pilot.pause()
             
-            radio_sets = list(screen.query(RadioSet))
-            assert len(radio_sets) == 2
-            
-            radio_sets[0].children[3].value = True  # Ignore
-            radio_sets[1].children[2].value = True  # Ignore
-            await pilot.pause()
-            
-            # Also set the MissingTable (dbo.logs) decision to Ignore
-            from schema_comparator.tui.decision_screen import MergedMissingTable
-            merged_key = next(k for k in screen.decisions if isinstance(k, MergedMissingTable))
-            screen.decisions[merged_key] = (None, ())
-            
+            # All decisions default to Ignore (None, ())
             # Mock notify
             app.notify = MagicMock()
             
@@ -257,13 +259,22 @@ async def test_decision_screen_sql_generation_error_notifies_error() -> None:
             screen = app.screen
             assert isinstance(screen, DecisionScreen)
             
-            # Select second item (mounts form with default resolutions)
+            # Select second item
             list_view = screen.query_one("#findings-list", ListView)
             list_view.focus()
             list_view.index = 1
             await pilot.press("enter")
             await pilot.pause()
             
+            # Actively select an action so generation is triggered
+            radio_sets = list(screen.query(RadioSet))
+            radio_sets[0].children[0].value = True
+            await pilot.pause()
+            
+            sel_lists = list(screen.query(SelectionList))
+            sel_lists[0].select_all()
+            await pilot.pause()
+
             # Mock notify
             app.notify = MagicMock()
             
@@ -313,18 +324,18 @@ async def test_decision_screen_renders_missing_table_card_with_create_option() -
             assert radio_sets[0].disabled is False
             assert len(radio_sets[0].children) == 3
             
-            # Verify a SelectionList IS rendered (for choosing destination profile)
+            # Verify a SelectionList IS rendered (disabled by default)
             from textual.widgets import SelectionList
             sel_lists = list(cards[0].query(SelectionList))
             assert len(sel_lists) == 1
-            assert sel_lists[0].disabled is False
+            assert sel_lists[0].disabled is True
             
-            # Verify the decision defaults to creating from profileA
+            # Verify the decision defaults to None (No hacer nada)
             from schema_comparator.tui.decision_screen import MergedMissingTable
             merged_key = next(k for k in screen.decisions if isinstance(k, MergedMissingTable))
             dec = screen.decisions[merged_key]
-            assert dec[0] == "profileA"  # source profile
-            assert "profileB" in dec[1]  # destination profile
+            assert dec[0] is None
+            assert len(dec[1]) == 0
 
 
 @pytest.mark.asyncio
@@ -482,10 +493,10 @@ async def test_multiprofile_missing_table_shows_single_decision_card() -> None:
             # Hay UN SOLO decision dict entry para la tabla
             assert len(screen.decisions) == 1
 
-            # La decisión por defecto incluye AMBOS perfiles ausentes como destino
+            # La decisión por defecto es 'No hacer nada' (None, ())
             (target, dests) = list(screen.decisions.values())[0]
-            assert target == "profileA"
-            assert set(dests) == {"profileB", "profileC"}
+            assert target is None
+            assert len(dests) == 0
 
             # Abrir la tarjeta
             list_view.focus()
@@ -593,10 +604,10 @@ async def test_multiprofile_missing_column_shows_single_decision_card() -> None:
             assert isinstance(merged_key, MergedMissingColumn)
             assert merged_key.missing_from_profiles == ("profileB", "profileC")
 
-            # La decisión por defecto incluye AMBOS perfiles ausentes como destino
+            # La decisión por defecto es 'No hacer nada' (None, ())
             (target, dests) = screen.decisions[merged_key]
-            assert target == entries[0].present_attributes[0][1]
-            assert set(dests) == {"profileB", "profileC"}
+            assert target is None
+            assert len(dests) == 0
 
             # Abrir la tarjeta
             list_view.focus()
