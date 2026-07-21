@@ -58,6 +58,16 @@ def format_sql_column_definition(attrs: ColumnAttributes) -> str:
 
 
 
+def _escape_ident(identifier: str) -> str:
+    """Escape closing bracket for T-SQL bracketed identifiers."""
+    return identifier.replace("]", "]]")
+
+
+def _escape_literal(literal: str) -> str:
+    """Escape single quote for T-SQL string literals."""
+    return literal.replace("'", "''")
+
+
 def generate_ddl_for_profile(
     resolutions: list,
     profile: ConnectionProfile,
@@ -68,7 +78,8 @@ def generate_ddl_for_profile(
 ) -> str:
     """Generate transactional, idempotent, enterprise-grade T-SQL scripts for a profile."""
     ts = timestamp or datetime.datetime.now()
-    db_name = extract_database_name(profile.connection_string) or profile.name
+    raw_db = extract_database_name(profile.connection_string) or profile.name
+    db_name = _escape_ident(raw_db)
 
     lines = [
         f"-- Script de corrección para la base de datos del perfil: {profile.name}",
@@ -89,10 +100,16 @@ def generate_ddl_for_profile(
 
     for tres in (table_resolutions or []):
         if profile.name in tres.profiles_to_update:
+            schema_esc = _escape_ident(tres.schema_name)
+            table_esc = _escape_ident(tres.table_name)
+            schema_lit = _escape_literal(tres.schema_name)
+            table_lit = _escape_literal(tres.table_name)
+
             col_defs = []
             for ncol in tres.columns:
                 col_def = format_sql_column_definition(ncol.attributes)
-                col_defs.append(f"        [{ncol.name}] {col_def}")
+                col_esc = _escape_ident(ncol.name)
+                col_defs.append(f"        [{col_esc}] {col_def}")
             col_list = ",\n".join(col_defs)
 
             sql = (
@@ -100,13 +117,13 @@ def generate_ddl_for_profile(
                 f"        SELECT 1\n"
                 f"        FROM sys.objects o\n"
                 f"        JOIN sys.schemas s ON o.schema_id = s.schema_id\n"
-                f"        WHERE s.name = '{tres.schema_name}' AND o.name = '{tres.table_name}' AND o.type = 'U'\n"
+                f"        WHERE s.name = '{schema_lit}' AND o.name = '{table_lit}' AND o.type = 'U'\n"
                 f"    )\n"
                 f"    BEGIN\n"
-                f"        CREATE TABLE [{tres.schema_name}].[{tres.table_name}] (\n"
+                f"        CREATE TABLE [{schema_esc}].[{table_esc}] (\n"
                 f"{col_list}\n"
                 f"        );\n"
-                f"        PRINT 'Tabla [{tres.schema_name}].[{tres.table_name}] creada con exito.';\n"
+                f"        PRINT 'Tabla [{schema_esc}].[{table_esc}] creada con exito.';\n"
                 f"    END"
             )
             lines.append(sql)
@@ -114,16 +131,21 @@ def generate_ddl_for_profile(
 
     for deletion in (table_deletions or []):
         if profile.name in deletion.profiles_to_update:
+            schema_esc = _escape_ident(deletion.schema_name)
+            table_esc = _escape_ident(deletion.table_name)
+            schema_lit = _escape_literal(deletion.schema_name)
+            table_lit = _escape_literal(deletion.table_name)
+
             sql = (
                 f"    IF EXISTS (\n"
                 f"        SELECT 1\n"
                 f"        FROM sys.objects o\n"
                 f"        JOIN sys.schemas s ON o.schema_id = s.schema_id\n"
-                f"        WHERE s.name = '{deletion.schema_name}' AND o.name = '{deletion.table_name}' AND o.type = 'U'\n"
+                f"        WHERE s.name = '{schema_lit}' AND o.name = '{table_lit}' AND o.type = 'U'\n"
                 f"    )\n"
                 f"    BEGIN\n"
-                f"        DROP TABLE [{deletion.schema_name}].[{deletion.table_name}];\n"
-                f"        PRINT 'Tabla [{deletion.schema_name}].[{deletion.table_name}] eliminada con exito.';\n"
+                f"        DROP TABLE [{schema_esc}].[{table_esc}];\n"
+                f"        PRINT 'Tabla [{schema_esc}].[{table_esc}] eliminada con exito.';\n"
                 f"    END"
             )
             lines.append(sql)
@@ -131,17 +153,24 @@ def generate_ddl_for_profile(
 
     for deletion in (column_deletions or []):
         if profile.name in deletion.profiles_to_update:
+            schema_esc = _escape_ident(deletion.schema_name)
+            table_esc = _escape_ident(deletion.table_name)
+            col_esc = _escape_ident(deletion.column_name)
+            schema_lit = _escape_literal(deletion.schema_name)
+            table_lit = _escape_literal(deletion.table_name)
+            col_lit = _escape_literal(deletion.column_name)
+
             sql = (
                 f"    IF EXISTS (\n"
                 f"        SELECT 1\n"
                 f"        FROM sys.columns c\n"
                 f"        JOIN sys.objects o ON c.object_id = o.object_id\n"
                 f"        JOIN sys.schemas s ON o.schema_id = s.schema_id\n"
-                f"        WHERE s.name = '{deletion.schema_name}' AND o.name = '{deletion.table_name}' AND c.name = '{deletion.column_name}'\n"
+                f"        WHERE s.name = '{schema_lit}' AND o.name = '{table_lit}' AND c.name = '{col_lit}'\n"
                 f"    )\n"
                 f"    BEGIN\n"
-                f"        ALTER TABLE [{deletion.schema_name}].[{deletion.table_name}] DROP COLUMN [{deletion.column_name}];\n"
-                f"        PRINT 'Columna [{deletion.column_name}] eliminada con exito de [{deletion.schema_name}].[{deletion.table_name}].';\n"
+                f"        ALTER TABLE [{schema_esc}].[{table_esc}] DROP COLUMN [{col_esc}];\n"
+                f"        PRINT 'Columna [{col_esc}] eliminada con exito de [{schema_esc}].[{table_esc}].';\n"
                 f"    END"
             )
             lines.append(sql)
@@ -150,6 +179,13 @@ def generate_ddl_for_profile(
     for res in resolutions:
         if profile.name in res.profiles_to_update:
             col_def = format_sql_column_definition(res.target_attributes)
+            schema_esc = _escape_ident(res.schema_name)
+            table_esc = _escape_ident(res.table_name)
+            col_esc = _escape_ident(res.column_name)
+            schema_lit = _escape_literal(res.schema_name)
+            table_lit = _escape_literal(res.table_name)
+            col_lit = _escape_literal(res.column_name)
+
             if res.is_missing_column:
                 sql = (
                     f"    IF NOT EXISTS (\n"
@@ -157,11 +193,11 @@ def generate_ddl_for_profile(
                     f"        FROM sys.columns c\n"
                     f"        JOIN sys.objects o ON c.object_id = o.object_id\n"
                     f"        JOIN sys.schemas s ON o.schema_id = s.schema_id\n"
-                    f"        WHERE s.name = '{res.schema_name}' AND o.name = '{res.table_name}' AND c.name = '{res.column_name}'\n"
+                    f"        WHERE s.name = '{schema_lit}' AND o.name = '{table_lit}' AND c.name = '{col_lit}'\n"
                     f"    )\n"
                     f"    BEGIN\n"
-                    f"        ALTER TABLE [{res.schema_name}].[{res.table_name}] ADD [{res.column_name}] {col_def};\n"
-                    f"        PRINT 'Columna [{res.column_name}] agregada con exito a [{res.schema_name}].[{res.table_name}].';\n"
+                    f"        ALTER TABLE [{schema_esc}].[{table_esc}] ADD [{col_esc}] {col_def};\n"
+                    f"        PRINT 'Columna [{col_esc}] agregada con exito a [{schema_esc}].[{table_esc}].';\n"
                     f"    END"
                 )
             else:
@@ -171,11 +207,11 @@ def generate_ddl_for_profile(
                     f"        FROM sys.columns c\n"
                     f"        JOIN sys.objects o ON c.object_id = o.object_id\n"
                     f"        JOIN sys.schemas s ON o.schema_id = s.schema_id\n"
-                    f"        WHERE s.name = '{res.schema_name}' AND o.name = '{res.table_name}' AND c.name = '{res.column_name}'\n"
+                    f"        WHERE s.name = '{schema_lit}' AND o.name = '{table_lit}' AND c.name = '{col_lit}'\n"
                     f"    )\n"
                     f"    BEGIN\n"
-                    f"        ALTER TABLE [{res.schema_name}].[{res.table_name}] ALTER COLUMN [{res.column_name}] {col_def};\n"
-                    f"        PRINT 'Columna [{res.column_name}] de [{res.schema_name}].[{res.table_name}] modificada con exito.';\n"
+                    f"        ALTER TABLE [{schema_esc}].[{table_esc}] ALTER COLUMN [{col_esc}] {col_def};\n"
+                    f"        PRINT 'Columna [{col_esc}] de [{schema_esc}].[{table_esc}] modificada con exito.';\n"
                     f"    END"
                 )
             lines.append(sql)

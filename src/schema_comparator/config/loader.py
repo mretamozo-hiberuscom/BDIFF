@@ -1,4 +1,4 @@
-"""Load and validate connection profiles from a local YAML config file.
+"""Load and validate connection profiles from a local YAML config file (v1 & v2).
 
 Fail-fast gates: missing file, malformed/wrong-shape YAML, exact-duplicate
 YAML keys, blank name, case-insensitive duplicate name, blank connection
@@ -7,6 +7,7 @@ string. Leading/trailing whitespace is trimmed from both `name` and
 """
 
 import os
+from typing import Any
 
 import yaml
 
@@ -20,13 +21,7 @@ from schema_comparator.config.models import ConnectionProfile
 
 
 class _DuplicateKeyLoader(yaml.SafeLoader):
-    """A SafeLoader that raises on exact-duplicate mapping keys.
-
-    Plain `yaml.safe_load` silently keeps the last value when a mapping has
-    two identical keys, which would defeat the spec's "re-declared identical
-    YAML key" duplicate-profile scenario. This subclass raises before the
-    dict collapses the duplicate.
-    """
+    """A SafeLoader that raises on exact-duplicate mapping keys."""
 
 
 def _no_duplicate_keys(loader: yaml.SafeLoader, node: yaml.Node, deep: bool = False) -> dict:
@@ -47,10 +42,8 @@ _DuplicateKeyLoader.add_constructor(
 def load_profiles(config_path: str | os.PathLike[str]) -> list[ConnectionProfile]:
     """Load connection profiles from the YAML file at `config_path`.
 
-    `config_path` is a required positional parameter with no default: the
-    loader performs no implicit path resolution (no cwd/repo-root default,
-    no environment-variable-derived path). Omitting it raises the natural
-    `TypeError` from Python's argument binding.
+    Supports legacy v1 (`databases:` dictionary mapping) and v2 (`profiles:`
+    or structured dictionary values with `provider`, `connection_string`, `options`).
     """
     if not os.path.exists(config_path):
         raise ConfigFileNotFoundError.at_path(str(config_path))
@@ -59,19 +52,23 @@ def load_profiles(config_path: str | os.PathLike[str]) -> list[ConnectionProfile
         try:
             document = yaml.load(handle, Loader=_DuplicateKeyLoader)
         except yaml.YAMLError as exc:
-            # Never embed str(exc): PyYAML error text can echo a snippet of
-            # the offending line/connection-string fragment. Chain `from
-            # exc` only for debugger tracebacks, never for the user message.
             raise ConfigParseError.invalid_yaml() from exc
 
-    if not isinstance(document, dict) or not isinstance(document.get("databases"), dict):
+    if not isinstance(document, dict):
+        raise ConfigParseError.invalid_shape()
+
+    raw_profiles: dict[str, Any] | None = None
+    if isinstance(document.get("profiles"), dict):
+        raw_profiles = document["profiles"]
+    elif isinstance(document.get("databases"), dict):
+        raw_profiles = document["databases"]
+    else:
         raise ConfigParseError.invalid_shape()
 
     profiles: list[ConnectionProfile] = []
     seen_casefolded_names: set[str] = set()
-    for raw_name, raw_connection_string in document["databases"].items():
+    for raw_name, entry in raw_profiles.items():
         name = str(raw_name).strip()
-        connection_string = str(raw_connection_string).strip()
 
         if not name:
             raise ProfileValidationError.empty_name()
@@ -81,10 +78,37 @@ def load_profiles(config_path: str | os.PathLike[str]) -> list[ConnectionProfile
             raise ProfileValidationError.duplicate_name(name)
         seen_casefolded_names.add(casefolded_name)
 
+        provider = "sqlserver"
+        connection_string = ""
+        options: dict[str, Any] = {}
+
+        if isinstance(entry, dict):
+            raw_provider = entry.get("provider")
+            provider = str(raw_provider).strip() if raw_provider is not None else "sqlserver"
+            if not provider:
+                provider = "sqlserver"
+
+            raw_conn = entry.get("connection_string")
+            connection_string = str(raw_conn).strip() if raw_conn is not None else ""
+
+            raw_options = entry.get("options")
+            if isinstance(raw_options, dict):
+                options = dict(raw_options)
+        else:
+            connection_string = str(entry).strip() if entry is not None else ""
+
         if not connection_string:
             raise ProfileValidationError.empty_connection_string(name)
 
-        connection_string = translate(connection_string, name=name)
+        if provider.casefold() == "sqlserver":
+            connection_string = translate(connection_string, name=name)
 
-        profiles.append(ConnectionProfile(name=name, connection_string=connection_string))
+        profiles.append(
+            ConnectionProfile(
+                name=name,
+                connection_string=connection_string,
+                provider=provider,
+                options=options,
+            )
+        )
     return profiles

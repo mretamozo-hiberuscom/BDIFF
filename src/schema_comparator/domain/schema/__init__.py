@@ -1,7 +1,4 @@
-"""Normalized, immutable table/column metadata models for one profile.
-
-Re-exported from domain.schema.models for backward compatibility.
-"""
+"""Schema domain models."""
 
 from schema_comparator.domain.schema.models import (
     ColumnSnapshot,

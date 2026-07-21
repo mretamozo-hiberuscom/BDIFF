@@ -1,7 +1,4 @@
-"""Result and diff-entry models for N-way schema comparison.
-
-Re-exported from domain.comparison.models for backward compatibility.
-"""
+"""Comparison domain models."""
 
 from schema_comparator.domain.comparison.models import (
     ColumnAttributes,

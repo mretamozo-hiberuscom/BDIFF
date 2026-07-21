@@ -1,9 +1,7 @@
 """Command-line entry point: load profiles, extract schemas, compare, report.
 
-Wires `config.loader.load_profiles` -> `tui.actions.run_comparison`
-(itself `discovery.service.extract_schema` -> `discovery.filters
-.filter_excluded_tables` -> `compare.engine.compare_snapshots`) ->
-`report.write.write_reports`. No `--format` flag: v1 always generates all
+Composition root wiring `config.loader.load_profiles` -> `application.use_cases.CompareProfilesUseCase`
+-> `report.write.write_reports`. No `--format` flag: v1 always generates all
 four report outputs (HTML, PDF, Excel, console/TUI).
 """
 
@@ -53,18 +51,7 @@ def _resolve_summary_renderer_and_generate_reports(
     `write_reports`, and whether automatic HTML/PDF/Excel generation
     should still happen at startup. Returns
     `(render_summary_or_None, generate_reports: bool)`.
-
-    Automatic generation is skipped only when the interactive TUI
-    actually launches (`--tui` on an interactive terminal); every other
-    shape (no `--tui`, or `--tui` falling back to the console on a
-    non-interactive terminal) keeps generating unconditionally, per
-    REQ-reporting-and-output-002.
-
-    When the TUI launches, `run_tui` is bound with `profiles` and
-    `exclude_patterns` via `functools.partial` so the TUI's "run
-    comparison" and "generate reports" actions have the data they need
-    instead of receiving empty defaults (`run_tui`'s `profiles=None` ->
-    `self._profiles = []`)."""
+    """
     if not use_tui:
         return None, True
     if sys.stdout.isatty() and sys.stdin.isatty():
@@ -87,6 +74,7 @@ def main(argv: list[str] | None = None) -> None:
         profiles = [p for p in profiles if p.name in args.profiles]
 
     exclude_patterns = list(args.exclude_tables or [])
+    
     result = run_comparison(profiles, exclude_patterns)
 
     render_summary, do_generate = _resolve_summary_renderer_and_generate_reports(
@@ -100,4 +88,3 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
-

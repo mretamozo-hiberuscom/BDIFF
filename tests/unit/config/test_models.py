@@ -7,7 +7,7 @@ import pytest
 from schema_comparator.config.models import ConnectionProfile
 
 
-def test_profile_exposes_only_name_and_connection_string() -> None:
+def test_profile_exposes_expected_fields() -> None:
     profile = ConnectionProfile(
         name="poliza-service",
         connection_string=(
@@ -16,12 +16,9 @@ def test_profile_exposes_only_name_and_connection_string() -> None:
         ),
     )
     field_names = {f.name for f in dataclasses.fields(profile)}
-    assert field_names == {"name", "connection_string"}
-    # slots=True blocks arbitrary attribute injection. Note: on frozen+slots
-    # dataclasses, CPython raises TypeError for non-field attribute names
-    # (a documented interaction between zero-arg super() and the slots-time
-    # class rebuild) rather than a plain AttributeError; both outcomes prove
-    # the attribute cannot be set.
+    assert field_names == {"name", "connection_string", "provider", "options"}
+    assert profile.provider == "sqlserver"
+    assert profile.options == {}
     with pytest.raises((AttributeError, TypeError)):
         profile.extra_attribute = "not allowed"  # type: ignore[attr-defined]
 

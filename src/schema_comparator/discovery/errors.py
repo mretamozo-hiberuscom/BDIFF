@@ -54,7 +54,8 @@ class MetadataAccessError(DiscoveryError):
 
 def translate_connect_error(profile_name: str, exc: Exception) -> DiscoveryError:
     """Translate a connect-phase `pyodbc.Error` into a domain error."""
-    sqlstate = exc.args[0] if exc.args else ""
+    raw_state = exc.args[0] if exc.args else ""
+    sqlstate = raw_state if isinstance(raw_state, str) else ""
     if sqlstate.startswith("IM"):
         return DriverUnavailableError.for_profile(profile_name)
     return ConnectionFailedError.for_profile(profile_name)
@@ -62,7 +63,8 @@ def translate_connect_error(profile_name: str, exc: Exception) -> DiscoveryError
 
 def translate_query_error(profile_name: str, exc: Exception) -> DiscoveryError:
     """Translate a query-phase `pyodbc.Error` into a domain error."""
-    sqlstate = exc.args[0] if exc.args else ""
-    if sqlstate == "HYT01" or sqlstate.startswith("08"):
+    raw_state = exc.args[0] if exc.args else ""
+    sqlstate = raw_state if isinstance(raw_state, str) else ""
+    if sqlstate in ("HYT00", "HYT01") or sqlstate.startswith("08"):
         return ConnectionFailedError.for_profile(profile_name)
     return MetadataAccessError.for_profile(profile_name)
