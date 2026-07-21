@@ -4,6 +4,15 @@ Todas las modificaciones destacables de este proyecto se documentarán en este a
 
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/), y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.7.0] - 2026-07-21
+
+### Añadido
+- Adaptador del proveedor SQLite (`SqliteProvider`) en `src/schema_comparator/infrastructure/providers/sqlite/`.
+- Introspección nativa con la biblioteca estándar `sqlite3` usando `sqlite_master` y `PRAGMA table_xinfo` (tablas, columnas, afinidad de tipos, defaults, nulos y autoincrement ROWID identity).
+- Renderizado de scripts DDL para SQLite (`ddl_renderer.py`) con quoting de comillas dobles (`"..."`), adición segura de columnas `ALTER TABLE ... ADD COLUMN` con valores por defecto y estrategia de reconstrucción de tabla (`table rebuild`) para modificaciones complejas.
+- Registro en `ProviderRegistry` (`get_default_registry()`).
+- Fixture golden file DDL en `tests/fixtures/golden/sqlite/sqlite_golden.sql` y suite de pruebas unitarias/contrato en `tests/unit/infrastructure/test_sqlite_provider.py`.
+
 ## [0.6.0] - 2026-07-21
 
 ### Añadido

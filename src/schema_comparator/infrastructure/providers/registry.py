@@ -71,10 +71,17 @@ def _load_postgresql_provider() -> DatabaseProvider:
     return PostgreSqlProvider()
 
 
+def _load_sqlite_provider() -> DatabaseProvider:
+    from schema_comparator.infrastructure.providers.sqlite import SqliteProvider
+
+    return SqliteProvider()
+
+
 def get_default_registry() -> ProviderRegistry:
     """Return a new ProviderRegistry populated with default built-in provider factories."""
     registry = ProviderRegistry()
     registry.register_factory("sqlserver", _load_sqlserver_provider)
     registry.register_factory("postgresql", _load_postgresql_provider)
+    registry.register_factory("sqlite", _load_sqlite_provider)
     return registry
 

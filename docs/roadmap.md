@@ -32,7 +32,7 @@ Para ver el desglose detallado de tareas y OpenSpec Changes por fase, consulta [
 * **`provider-postgresql` (Fase 5):** [x] Adaptador PostgreSQL con `psycopg`, introspección de catalog/enums/arrays, quoting `"name"` y DDL PostgreSQL.
 
 ### Versión 0.5 — Proveedor SQLite
-* **`provider-sqlite` (Fase 6):** Adaptador SQLite con `sqlite3`, soporte para `main`/`temp`/attached DBs, type affinity y estrategia de reconstrucción de tablas (`table rebuild`).
+* **`provider-sqlite` (Fase 6):** [x] Adaptador SQLite con `sqlite3`, soporte para `main`/`temp`/attached DBs, type affinity y estrategia de reconstrucción de tablas (`table rebuild`).
 
 ### Versión 0.6 — Proveedores MySQL y MariaDB
 * **`provider-mysql-mariadb` (Fase 7):** Adaptadores independientes para `mysql` y `mariadb` compartiendo utilidades bajo `mysql_family`, manejo de `AUTO_INCREMENT`, `UNSIGNED`, `ENUM`, `SET` y backticks.
