@@ -37,8 +37,8 @@ Para ver el desglose detallado de tareas y OpenSpec Changes por fase, consulta [
 ### Versión 0.6 — Proveedores MySQL y MariaDB (Completado)
 * **`provider-mysql-mariadb` (Fase 7):** [x] Adaptadores independientes para `mysql` y `mariadb` compartiendo utilidades bajo `mysql_family`, manejo de `AUTO_INCREMENT`, `UNSIGNED`, `ENUM`, `SET` y backticks.
 
-### Versión 0.7 — Proveedor Oracle
-* **`provider-oracle` (Fase 8):** Adaptador Oracle con `python-oracledb` (Thin mode), introspección `ALL_TAB_COLUMNS`, mapeo de `OWNER`, mayúsculas y tipos nativos (`NUMBER`, `VARCHAR2`).
+### Versión 0.7 — Proveedor Oracle (Completado)
+* **`provider-oracle` (Fase 8):** [x] Adaptador Oracle con `python-oracledb` (Thin mode), introspección `ALL_TAB_COLUMNS`, mapeo de `OWNER`, mayúsculas y tipos nativos (`NUMBER`, `VARCHAR2`).
 
 ### Versión 0.8 — Objetos de Esquema Avanzados
 * **`advanced-schema-objects-comparison` (Fase 9):** Inspección y comparación de Primary Keys, Foreign Keys, Unique Constraints, Check Constraints e Índices.

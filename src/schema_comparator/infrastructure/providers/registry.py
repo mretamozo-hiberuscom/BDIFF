@@ -89,6 +89,12 @@ def _load_mariadb_provider() -> DatabaseProvider:
     return MariaDbProvider()
 
 
+def _load_oracle_provider() -> DatabaseProvider:
+    from schema_comparator.infrastructure.providers.oracle import OracleProvider
+
+    return OracleProvider()
+
+
 def get_default_registry() -> ProviderRegistry:
     """Return a new ProviderRegistry populated with default built-in provider factories."""
     registry = ProviderRegistry()
@@ -97,6 +103,8 @@ def get_default_registry() -> ProviderRegistry:
     registry.register_factory("sqlite", _load_sqlite_provider)
     registry.register_factory("mysql", _load_mysql_provider)
     registry.register_factory("mariadb", _load_mariadb_provider)
+    registry.register_factory("oracle", _load_oracle_provider)
     return registry
+
 
 

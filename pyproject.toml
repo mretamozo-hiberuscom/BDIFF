@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "schema-comparator"
-version = "0.8.0"
+version = "0.9.0"
 description = "SQL Server schema-drift comparator across microservices."
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -30,10 +30,14 @@ mysql = [
 mariadb = [
     "pymysql>=1.1",
 ]
+oracle = [
+    "oracledb>=2.0",
+]
 all = [
     "pyodbc>=5.0",
     "psycopg[binary]>=3.1",
     "pymysql>=1.1",
+    "oracledb>=2.0",
 ]
 dev = [
     "pytest>=8.0",

@@ -4,6 +4,15 @@ Todas las modificaciones destacables de este proyecto se documentarán en este a
 
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/), y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.9.0] - 2026-07-21
+
+### Añadido
+- Adaptador del proveedor Oracle Database (`OracleProvider`) en `src/schema_comparator/infrastructure/providers/oracle/`.
+- Introspección de catálogos sobre `ALL_TAB_COLS` y `ALL_TABLES` mapeando `OWNER` a esquema y detectando identidades `GENERATED AS IDENTITY`.
+- Generador de scripts DDL para Oracle (`ddl_renderer.py`) con quoting de comillas dobles (`"..."`), sentencias `ADD (...)` y `MODIFY (...)`.
+- Carga diferida (*lazy loading*) de `oracle` en `ProviderRegistry` y extra opcional `oracle = ["oracledb>=2.0"]` en `pyproject.toml`.
+- Suite de pruebas unitarias para el proveedor Oracle en `tests/unit/infrastructure/test_oracle_provider.py`.
+
 ## [0.8.0] - 2026-07-21
 
 ### Añadido
