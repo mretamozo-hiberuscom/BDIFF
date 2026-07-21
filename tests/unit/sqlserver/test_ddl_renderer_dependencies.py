@@ -105,3 +105,44 @@ def test_generate_ddl_escapes_single_quotes_in_print_statements() -> None:
 
     assert "PRINT 'Tabla [d''bo].[Order''s] creada con exito.';" in ddl
     assert "PRINT 'Columna [Age''s] agregada con exito a [d''bo].[User''s].';" in ddl
+
+
+def test_generate_ddl_not_null_column_backfills_nulls() -> None:
+    profile = ConnectionProfile(name="dev_db", connection_string="Database=TestDB;")
+    not_null_attrs = ColumnAttributes(
+        data_type="int",
+        character_maximum_length=None,
+        numeric_precision=None,
+        numeric_scale=None,
+        is_nullable=False,
+    )
+    mod_res = [
+        ColumnResolution(
+            schema_name="dbo",
+            table_name="Polizas",
+            column_name="IdTomador",
+            target_attributes=not_null_attrs,
+            profiles_to_update=("dev_db",),
+            is_missing_column=False,
+        )
+    ]
+    add_res = [
+        ColumnResolution(
+            schema_name="dbo",
+            table_name="Polizas",
+            column_name="IdCobrador",
+            target_attributes=not_null_attrs,
+            profiles_to_update=("dev_db",),
+            is_missing_column=True,
+        )
+    ]
+
+    ddl_mod = generate_ddl_for_profile(resolutions=mod_res, profile=profile)
+    assert "UPDATE [dbo].[Polizas]" in ddl_mod
+    assert "SET [IdTomador] = 0" in ddl_mod
+    assert "WHERE [IdTomador] IS NULL;" in ddl_mod
+    assert "ALTER TABLE [dbo].[Polizas] ALTER COLUMN [IdTomador] int NOT NULL;" in ddl_mod
+
+    ddl_add = generate_ddl_for_profile(resolutions=add_res, profile=profile)
+    assert "ALTER TABLE [dbo].[Polizas] ADD [IdCobrador] int NOT NULL;" in ddl_add
+

@@ -262,35 +262,11 @@ class DecisionScreen(Screen):
             self.show_resolution_form(tbl_key)
 
     def get_default_decision(self, entry) -> tuple:
-        if isinstance(entry, ColumnMismatch):
-            _, target_attrs = entry.values_by_profile[0]
-            default_dests = tuple(
-                prof for prof, attrs in entry.values_by_profile
-                if attrs != target_attrs
-            )
-            return target_attrs, default_dests
-            
-        elif isinstance(entry, MissingColumn):
-            if entry.present_attributes:
-                _, target_attrs = entry.present_attributes[0]
-                return target_attrs, (entry.missing_from_profile,)
+        """Default decision is (None, ()) ('No hacer nada' / 'Ignorar').
 
-        elif isinstance(entry, MergedMissingColumn):
-            if entry.present_attributes:
-                _, target_attrs = entry.present_attributes[0]
-                return target_attrs, entry.missing_from_profiles
-                
-        elif isinstance(entry, MissingTable):
-            if entry.present_columns:
-                source_prof, _ = entry.present_columns[0]
-                return source_prof, (entry.missing_from_profile,)
-
-        elif isinstance(entry, MergedMissingTable):
-            if entry.present_columns:
-                source_prof, _ = entry.present_columns[0]
-                # Default CREATE targets ALL absent profiles
-                return source_prof, entry.missing_from_profiles
-            
+        This ensures the user starts with a clean slate and only actively selects
+        the items they explicitly want to modify, create, or delete.
+        """
         return None, ()
 
     def show_resolution_form(self, tbl_key: str) -> None:
