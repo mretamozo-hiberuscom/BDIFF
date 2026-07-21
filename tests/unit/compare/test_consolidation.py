@@ -72,6 +72,29 @@ def test_format_sql_column_definition_simple_type() -> None:
     assert format_sql_column_definition(attrs) == "int NOT NULL"
 
 
+def test_format_sql_column_definition_integer_with_numeric_precision_and_scale() -> None:
+    attrs = ColumnAttributes(
+        data_type="int",
+        character_maximum_length=None,
+        numeric_precision=10,
+        numeric_scale=0,
+        is_nullable=False,
+    )
+    assert format_sql_column_definition(attrs) == "int NOT NULL"
+
+
+def test_format_sql_column_definition_integer_with_embedded_precision_string() -> None:
+    attrs = ColumnAttributes(
+        data_type="int(10, 0)",
+        character_maximum_length=None,
+        numeric_precision=10,
+        numeric_scale=0,
+        is_nullable=True,
+    )
+    assert format_sql_column_definition(attrs) == "int NULL"
+
+
+
 def test_generate_ddl_for_profile_missing_column() -> None:
     attrs = ColumnAttributes(
         data_type="int",
