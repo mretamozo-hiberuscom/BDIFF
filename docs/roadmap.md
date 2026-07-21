@@ -27,9 +27,9 @@ Para ver el desglose detallado de tareas y OpenSpec Changes por fase, consulta [
 * **`provider-sqlserver-extraction` (Fase 2):** Extracción del proveedor de SQL Server a `infrastructure/providers/sqlserver/`.
 * **`config-v2-and-optional-dependencies` (Fase 3):** Configuración `profiles:` v2, drivers como extras opcionales en `pyproject.toml` (`sqlserver`, `postgresql`, etc.) y comandos `bdiff providers doctor`.
 
-### Versión 0.4 — Proveedor PostgreSQL
+### Versión 0.4 — Proveedor PostgreSQL (Completado)
 * **`canonical-domain-models-and-capabilities` (Fase 4):** Modelos canónicos `QualifiedName`, `SqlType` y `ProviderCapabilities`.
-* **`provider-postgresql` (Fase 5):** Adaptador PostgreSQL con `psycopg`, introspección de catalog/enums/arrays, quoting `"name"` y DDL PostgreSQL.
+* **`provider-postgresql` (Fase 5):** [x] Adaptador PostgreSQL con `psycopg`, introspección de catalog/enums/arrays, quoting `"name"` y DDL PostgreSQL.
 
 ### Versión 0.5 — Proveedor SQLite
 * **`provider-sqlite` (Fase 6):** Adaptador SQLite con `sqlite3`, soporte para `main`/`temp`/attached DBs, type affinity y estrategia de reconstrucción de tablas (`table rebuild`).

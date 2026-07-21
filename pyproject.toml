@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "schema-comparator"
-version = "0.5.0"
+version = "0.6.0"
 description = "SQL Server schema-drift comparator across microservices."
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -20,6 +20,13 @@ dependencies = [
 [project.optional-dependencies]
 sqlserver = [
     "pyodbc>=5.0",
+]
+postgresql = [
+    "psycopg[binary]>=3.1",
+]
+all = [
+    "pyodbc>=5.0",
+    "psycopg[binary]>=3.1",
 ]
 dev = [
     "pytest>=8.0",

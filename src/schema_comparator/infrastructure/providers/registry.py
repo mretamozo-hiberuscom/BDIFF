@@ -57,3 +57,24 @@ class ProviderRegistry:
         """Return pre-sorted list of all registered provider IDs."""
         all_ids = set(self._providers.keys()) | set(self._factories.keys())
         return sorted(all_ids)
+
+
+def _load_sqlserver_provider() -> DatabaseProvider:
+    from schema_comparator.infrastructure.providers.sqlserver import SqlServerProvider
+
+    return SqlServerProvider()
+
+
+def _load_postgresql_provider() -> DatabaseProvider:
+    from schema_comparator.infrastructure.providers.postgresql import PostgreSqlProvider
+
+    return PostgreSqlProvider()
+
+
+def get_default_registry() -> ProviderRegistry:
+    """Return a new ProviderRegistry populated with default built-in provider factories."""
+    registry = ProviderRegistry()
+    registry.register_factory("sqlserver", _load_sqlserver_provider)
+    registry.register_factory("postgresql", _load_postgresql_provider)
+    return registry
+

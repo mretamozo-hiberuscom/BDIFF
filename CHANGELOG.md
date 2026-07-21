@@ -4,6 +4,15 @@ Todas las modificaciones destacables de este proyecto se documentarán en este a
 
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/), y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.6.0] - 2026-07-21
+
+### Añadido
+- Adaptador del proveedor PostgreSQL (`PostgreSqlProvider`) en `src/schema_comparator/infrastructure/providers/postgresql/`.
+- Introspección completa de catálogos y esquemas PostgreSQL (`information_schema` y `pg_catalog`) soportando familias de tipos, nullability, ordinal position, expresiones por defecto y secuencias/identidades.
+- Generador de scripts DDL para PostgreSQL (`ddl_renderer.py`) con quoting de comillas dobles (`"..."`), sentencias de alteración selectivas (`TYPE ... USING CAST(...)`, `SET/DROP NOT NULL`) y transacciones `BEGIN; ... COMMIT;`.
+- Carga diferida (*lazy loading*) de `postgresql` en `ProviderRegistry` (`get_default_registry()`) y extra opcional `postgresql = ["psycopg[binary]>=3.1"]` en `pyproject.toml`.
+- Fixture golden file en `tests/fixtures/golden/postgresql/postgresql_golden.sql` y suite de pruebas unitarias/contrato en `tests/unit/infrastructure/test_postgresql_provider.py`.
+
 ## [0.5.0] - 2026-07-21
 
 ### Añadido
