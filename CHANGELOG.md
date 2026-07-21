@@ -4,6 +4,14 @@ Todas las modificaciones destacables de este proyecto se documentarán en este a
 
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/), y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.10.0] - 2026-07-21
+
+### Añadido
+- Modelos de dominio para restricciones de clave primaria (`PrimaryKeySnapshot`), clave foránea (`ForeignKeySnapshot` con `referenced_schema`) e índices (`IndexSnapshot`) en `src/schema_comparator/domain/schema/models.py`.
+- Modelos de discrepancia (`PrimaryKeyMismatch`, `ForeignKeyMismatch`, `IndexMismatch`) en `src/schema_comparator/domain/comparison/models.py`.
+- Extensión del motor de comparación N-way (`compare/engine.py`) para evaluar derivas en claves primarias, foráneas e índices entre perfiles de base de datos.
+- Pruebas unitarias de inmutabilidad y detección de derivas en `tests/unit/domain/test_advanced_schema_objects.py`.
+
 ## [0.9.0] - 2026-07-21
 
 ### Añadido

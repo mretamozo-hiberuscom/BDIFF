@@ -1,6 +1,6 @@
 """Normalized, immutable table/column schema metadata models."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +24,36 @@ class ColumnSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class PrimaryKeySnapshot:
+    """Primary key constraint metadata."""
+
+    name: str
+    columns: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ForeignKeySnapshot:
+    """Foreign key constraint metadata."""
+
+    name: str
+    columns: tuple[str, ...]
+    referenced_table: str
+    referenced_columns: tuple[str, ...]
+    referenced_schema: str | None = None
+    on_delete: str | None = None
+    on_update: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class IndexSnapshot:
+    """Secondary or unique index metadata."""
+
+    name: str
+    columns: tuple[str, ...]
+    is_unique: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class TableSnapshot:
     """One base table, identified by the `(schema_name, table_name)` pair.
 
@@ -34,6 +64,9 @@ class TableSnapshot:
     schema_name: str
     table_name: str
     columns: tuple[ColumnSnapshot, ...]
+    primary_key: PrimaryKeySnapshot | None = None
+    foreign_keys: tuple[ForeignKeySnapshot, ...] = ()
+    indexes: tuple[IndexSnapshot, ...] = ()
 
     @property
     def qualified_name(self) -> tuple[str, str]:

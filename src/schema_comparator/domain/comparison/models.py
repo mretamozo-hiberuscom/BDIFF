@@ -2,7 +2,12 @@
 
 from dataclasses import dataclass
 
-from schema_comparator.domain.schema.models import ColumnSnapshot
+from schema_comparator.domain.schema.models import (
+    ColumnSnapshot,
+    ForeignKeySnapshot,
+    IndexSnapshot,
+    PrimaryKeySnapshot,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,7 +97,55 @@ class ColumnMismatch:
         return (self.schema_name, self.table_name)
 
 
-DiffEntry = MissingTable | MissingColumn | ColumnMismatch
+@dataclass(frozen=True, slots=True)
+class PrimaryKeyMismatch:
+    """Primary key mismatch or missing PK across profiles."""
+
+    schema_name: str
+    table_name: str
+    values_by_profile: tuple[tuple[str, PrimaryKeySnapshot | None], ...]
+
+    @property
+    def qualified_name(self) -> tuple[str, str]:
+        return (self.schema_name, self.table_name)
+
+
+@dataclass(frozen=True, slots=True)
+class ForeignKeyMismatch:
+    """Foreign key mismatch or missing FK across profiles."""
+
+    schema_name: str
+    table_name: str
+    fk_name: str
+    values_by_profile: tuple[tuple[str, ForeignKeySnapshot | None], ...]
+
+    @property
+    def qualified_name(self) -> tuple[str, str]:
+        return (self.schema_name, self.table_name)
+
+
+@dataclass(frozen=True, slots=True)
+class IndexMismatch:
+    """Index mismatch or missing index across profiles."""
+
+    schema_name: str
+    table_name: str
+    index_name: str
+    values_by_profile: tuple[tuple[str, IndexSnapshot | None], ...]
+
+    @property
+    def qualified_name(self) -> tuple[str, str]:
+        return (self.schema_name, self.table_name)
+
+
+DiffEntry = (
+    MissingTable
+    | MissingColumn
+    | ColumnMismatch
+    | PrimaryKeyMismatch
+    | ForeignKeyMismatch
+    | IndexMismatch
+)
 
 
 @dataclass(frozen=True, slots=True)

@@ -40,8 +40,8 @@ Para ver el desglose detallado de tareas y OpenSpec Changes por fase, consulta [
 ### Versión 0.7 — Proveedor Oracle (Completado)
 * **`provider-oracle` (Fase 8):** [x] Adaptador Oracle con `python-oracledb` (Thin mode), introspección `ALL_TAB_COLUMNS`, mapeo de `OWNER`, mayúsculas y tipos nativos (`NUMBER`, `VARCHAR2`).
 
-### Versión 0.8 — Objetos de Esquema Avanzados
-* **`advanced-schema-objects-comparison` (Fase 9):** Inspección y comparación de Primary Keys, Foreign Keys, Unique Constraints, Check Constraints e Índices.
+### Versión 0.8 — Objetos de Esquema Avanzados (Completado)
+* **`advanced-schema-objects-comparison` (Fase 9):** [x] Inspección y comparación de Primary Keys, Foreign Keys, Unique Constraints, Check Constraints e Índices.
 
 ### Versión 0.9 — Comparación Semántica Cross-Provider
 * **`cross-provider-semantic-comparison` (Fase 10):** Modo `semantic` opt-in para comparación heterogénea entre distintos motores (ej. SQL Server vs PostgreSQL), matriz de equivalencias y reportes de portabilidad.

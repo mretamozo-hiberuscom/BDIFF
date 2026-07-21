@@ -8,9 +8,12 @@ from schema_comparator.domain.comparison.models import (
     ColumnMismatch,
     ComparisonResult,
     DiffEntry,
+    ForeignKeyMismatch,
+    IndexMismatch,
     MissingColumn,
     MissingTable,
     NamedColumnAttributes,
+    PrimaryKeyMismatch,
 )
 
 __all__ = [
@@ -18,7 +21,10 @@ __all__ = [
     "ColumnMismatch",
     "ComparisonResult",
     "DiffEntry",
+    "ForeignKeyMismatch",
+    "IndexMismatch",
     "MissingColumn",
     "MissingTable",
     "NamedColumnAttributes",
+    "PrimaryKeyMismatch",
 ]

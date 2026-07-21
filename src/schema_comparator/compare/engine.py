@@ -10,11 +10,15 @@ from schema_comparator.compare.models import (
     ColumnAttributes,
     ColumnMismatch,
     ComparisonResult,
+    DiffEntry,
+    ForeignKeyMismatch,
+    IndexMismatch,
     MissingColumn,
     MissingTable,
     NamedColumnAttributes,
+    PrimaryKeyMismatch,
 )
-from schema_comparator.discovery.models import SchemaSnapshot, TableSnapshot
+from schema_comparator.domain.schema.models import SchemaSnapshot, TableSnapshot
 
 
 def _validate(snapshots: Sequence[SchemaSnapshot]) -> None:
@@ -105,11 +109,6 @@ def _evaluate_columns(
             name for name in profile_names if identity in presence[name]
         )
         if len(profiles_with_table) < 2:
-            # Not a matched table (present in 0 or 1 profile) — the
-            # table-level pass already fully covers this case. A profile
-            # missing the table entirely is simply never a member of
-            # `profiles_with_table`, so it can never contribute or receive
-            # a MissingColumn/ColumnMismatch entry here.
             continue
 
         columns_by_profile = {
@@ -152,7 +151,7 @@ def _evaluate_columns(
             )
 
             if len(present) < 2:
-                continue  # nothing to compare — at most one profile has it
+                continue
 
             attrs_by_profile = dict(present_attrs)
             if len(set(attrs_by_profile.values())) > 1:
@@ -168,21 +167,123 @@ def _evaluate_columns(
     return tuple(entries)
 
 
+def _evaluate_advanced_objects(
+    union: set[tuple[str, str]],
+    presence: dict[str, set[tuple[str, str]]],
+    table_index: dict[str, dict[tuple[str, str], TableSnapshot]],
+    profile_names: tuple[str, ...],
+) -> tuple[PrimaryKeyMismatch | ForeignKeyMismatch | IndexMismatch, ...]:
+    entries: list[PrimaryKeyMismatch | ForeignKeyMismatch | IndexMismatch] = []
+
+    for schema_name, table_name in sorted(union):
+        identity = (schema_name, table_name)
+        profiles_with_table = sorted(
+            name for name in profile_names if identity in presence[name]
+        )
+        if len(profiles_with_table) < 2:
+            continue
+
+        # Evaluate Primary Key
+        pk_by_profile = tuple(
+            (p, table_index[p][identity].primary_key) for p in profiles_with_table
+        )
+        pks = [pk for _, pk in pk_by_profile if pk is not None]
+        if pks and len(set(pk_by_profile)) > 1:
+            entries.append(
+                PrimaryKeyMismatch(
+                    schema_name=schema_name,
+                    table_name=table_name,
+                    values_by_profile=pk_by_profile,
+                )
+            )
+
+        # Evaluate Foreign Keys
+        fk_names = sorted(
+            {
+                fk.name
+                for p in profiles_with_table
+                for fk in getattr(table_index[p][identity], "foreign_keys", ())
+            }
+        )
+        for fk_name in fk_names:
+            fk_by_profile = tuple(
+                (
+                    p,
+                    next(
+                        (
+                            fk
+                            for fk in getattr(table_index[p][identity], "foreign_keys", ())
+                            if fk.name == fk_name
+                        ),
+                        None,
+                    ),
+                )
+                for p in profiles_with_table
+            )
+            if len(set(fk_by_profile)) > 1:
+                entries.append(
+                    ForeignKeyMismatch(
+                        schema_name=schema_name,
+                        table_name=table_name,
+                        fk_name=fk_name,
+                        values_by_profile=fk_by_profile,
+                    )
+                )
+
+        # Evaluate Indexes
+        index_names = sorted(
+            {
+                idx.name
+                for p in profiles_with_table
+                for idx in getattr(table_index[p][identity], "indexes", ())
+            }
+        )
+        for index_name in index_names:
+            idx_by_profile = tuple(
+                (
+                    p,
+                    next(
+                        (
+                            idx
+                            for idx in getattr(table_index[p][identity], "indexes", ())
+                            if idx.name == index_name
+                        ),
+                        None,
+                    ),
+                )
+                for p in profiles_with_table
+            )
+            if len(set(idx_by_profile)) > 1:
+                entries.append(
+                    IndexMismatch(
+                        schema_name=schema_name,
+                        table_name=table_name,
+                        index_name=index_name,
+                        values_by_profile=idx_by_profile,
+                    )
+                )
+
+    return tuple(entries)
+
+
 _TYPE_RANK: dict[type, int] = {
     MissingTable: 0,
     MissingColumn: 1,
     ColumnMismatch: 2,
+    PrimaryKeyMismatch: 3,
+    ForeignKeyMismatch: 4,
+    IndexMismatch: 5,
 }
 
 
 def _sort_key(
-    entry: MissingTable | MissingColumn | ColumnMismatch,
+    entry: DiffEntry,
 ) -> tuple[str, str, int, str, str]:
     return (
         entry.schema_name,
         entry.table_name,
         _TYPE_RANK[type(entry)],
-        getattr(entry, "column_name", ""),
+        getattr(entry, "column_name", getattr(entry, "fk_name", getattr(entry, "index_name", ""))),
         getattr(entry, "missing_from_profile", ""),
     )
 
@@ -201,6 +302,7 @@ def compare_snapshots(snapshots: Sequence[SchemaSnapshot]) -> ComparisonResult:
 
     table_entries = _evaluate_tables(union, presence, table_index, profile_names)
     column_entries = _evaluate_columns(union, presence, table_index, profile_names)
+    advanced_entries = _evaluate_advanced_objects(union, presence, table_index, profile_names)
 
-    entries = tuple(sorted(table_entries + column_entries, key=_sort_key))
+    entries = tuple(sorted(table_entries + column_entries + advanced_entries, key=_sort_key))
     return ComparisonResult(compared_profiles=profile_names, entries=entries)
