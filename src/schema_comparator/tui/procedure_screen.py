@@ -192,7 +192,7 @@ class ProcedureVerificationScreen(Screen):
                         ),
                     )
         self._validation_results = results_map
-        self.call_from_thread(self._update_table_view_validation)
+        self.app.call_from_thread(self._update_table_view_validation)
         return results_map, total_count
 
     def _update_table_view_validation(self) -> None:
@@ -284,7 +284,7 @@ class ProcedureVerificationScreen(Screen):
                         ),
                     )
         self._refresh_results = results_map
-        self.call_from_thread(self._update_table_view_refresh)
+        self.app.call_from_thread(self._update_table_view_refresh)
 
     def _update_table_view_refresh(self) -> None:
         tables = self.query(DataTable)
