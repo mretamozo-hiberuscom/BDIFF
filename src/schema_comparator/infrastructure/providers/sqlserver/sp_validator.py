@@ -3,12 +3,36 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
+import re
 import pyodbc
 
 from schema_comparator.domain.errors import (
     ModuleEnumerationError,
     SignatureInspectionError,
 )
+
+
+def clean_sql_error_message(err: Exception | str | None) -> str:
+    """Clean verbose pyodbc/ODBC exception strings into concise, human-readable diagnostics."""
+    if err is None:
+        return "Error desconocido"
+    raw = str(err)
+    if isinstance(err, Exception) and hasattr(err, "args") and err.args:
+        for arg in err.args:
+            if isinstance(arg, str) and "[SQL Server]" in arg:
+                raw = arg
+                break
+            elif isinstance(arg, str) and len(arg) > len(raw):
+                raw = arg
+
+    if "[SQL Server]" in raw:
+        raw = raw.split("[SQL Server]")[-1].strip()
+
+    raw = re.sub(r"\s*\((?:SQLExecDirectW|SQLExecute|SQLPrepare)\)", "", raw).strip()
+    raw = re.sub(r'["\']\)?$', "", raw).strip()
+    raw = re.sub(r"\((\d+)\)$", r"(Error \1)", raw)
+
+    return raw if raw else str(err)
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,7 +302,7 @@ def validate_routines_read_only(
                     routine=target,
                     status=RoutineValidationStatus.INVALID,
                     signature_status=signed_status,
-                    error_message=str(exc),
+                    error_message=clean_sql_error_message(exc),
                 )
             )
 
@@ -345,7 +369,7 @@ def refresh_modules_mutating(
             results.append(
                 ModuleRefreshResult.failure(
                     target,
-                    error_message=str(exc),
+                    error_message=clean_sql_error_message(exc),
                     signature_status=sig_status,
                 )
             )

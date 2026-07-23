@@ -10,6 +10,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, DataTable, Footer, Header, Label, Static
 
+from schema_comparator.compare.consolidation import sanitize_profile_filename
 from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.infrastructure.providers.sqlserver import connection
 from schema_comparator.infrastructure.providers.sqlserver.sp_validator import (
@@ -357,7 +358,7 @@ class ProcedureVerificationScreen(Screen):
                 )
 
     def action_generate_script(self) -> None:
-        """Generate repair T-SQL script in scripts-db folder excluding signed objects."""
+        """Generate repair T-SQL scripts in scripts-db/<folder>/repair_sps/ separated per database profile."""
         status_labels = self.query("#sp-status")
 
         if not self._validation_results and not self._refresh_results:
@@ -370,18 +371,65 @@ class ProcedureVerificationScreen(Screen):
         ts = datetime.datetime.now()
         folder_name = ts.strftime("%Y%m%d_%H%M%S")
         output_dir = self._repo_root / "scripts-db" / folder_name
-        output_dir.mkdir(parents=True, exist_ok=True)
+        repair_dir = output_dir / "repair_sps"
+        repair_dir.mkdir(parents=True, exist_ok=True)
 
-        script_lines = [
-            "-- Script de Reparación y Recompilación de Procedimientos Almacenados y Vistas",
+        source_map = self._refresh_results or self._validation_results
+        master_lines = [
+            "-- ============================================================================",
+            "-- Script Maestro de Reparación y Recompilación de Procedimientos Almacenados y Vistas",
             f"-- Generado el {ts.strftime('%Y-%m-%d %H:%M:%S')}",
-            "-- NOTA: Excluye automáticamente objetos con firma digital criptográfica",
+            "-- NOTA: Excluye automáticamente objetos con firma digital criptográfica.",
+            "-- NOTA: Cada perfil de base de datos dispone de su propio archivo en la carpeta 'repair_sps/'.",
+            "-- ============================================================================",
+            "",
+            "SET NOCOUNT ON;",
+            "GO",
             "",
         ]
 
-        source_map = self._refresh_results or self._validation_results
+        written_profile_files: list[str] = []
+
         for profile_name, res_list in sorted(source_map.items()):
-            script_lines.append(f"-- Perfil / BD: {profile_name}")
+            safe_filename = sanitize_profile_filename(profile_name) + ".sql"
+            prof_file_path = repair_dir / safe_filename
+
+            prof_lines = [
+                "-- ============================================================================",
+                f"-- Script de Recompilación de Rutinas - Perfil / Base de Datos: {profile_name}",
+                f"-- Generado el {ts.strftime('%Y-%m-%d %H:%M:%S')}",
+                "-- NOTA: Excluye automáticamente objetos con firma digital criptográfica.",
+                "-- ============================================================================",
+                "",
+                "SET NOCOUNT ON;",
+                "GO",
+                "",
+                "PRINT '============================================================================';",
+                f"PRINT '  INICIANDO RECOMPILACIÓN DE RUTINAS EN PERFIL: {profile_name}';",
+                "PRINT '============================================================================';",
+                "GO",
+                "",
+            ]
+
+            master_lines.append(
+                "-- ============================================================================"
+            )
+            master_lines.append(f"-- Perfil / Base de Datos: {profile_name}")
+            master_lines.append(
+                "-- ============================================================================"
+            )
+            master_lines.append(
+                "PRINT '============================================================================';"
+            )
+            master_lines.append(
+                f"PRINT '  INICIANDO RECOMPILACIÓN DE RUTINAS EN PERFIL: {profile_name}';"
+            )
+            master_lines.append(
+                "PRINT '============================================================================';"
+            )
+            master_lines.append("GO")
+            master_lines.append("")
+
             for r in res_list:
                 routine = getattr(r, "routine", None)
                 if (
@@ -394,30 +442,74 @@ class ProcedureVerificationScreen(Screen):
                     getattr(r, "signature_status", SignatureStatus.UNSIGNED)
                     != SignatureStatus.UNSIGNED
                 ):
-                    script_lines.append(
-                        f"-- OMITIDO (Firmado): [{routine.schema_name}].[{routine.object_name}]"
-                    )
+                    comment_line = f"-- OMITIDO (Firmado): [{routine.schema_name}].[{routine.object_name}]"
+                    prof_lines.append(comment_line)
+                    master_lines.append(comment_line)
                     continue
-                # For T-SQL N'...' string literal parameter in sp_refreshsqlmodule:
-                # String literals double single-quotes (' -> ''). Do NOT double right-brackets (] -> ]]) inside a string literal.
+
                 safe_sch = routine.schema_name.replace("'", "''")
                 safe_obj = routine.object_name.replace("'", "''")
-                script_lines.append(
-                    f"EXEC sys.sp_refreshsqlmodule @name = N'[{safe_sch}].[{safe_obj}]';"
-                )
-            script_lines.append("")
+                qname = f"[{safe_sch}].[{safe_obj}]"
 
-        script_path = output_dir / "repair_sps.sql"
+                tsql_block = [
+                    f"PRINT 'Recompilando {qname}...';",
+                    "BEGIN TRY",
+                    f"    EXEC sys.sp_refreshsqlmodule @name = N'{qname}';",
+                    "    PRINT '  -> ✅ Éxito';",
+                    "END TRY",
+                    "BEGIN CATCH",
+                    f"    PRINT '  -> ❌ ERROR en {qname}: ' + ERROR_MESSAGE() + ' (Error ' + CAST(ERROR_NUMBER() AS VARCHAR) + ')';",
+                    "END CATCH;",
+                    "GO",
+                    "",
+                ]
+                prof_lines.extend(tsql_block)
+                master_lines.extend(tsql_block)
+
+            prof_lines.append(
+                "PRINT '============================================================================';"
+            )
+            prof_lines.append(
+                f"PRINT '  RECOMPILACIÓN FINALIZADA PARA PERFIL: {profile_name}';"
+            )
+            prof_lines.append(
+                "PRINT '============================================================================';"
+            )
+            prof_lines.append("GO")
+
+            master_lines.append(
+                "PRINT '============================================================================';"
+            )
+            master_lines.append(
+                f"PRINT '  RECOMPILACIÓN FINALIZADA PARA PERFIL: {profile_name}';"
+            )
+            master_lines.append(
+                "PRINT '============================================================================';"
+            )
+            master_lines.append("GO")
+            master_lines.append("")
+
+            try:
+                prof_file_path.write_text("\n".join(prof_lines), encoding="utf-8")
+                written_profile_files.append(safe_filename)
+            except Exception as exc:
+                if status_labels:
+                    status_labels.first().update(
+                        f"[bold red]❌ Error al escribir el script para {profile_name}: {exc}[/bold red]"
+                    )
+                return
+
+        master_script_path = output_dir / "repair_sps.sql"
         try:
-            script_path.write_text("\n".join(script_lines), encoding="utf-8")
+            master_script_path.write_text("\n".join(master_lines), encoding="utf-8")
             if status_labels:
                 status_labels.first().update(
-                    f"✅ Script de reparación generado en: scripts-db/{folder_name}/repair_sps.sql"
+                    f"✅ Scripts generados en: scripts-db/{folder_name}/repair_sps/ ({len(written_profile_files)} archivo(s) por BD + repair_sps.sql)"
                 )
         except Exception as exc:
             if status_labels:
                 status_labels.first().update(
-                    f"[bold red]❌ Error al escribir el script de reparación: {exc}[/bold red]"
+                    f"[bold red]❌ Error al escribir el script maestro de reparación: {exc}[/bold red]"
                 )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

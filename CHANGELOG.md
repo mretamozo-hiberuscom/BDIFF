@@ -4,6 +4,13 @@ Todas las modificaciones destacables de este proyecto se documentarán en este a
 
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/), y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [1.2.4] - 2026-07-23
+
+### Mejorado
+- **Formateo limpio de errores SQL**: función `clean_sql_error_message` que limpia tuplas y mensajes crudos del driver ODBC/pyodbc (`('42000', "[42000]... (207)")`) transformándolos en diagnósticos humanos directos (ej. `Invalid column name 'Codigo'. (Error 207)`).
+- **Scripts T-SQL resilientes e informativos**: las llamadas a `sp_refreshsqlmodule` en scripts de reparación ahora se generan dentro de bloques `PRINT` + `BEGIN TRY ... END TRY ... BEGIN CATCH ... END CATCH` por cada objeto. Al ejecutar el script en SSMS/sqlcmd, se muestra el progreso de cada rutina y se reporta el error exacto de forma aislada sin abortar el resto del script.
+- **Organización de scripts por Base de Datos**: generación de archivos `.sql` independientes por cada perfil de base de datos en la carpeta `scripts-db/<timestamp>/repair_sps/<perfil>.sql`, además del script maestro unificado `repair_sps.sql`.
+
 ## [1.2.3] - 2026-07-23
 
 ### Corregido

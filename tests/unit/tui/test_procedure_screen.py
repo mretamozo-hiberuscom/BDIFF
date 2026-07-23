@@ -12,6 +12,7 @@ from schema_comparator.infrastructure.providers.sqlserver.sp_validator import (
     RoutineValidationResult,
     RoutineValidationStatus,
     SignatureStatus,
+    clean_sql_error_message,
 )
 from schema_comparator.tui.formatting import leaf_label, detail_text, entry_matches
 from schema_comparator.tui.procedure_screen import ProcedureVerificationScreen
@@ -140,3 +141,27 @@ def test_action_generate_script_escapes_single_quotes_and_skips_signed_and_place
     assert "N'[dbo].[sp_user''s_proc]'" in content
     assert "OMITIDO (Firmado): [dbo].[sp_signed_proc]" in content
     assert "[SYSTEM].[CONNECT]" not in content
+    assert "BEGIN TRY" in content
+    assert "BEGIN CATCH" in content
+
+    # Check profile-specific script file inside repair_sps/ subfolder
+    profile_script_files = list(
+        (tmp_path / "scripts-db").glob("*/repair_sps/test_prof.sql")
+    )
+    assert len(profile_script_files) == 1
+    prof_content = profile_script_files[0].read_text(encoding="utf-8")
+    assert "INICIANDO RECOMPILACIÓN DE RUTINAS EN PERFIL: test_prof" in prof_content
+    assert "BEGIN TRY" in prof_content
+
+
+def test_clean_sql_error_message():
+    raw_pyodbc = (
+        "('42000', \"[42000] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server] "
+        "Invalid column name 'Codigo'. (207) (SQLExecDirectW)\")"
+    )
+    cleaned = clean_sql_error_message(raw_pyodbc)
+    assert cleaned == "Invalid column name 'Codigo'. (Error 207)"
+
+    simple_err = "Dependencias con referencias no resueltas: dbo.TablaInexistente"
+    assert clean_sql_error_message(simple_err) == simple_err
+    assert clean_sql_error_message(None) == "Error desconocido"
