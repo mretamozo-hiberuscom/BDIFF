@@ -43,8 +43,8 @@ Para ver el desglose detallado de tareas y OpenSpec Changes por fase, consulta [
 ### Versión 0.8 — Objetos de Esquema Avanzados (Completado)
 * **`advanced-schema-objects-comparison` (Fase 9):** [x] Inspección y comparación de Primary Keys, Foreign Keys, Unique Constraints, Check Constraints e Índices.
 
-### Versión 0.9 — Comparación Semántica Cross-Provider
-* **`cross-provider-semantic-comparison` (Fase 10):** Modo `semantic` opt-in para comparación heterogénea entre distintos motores (ej. SQL Server vs PostgreSQL), matriz de equivalencias y reportes de portabilidad.
+### Versión 0.9 — Comparación Semántica Cross-Provider (Completado)
+* **`cross-provider-semantic-comparison` (Fase 10):** [x] Modo `semantic` opt-in para comparación heterogénea entre distintos motores (ej. SQL Server vs PostgreSQL), matriz de equivalencias y reportes de portabilidad.
 
-### Versión 1.0 — Estabilización & API Pública
-* API de proveedores estable, suite completa de pruebas de contrato en CI y documentación consolidada.
+### Versión 1.0 — Estabilización & API Pública (Completado)
+* [x] API de proveedores estable, suite completa de pruebas de contrato en CI y documentación consolidada.

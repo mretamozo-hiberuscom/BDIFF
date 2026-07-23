@@ -18,6 +18,10 @@ from schema_comparator.compare.models import (
     NamedColumnAttributes,
     PrimaryKeyMismatch,
 )
+from schema_comparator.domain.capabilities import ComparisonMode
+from schema_comparator.domain.comparison.type_equivalences import (
+    are_types_semantically_equivalent,
+)
 from schema_comparator.domain.schema.models import SchemaSnapshot, TableSnapshot
 
 
@@ -67,7 +71,6 @@ def _evaluate_tables(
         if not missing_from:
             continue
 
-        # Build present_columns from profiles that have this table
         present_profiles = sorted(
             name for name in profile_names if identity in presence[name]
         )
@@ -100,6 +103,7 @@ def _evaluate_columns(
     presence: dict[str, set[tuple[str, str]]],
     table_index: dict[str, dict[tuple[str, str], TableSnapshot]],
     profile_names: tuple[str, ...],
+    mode: ComparisonMode = ComparisonMode.NATIVE_STRICT,
 ) -> tuple[MissingColumn | ColumnMismatch, ...]:
     entries: list[MissingColumn | ColumnMismatch] = []
 
@@ -154,7 +158,27 @@ def _evaluate_columns(
                 continue
 
             attrs_by_profile = dict(present_attrs)
-            if len(set(attrs_by_profile.values())) > 1:
+
+            if mode == ComparisonMode.SEMANTIC_EQUIVALENT:
+                from schema_comparator.domain.comparison.type_equivalences import get_type_family
+
+                def _norm(attrs: ColumnAttributes) -> ColumnAttributes:
+                    return ColumnAttributes(
+                        data_type=get_type_family(attrs.data_type),
+                        character_maximum_length=attrs.character_maximum_length,
+                        numeric_precision=attrs.numeric_precision,
+                        numeric_scale=attrs.numeric_scale,
+                        is_nullable=attrs.is_nullable,
+                        default_expression=attrs.default_expression,
+                        is_identity=attrs.is_identity,
+                        collation=attrs.collation,
+                    )
+
+                distinct_attrs = set(_norm(a) for a in attrs_by_profile.values())
+            else:
+                distinct_attrs = set(attrs_by_profile.values())
+
+            if len(distinct_attrs) > 1:
                 entries.append(
                     ColumnMismatch(
                         schema_name=schema_name,
@@ -183,7 +207,6 @@ def _evaluate_advanced_objects(
         if len(profiles_with_table) < 2:
             continue
 
-        # Evaluate Primary Key
         pk_by_profile = tuple(
             (p, table_index[p][identity].primary_key) for p in profiles_with_table
         )
@@ -197,7 +220,6 @@ def _evaluate_advanced_objects(
                 )
             )
 
-        # Evaluate Foreign Keys
         fk_names = sorted(
             {
                 fk.name
@@ -230,7 +252,6 @@ def _evaluate_advanced_objects(
                     )
                 )
 
-        # Evaluate Indexes
         index_names = sorted(
             {
                 idx.name
@@ -288,20 +309,18 @@ def _sort_key(
     )
 
 
-def compare_snapshots(snapshots: Sequence[SchemaSnapshot]) -> ComparisonResult:
-    """Compare 2+ named schema snapshots and return a deterministic diff.
-
-    Raises `InsufficientSnapshotsError` for fewer than 2 snapshots and
-    `DuplicateProfileNameError` for repeated profile names. Never returns a
-    partial `ComparisonResult` when a precondition is violated.
-    """
+def compare_snapshots(
+    snapshots: Sequence[SchemaSnapshot],
+    mode: ComparisonMode = ComparisonMode.NATIVE_STRICT,
+) -> ComparisonResult:
+    """Compare 2+ named schema snapshots and return a deterministic diff."""
     _validate(snapshots)
     profile_names = tuple(sorted(s.profile_name for s in snapshots))
     union, presence = _build_presence_index(snapshots)
     table_index = _build_table_index(snapshots)
 
     table_entries = _evaluate_tables(union, presence, table_index, profile_names)
-    column_entries = _evaluate_columns(union, presence, table_index, profile_names)
+    column_entries = _evaluate_columns(union, presence, table_index, profile_names, mode=mode)
     advanced_entries = _evaluate_advanced_objects(union, presence, table_index, profile_names)
 
     entries = tuple(sorted(table_entries + column_entries + advanced_entries, key=_sort_key))

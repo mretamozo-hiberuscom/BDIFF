@@ -15,7 +15,7 @@ scale: team
 strict_tdd: false
 
 project:
-  version: "0.10.0"
+  version: "1.0.0"
   status: foundation-defined
   stack:
     languages: [python]

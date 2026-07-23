@@ -4,6 +4,15 @@ Todas las modificaciones destacables de este proyecto se documentarán en este a
 
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/), y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [1.0.0] - 2026-07-23
+
+### Añadido
+- Modo de comparación semántica opt-in (`ComparisonMode.SEMANTIC_EQUIVALENT`) para comparación heterogénea entre distintos motores de bases de datos (SQL Server, PostgreSQL, SQLite, MySQL, MariaDB, Oracle).
+- Matriz de equivalencia semántica de tipos en `src/schema_comparator/domain/comparison/type_equivalences.py` (`STRING`, `INTEGER`, `BOOLEAN`, `FLOAT`, `DECIMAL`, `DATETIME`, `BINARY`, `UUID`, `JSON`).
+- Preservación estricta de diferencias de longitud, precisión, escala y nullability durante la normalización semántica.
+- Pruebas unitarias completas de comparación heterogénea en `tests/unit/compare/test_cross_provider_semantic.py`.
+- Estabilización de la arquitectura multibase de datos y API pública v1.0.0.
+
 ## [0.10.0] - 2026-07-21
 
 ### Añadido
