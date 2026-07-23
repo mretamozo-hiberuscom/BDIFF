@@ -1,7 +1,5 @@
 """Plain-text console summary of a ComparisonResult (no HTML/PDF I/O)."""
 
-from itertools import groupby
-
 from schema_comparator.compare.models import (
     ColumnMismatch,
     ComparisonResult,
@@ -13,7 +11,8 @@ from schema_comparator.compare.models import (
     PrimaryKeyMismatch,
     ProcedureMismatch,
 )
-from schema_comparator.report.attributes import format_attributes
+from schema_comparator.report.presentation import present_finding
+from schema_comparator.report.rows import grouped_rows_by_table
 
 _TYPE_LABELS = {
     MissingTable: "Tablas faltantes",
@@ -22,16 +21,15 @@ _TYPE_LABELS = {
     PrimaryKeyMismatch: "Discrepancias de PK",
     ForeignKeyMismatch: "Discrepancias de FK",
     IndexMismatch: "Discrepancias de índices",
-    MissingProcedure: "Procedimientos almacenados faltantes",
-    ProcedureMismatch: "Discrepancias de procedimientos almacenados",
+    MissingProcedure: "Procedimientos/Rutinas faltantes",
+    ProcedureMismatch: "Discrepancias de procedimientos/rutinas",
 }
 
 
 def render_console(result: ComparisonResult) -> str:
-    """Render a human-readable console summary of `result`.
+    """Render a human-readable console summary of `result` consuming FindingView.
 
-    Pure function of `ComparisonResult` only — never receives HTML/PDF
-    output, so it is independent of whether those steps succeeded.
+    Pure function of `ComparisonResult` only.
     """
     lines: list[str] = []
     lines.append("Reporte de Diferencias de Esquema - Resumen de Consola")
@@ -53,38 +51,12 @@ def render_console(result: ComparisonResult) -> str:
     lines.append("")
 
     lines.append("Detalle por objeto/tabla/procedimiento:")
-    for (schema, table), entries in groupby(result.entries, key=lambda e: e.qualified_name):
-        table_entries = list(entries)
-        lines.append(f"  {schema}.{table}: {len(table_entries)} hallazgo(s)")
-        for entry in table_entries:
-            if isinstance(entry, MissingTable):
-                lines.append(f"    - tabla faltante (de {entry.missing_from_profile})")
-            elif isinstance(entry, MissingColumn):
-                present = ", ".join(
-                    f"{profile}={format_attributes(attrs)}"
-                    for profile, attrs in entry.present_attributes
-                )
-                suffix = f" (presente como {present})" if present else ""
-                lines.append(
-                    f"    - {entry.column_name}: columna faltante "
-                    f"(de {entry.missing_from_profile}){suffix}"
-                )
-            elif isinstance(entry, MissingProcedure):
-                lines.append(
-                    f"    - procedimiento almacenado/rutina faltante (de {entry.missing_from_profile})"
-                )
-            elif isinstance(entry, ProcedureMismatch):
-                profiles = ", ".join(p for p, _ in entry.values_by_profile)
-                lines.append(
-                    f"    - procedimiento almacenado/rutina: discrepancia de código o parámetros entre {profiles}"
-                )
-            elif isinstance(entry, ColumnMismatch):
-                profiles = ", ".join(p for p, _ in entry.values_by_profile)
-                lines.append(
-                    f"    - {entry.column_name}: discrepancia de atributos entre {profiles}"
-                )
-            else:
-                lines.append(f"    - discrepancia en {type(entry).__name__}")
+    for (schema, object_name), rows_of_entries in grouped_rows_by_table(result):
+        lines.append(f"  {schema}.{object_name}: {len(rows_of_entries)} hallazgo(s)")
+        for entries in rows_of_entries:
+            view = present_finding(entries, result.compared_profiles)
+            detail_str = f" [{view.detail_name}]" if view.detail_name else ""
+            profile_summary = ", ".join(f"{p}={val}" for p, val in view.cells_by_profile.items())
+            lines.append(f"    - [{view.object_kind}] {view.finding_type}{detail_str}: {profile_summary}")
 
     return "\n".join(lines)
-

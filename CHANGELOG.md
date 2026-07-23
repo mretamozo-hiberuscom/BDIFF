@@ -4,6 +4,21 @@ Todas las modificaciones destacables de este proyecto se documentarán en este a
 
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/), y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [1.2.2] - 2026-07-23
+
+### Añadido
+- Flujo de Integración Continua (CI) en `.github/workflows/ci.yml` ejecutando verificación de formato y matriz de pruebas unitarias/integración en Python 3.11, 3.12 y 3.13.
+
+### Corregido
+- Conexión del servicio de extracción `SchemaExtractionService` en `CompareProfilesUseCase` e inyección mediante la factoría `build_compare_profiles_use_case` en TUI y CLI.
+- Declaración explícita de `provider_id` y `extracted_features` en snapshots de todos los adaptadores de base de datos (SQL Server, PostgreSQL, SQLite, MySQL, MariaDB, Oracle).
+- Cambio del comportamiento `on_mount` en TUI a validación de dependencias de solo lectura con modal de confirmación `ConfirmRefreshModal` para recompilaciones mutantes.
+- Fail-closed total en la verificación de firmas criptográficas en `sys.crypt_properties` para evitar pérdida de firmas al ejecutar `sp_refreshsqlmodule`.
+- Control de transacciones con `commit()` por objeto exitoso y `rollback()` ante excepciones de base de datos durante la recompilación de rutinas.
+- Validación de dependencias de solo lectura mediante `sys.dm_sql_referenced_entities` contemplando `is_all_columns_found IS NULL`.
+- Formateo de firmas completas de parámetros en `FindingView` y corrección de escapes T-SQL en literales de texto `N'...'`.
+- Comparación de procedimientos encriptados (`ENCRYPTED`) evitando falsos positivos cuando coinciden en ambos perfiles.
+
 ## [1.2.1] - 2026-07-23
 
 ### Añadido

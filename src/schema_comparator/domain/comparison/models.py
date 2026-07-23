@@ -12,6 +12,14 @@ from schema_comparator.domain.schema.models import (
 
 
 @dataclass(frozen=True, slots=True)
+class ComparisonFilters:
+    """Filter criteria applied during extraction and comparison."""
+
+    excluded_tables: tuple[str, ...] = ()
+    excluded_routines: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class ColumnAttributes:
     """The comparable subset of ColumnSnapshot for mismatch detection.
 
@@ -176,7 +184,6 @@ DiffEntry = (
     | MissingProcedure
     | ProcedureMismatch
 )
-
 
 
 @dataclass(frozen=True, slots=True)

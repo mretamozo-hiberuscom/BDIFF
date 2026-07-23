@@ -4,6 +4,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 
+class SchemaFeature(str, Enum):
+    TABLES = "tables"
+    ROUTINES = "routines"
+
+
 class DefinitionAvailability(str, Enum):
     """Availability status of SQL definition (body)."""
 
@@ -134,4 +139,6 @@ class SchemaSnapshot:
     tables: tuple[TableSnapshot, ...]
     procedures: tuple[ProcedureSnapshot, ...] = ()
     provider_id: str = "sqlserver"
-    extracted_features: tuple[str, ...] = ("tables", "procedures")
+    extracted_features: frozenset[SchemaFeature] = field(
+        default_factory=lambda: frozenset({SchemaFeature.TABLES, SchemaFeature.ROUTINES})
+    )

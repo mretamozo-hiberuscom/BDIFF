@@ -5,9 +5,11 @@ from schema_comparator.domain.schema.models import (
     DefinitionAvailability,
     ParameterSnapshot,
     ProcedureSnapshot,
+    SchemaFeature,
     SchemaSnapshot,
     TableSnapshot,
 )
+
 
 CATALOG_QUERY_SQL = """
 SELECT
@@ -174,10 +176,12 @@ def build_snapshot(
 
     return SchemaSnapshot(
         profile_name=profile_name,
+        provider_id="sqlserver",
         tables=tables,
         procedures=tuple(procedures),
-        provider_id="sqlserver",
+        extracted_features=frozenset({SchemaFeature.TABLES, SchemaFeature.ROUTINES}),
     )
+
 
 
 # Alias for backward compatibility

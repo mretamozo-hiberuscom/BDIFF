@@ -7,6 +7,7 @@ from schema_comparator.discovery.models import SchemaSnapshot, TableSnapshot
 def _snapshot(*table_names: str) -> SchemaSnapshot:
     return SchemaSnapshot(
         profile_name="a",
+        provider_id="sqlserver",
         tables=tuple(
             TableSnapshot(schema_name="dbo", table_name=name, columns=())
             for name in table_names

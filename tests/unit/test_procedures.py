@@ -60,7 +60,6 @@ def test_introspector_build_snapshot_with_procedures():
         ("dbo", "sp_GetUser", "SQL_STORED_PROCEDURE", "CREATE PROC dbo.sp_GetUser AS SELECT 1;", 0, "@ActiveOnly", "bit", None, None, None, False, 2),
     ]
 
-
     snapshot = build_snapshot("Profile1", table_rows, proc_rows=proc_rows)
 
     assert snapshot.profile_name == "Profile1"
@@ -91,11 +90,13 @@ def test_compare_snapshots_missing_procedure():
 
     snap1 = SchemaSnapshot(
         profile_name="Profile1",
+        provider_id="sqlserver",
         tables=(),
         procedures=(proc1, proc2),
     )
     snap2 = SchemaSnapshot(
         profile_name="Profile2",
+        provider_id="sqlserver",
         tables=(),
         procedures=(proc1,),
     )
@@ -122,8 +123,8 @@ def test_compare_snapshots_procedure_mismatch():
         definition_hash="hash_b",
     )
 
-    snap1 = SchemaSnapshot(profile_name="Profile1", tables=(), procedures=(proc1,))
-    snap2 = SchemaSnapshot(profile_name="Profile2", tables=(), procedures=(proc2,))
+    snap1 = SchemaSnapshot(profile_name="Profile1", provider_id="sqlserver", tables=(), procedures=(proc1,))
+    snap2 = SchemaSnapshot(profile_name="Profile2", provider_id="sqlserver", tables=(), procedures=(proc2,))
 
     result = compare_snapshots([snap1, snap2])
 

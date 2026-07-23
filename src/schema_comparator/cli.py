@@ -7,6 +7,7 @@ import functools
 import sys
 
 from schema_comparator.config.loader import load_profiles
+from schema_comparator.domain.comparison.models import ComparisonFilters
 from schema_comparator.domain.errors import SchemaComparatorError
 from schema_comparator.report.write import write_reports
 from schema_comparator.tui import run_tui
@@ -88,6 +89,7 @@ def _run_routine_validation(
 ) -> bool:
     from schema_comparator.infrastructure.providers.sqlserver import connection
     from schema_comparator.infrastructure.providers.sqlserver.sp_validator import (
+        enumerate_routines,
         refresh_modules_mutating,
         validate_routines_read_only,
     )
@@ -102,22 +104,25 @@ def _run_routine_validation(
         if provider_name == "sqlserver":
             try:
                 with connection.connect(profile) as conn:
-                    if read_only:
-                        results = validate_routines_read_only(conn)
-                    else:
-                        results = refresh_modules_mutating(conn)
-
+                    targets = enumerate_routines(conn)
                     if patterns:
-                        results = tuple(
-                            r for r in results
-                            if not any(pat in r.object_name.lower() for pat in patterns)
+                        targets = tuple(
+                            t for t in targets
+                            if not any(pat in t.object_name.lower() for pat in patterns)
                         )
+                    if read_only:
+                        results = validate_routines_read_only(conn, targets)
+                    else:
+                        results = refresh_modules_mutating(conn, targets)
+
                     failures = [r for r in results if not r.is_success]
                     if failures:
                         has_errors = True
                         print(f"❌ Perfil '{profile.name}': {len(failures)} objeto(s) con fallos:")
                         for f in failures:
-                            print(f"   - [{f.schema_name}].[{f.object_name}]: {f.error_message}")
+                            proc_name = getattr(f, "routine", f).object_name
+                            err_msg = getattr(f, "error_message", "Error")
+                            print(f"   - [{getattr(f, 'routine', f).schema_name}].[{proc_name}]: {err_msg}")
                     else:
                         print(f"✅ Perfil '{profile.name}': todas las rutinas evaluadas están correctas ({len(results)} verificadas).")
             except Exception as exc:
@@ -137,7 +142,12 @@ def main(argv: list[str] | None = None) -> int:
         exclude_tables = list(args.exclude_tables or [])
         exclude_routines = list(args.exclude_routines or [])
 
-        result = run_comparison(profiles, exclude_tables)
+        filters = ComparisonFilters(
+            excluded_tables=tuple(exclude_tables),
+            excluded_routines=tuple(exclude_routines),
+        )
+
+        result = run_comparison(profiles, filters)
 
         render_summary, do_generate = _resolve_summary_renderer_and_generate_reports(
             args.tui, profiles, exclude_tables

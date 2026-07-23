@@ -5,7 +5,13 @@ from pathlib import Path
 from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.domain.schema.models import ProcedureSnapshot, ParameterSnapshot
 from schema_comparator.domain.comparison.models import MissingProcedure, ProcedureMismatch
-from schema_comparator.infrastructure.providers.sqlserver.sp_validator import RefreshResult
+from schema_comparator.infrastructure.providers.sqlserver.sp_validator import (
+    RoutineIdentity,
+    RoutineValidationResult,
+    RoutineValidationStatus,
+    ModuleRefreshResult,
+    SignatureStatus,
+)
 from schema_comparator.tui.formatting import leaf_label, detail_text, entry_matches
 from schema_comparator.tui.procedure_screen import ProcedureVerificationScreen
 
@@ -75,16 +81,33 @@ def test_procedure_verification_screen_init(tmp_path: Path):
     assert screen._exclude_patterns == ["temp"]
 
 
-def test_action_generate_script_escapes_single_quotes_and_skips_placeholders(tmp_path: Path):
+def test_action_generate_script_escapes_single_quotes_and_skips_signed_and_placeholders(tmp_path: Path):
     prof = ConnectionProfile(name="test_prof", connection_string="Server=localhost;Database=db;")
     screen = ProcedureVerificationScreen(
         profiles=(prof,),
         repo_root=tmp_path,
     )
-    screen._results = {
+    routine_normal = RoutineIdentity("dbo", "sp_user's_proc")
+    routine_signed = RoutineIdentity("dbo", "sp_signed_proc")
+    routine_system = RoutineIdentity("SYSTEM", "CONNECT")
+
+    screen._validation_results = {
         "test_prof": (
-            RefreshResult(schema_name="dbo", object_name="sp_user's_proc", is_success=True),
-            RefreshResult(schema_name="SYSTEM", object_name="CONNECT", is_success=False),
+            RoutineValidationResult(
+                routine=routine_normal,
+                status=RoutineValidationStatus.VALID,
+                signature_status=SignatureStatus.UNSIGNED,
+            ),
+            RoutineValidationResult(
+                routine=routine_signed,
+                status=RoutineValidationStatus.VALID,
+                signature_status=SignatureStatus.SIGNED,
+            ),
+            RoutineValidationResult(
+                routine=routine_system,
+                status=RoutineValidationStatus.UNVERIFIABLE,
+                signature_status=SignatureStatus.UNKNOWN,
+            ),
         )
     }
 
@@ -95,4 +118,5 @@ def test_action_generate_script_escapes_single_quotes_and_skips_placeholders(tmp
     content = script_files[0].read_text(encoding="utf-8")
 
     assert "N'[dbo].[sp_user''s_proc]'" in content
+    assert "OMITIDO (Firmado): [dbo].[sp_signed_proc]" in content
     assert "[SYSTEM].[CONNECT]" not in content

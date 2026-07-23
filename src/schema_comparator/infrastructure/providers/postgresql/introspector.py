@@ -2,6 +2,7 @@
 
 from schema_comparator.domain.schema.models import (
     ColumnSnapshot,
+    SchemaFeature,
     SchemaSnapshot,
     TableSnapshot,
 )
@@ -76,4 +77,9 @@ def build_snapshot(profile_name: str, rows: list[tuple]) -> SchemaSnapshot:
         )
         for (schema, table), cols in sorted(grouped.items())
     )
-    return SchemaSnapshot(profile_name=profile_name, tables=tables)
+    return SchemaSnapshot(
+        profile_name=profile_name,
+        provider_id="postgresql",
+        tables=tables,
+        extracted_features=frozenset({SchemaFeature.TABLES}),
+    )

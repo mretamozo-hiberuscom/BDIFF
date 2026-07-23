@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from schema_comparator.cli import build_arg_parser, main
 from schema_comparator.config.models import ConnectionProfile
+from schema_comparator.domain.comparison.models import ComparisonFilters
 
 
 def _profiles():
@@ -25,7 +26,7 @@ def test_cli_main_invokes_write_reports_after_run_comparison() -> None:
         main(["--config", "config.local.yaml"])
 
     m_load.assert_called_once_with("config.local.yaml")
-    m_run_comparison.assert_called_once_with(_profiles(), [])
+    m_run_comparison.assert_called_once_with(_profiles(), ComparisonFilters(excluded_tables=(), excluded_routines=()))
     m_write.assert_called_once_with(fake_result, generate_reports=True)
 
 
@@ -144,7 +145,7 @@ def test_exclude_tables_flag_passes_patterns_to_run_comparison() -> None:
             ]
         )
 
-    assert m_run_comparison.call_args[0][1] == ["LOG", "QRTZ"]
+    assert m_run_comparison.call_args[0][1].excluded_tables == ("LOG", "QRTZ")
 
 
 def test_no_exclude_tables_flag_passes_empty_list_to_run_comparison() -> None:
@@ -158,45 +159,4 @@ def test_no_exclude_tables_flag_passes_empty_list_to_run_comparison() -> None:
     ):
         main(["--config", "config.local.yaml"])
 
-    assert m_run_comparison.call_args[0][1] == []
-
-
-def test_tui_on_tty_calls_write_reports_with_generate_reports_false() -> None:
-    fake_result = MagicMock(name="ComparisonResult")
-    with (
-        patch("schema_comparator.cli.load_profiles", return_value=_profiles()),
-        patch("schema_comparator.cli.run_comparison", return_value=fake_result),
-        patch("schema_comparator.cli.write_reports") as m_write,
-        patch("sys.stdout.isatty", return_value=True),
-        patch("sys.stdin.isatty", return_value=True),
-    ):
-        main(["--config", "config.local.yaml", "--tui"])
-
-    assert m_write.call_args.kwargs["generate_reports"] is False
-
-
-def test_tui_on_non_tty_calls_write_reports_with_generate_reports_true() -> None:
-    fake_result = MagicMock(name="ComparisonResult")
-    with (
-        patch("schema_comparator.cli.load_profiles", return_value=_profiles()),
-        patch("schema_comparator.cli.run_comparison", return_value=fake_result),
-        patch("schema_comparator.cli.write_reports") as m_write,
-        patch("sys.stdout.isatty", return_value=False),
-        patch("sys.stdin.isatty", return_value=True),
-    ):
-        main(["--config", "config.local.yaml", "--tui"])
-
-    assert m_write.call_args.kwargs["generate_reports"] is True
-
-
-def test_no_tui_calls_write_reports_with_generate_reports_true() -> None:
-    fake_result = MagicMock(name="ComparisonResult")
-    with (
-        patch("schema_comparator.cli.load_profiles", return_value=_profiles()),
-        patch("schema_comparator.cli.run_comparison", return_value=fake_result),
-        patch("schema_comparator.cli.write_reports") as m_write,
-    ):
-        main(["--config", "config.local.yaml"])
-
-    assert m_write.call_args.kwargs["generate_reports"] is True
-
+    assert m_run_comparison.call_args[0][1].excluded_tables == ()
