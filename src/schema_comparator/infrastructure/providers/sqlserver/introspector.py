@@ -2,6 +2,7 @@ import hashlib
 
 from schema_comparator.domain.schema.models import (
     ColumnSnapshot,
+    DefinitionAvailability,
     ParameterSnapshot,
     ProcedureSnapshot,
     SchemaSnapshot,
@@ -32,9 +33,10 @@ SELECT
     o.name AS procedure_name,
     o.type_desc AS routine_type,
     m.definition AS definition_sql,
+    OBJECTPROPERTY(o.object_id, 'IsEncrypted') AS is_encrypted,
     param.name AS parameter_name,
     TYPE_NAME(param.user_type_id) AS parameter_type,
-    param.max_length,
+    param.max_length AS max_length_bytes,
     param.precision,
     param.scale,
     param.is_output,
@@ -42,11 +44,10 @@ SELECT
 FROM sys.objects o
 INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
 LEFT JOIN sys.sql_modules m ON o.object_id = m.object_id
-LEFT JOIN sys.parameters param ON o.object_id = param.object_id AND param.parameter_id > 0
+LEFT JOIN sys.parameters param ON o.object_id = param.object_id AND param.parameter_id >= 0
 WHERE o.type IN ('P', 'FN', 'IF', 'TF') AND o.is_ms_shipped = 0
 ORDER BY s.name, o.name, param.parameter_id
 """.strip()
-
 
 
 def _hash_definition(sql: str | None) -> str | None:
@@ -99,47 +100,66 @@ def build_snapshot(
     if proc_rows:
         proc_map: dict[tuple[str, str], dict] = {}
         for row in proc_rows:
-            if not isinstance(row, (tuple, list)) or len(row) < 11:
+            if not isinstance(row, (tuple, list)) or len(row) < 12:
                 continue
             (
                 schema,
                 proc_name,
                 routine_type,
                 def_sql,
+                is_encrypted,
                 param_name,
                 param_type,
-                max_len,
+                max_len_bytes,
                 prec,
                 scale,
                 is_out,
                 param_ord,
-            ) = row[:11]
+            ) = row[:12]
             key = (schema, proc_name)
             if key not in proc_map:
                 proc_map[key] = {
                     "routine_type": routine_type or "PROCEDURE",
                     "def_sql": def_sql,
+                    "is_encrypted": bool(is_encrypted),
                     "params": [],
                 }
-            if param_name is not None:
+            if param_name is not None or param_ord == 0:
+                p_type = param_type or "UNKNOWN"
+                char_max_len = None
+                if max_len_bytes is not None and max_len_bytes > 0:
+                    if p_type.lower() in ("nvarchar", "nchar"):
+                        char_max_len = max_len_bytes // 2
+                    else:
+                        char_max_len = max_len_bytes
+                elif max_len_bytes == -1:
+                    char_max_len = -1
+
                 proc_map[key]["params"].append(
                     ParameterSnapshot(
-                        name=param_name,
-                        data_type=param_type or "UNKNOWN",
-                        character_maximum_length=max_len,
+                        name=param_name or "@RETURN_VALUE",
+                        data_type=p_type,
+                        max_length_bytes=max_len_bytes,
+                        character_maximum_length=char_max_len,
                         numeric_precision=prec,
                         numeric_scale=scale,
                         is_output=bool(is_out),
-                        ordinal_position=param_ord or 0,
+                        is_return_value=(param_ord == 0),
+                        ordinal_position=param_ord if param_ord is not None else 0,
                     )
                 )
-
-
 
         for (schema, proc_name), data in sorted(proc_map.items()):
             params = tuple(sorted(data["params"], key=lambda p: (p.ordinal_position, p.name)))
             def_sql = data["def_sql"]
-            def_hash = _hash_definition(def_sql)
+            is_enc = data["is_encrypted"]
+            if is_enc or (def_sql is None and not is_enc):
+                avail = DefinitionAvailability.ENCRYPTED if is_enc else DefinitionAvailability.NOT_VISIBLE
+                def_hash = None
+            else:
+                avail = DefinitionAvailability.AVAILABLE
+                def_hash = _hash_definition(def_sql)
+
             procedures.append(
                 ProcedureSnapshot(
                     schema_name=schema,
@@ -148,6 +168,7 @@ def build_snapshot(
                     parameters=params,
                     definition_hash=def_hash,
                     definition_sql=def_sql,
+                    definition_availability=avail,
                 )
             )
 
@@ -155,8 +176,8 @@ def build_snapshot(
         profile_name=profile_name,
         tables=tables,
         procedures=tuple(procedures),
+        provider_id="sqlserver",
     )
-
 
 
 # Alias for backward compatibility

@@ -1,9 +1,4 @@
-"""Command-line entry point: load profiles, extract schemas, compare, report.
-
-Composition root wiring `config.loader.load_profiles` -> `application.use_cases.CompareProfilesUseCase`
--> `report.write.write_reports`. No `--format` flag: v1 always generates all
-four report outputs (HTML, PDF, Excel, console/TUI).
-"""
+"""Command-line entry point: load profiles, extract schemas, compare, report."""
 
 from __future__ import annotations
 
@@ -12,6 +7,7 @@ import functools
 import sys
 
 from schema_comparator.config.loader import load_profiles
+from schema_comparator.domain.errors import SchemaComparatorError
 from schema_comparator.report.write import write_reports
 from schema_comparator.tui import run_tui
 from schema_comparator.tui.actions import run_comparison
@@ -36,14 +32,32 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--exclude-tables",
         nargs="+",
-        help="Excluye tablas cuyo nombre contenga alguno de estos textos "
-        "(no distingue mayúsculas/minúsculas), p. ej. --exclude-tables LOG QRTZ",
+        help="Excluye tablas cuyo nombre contenga alguno de estos textos (p. ej. --exclude-tables LOG QRTZ)",
+    )
+    parser.add_argument(
+        "--exclude-routines",
+        nargs="+",
+        help="Excluye procedimientos/vistas cuyo nombre contenga alguno de estos textos",
+    )
+    parser.add_argument(
+        "--validate-routines",
+        action="store_true",
+        help="Ejecuta una verificación de solo lectura (no mutante) sobre las dependencias de procedimientos y vistas",
+    )
+    parser.add_argument(
+        "--refresh-modules",
+        action="store_true",
+        help="Ejecuta sp_refreshsqlmodule (mutante) sobre rutinas no firmadas. Requiere la bandera --yes.",
     )
     parser.add_argument(
         "--verify-sps",
         action="store_true",
-        help="Ejecuta sp_refreshsqlmodule en SQL Server para verificar que los "
-        "procedimientos y vistas compilen correctamente sin referencias rotas",
+        help="Alias heredado de --refresh-modules",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirma explícitamente operaciones mutantes como --refresh-modules",
     )
     return parser
 
@@ -53,11 +67,6 @@ def _resolve_summary_renderer_and_generate_reports(
     profiles: list,
     exclude_patterns: list[str],
 ) -> tuple:
-    """Decide which `render_summary` callable (if any) to pass to
-    `write_reports`, and whether automatic HTML/PDF/Excel generation
-    should still happen at startup. Returns
-    `(render_summary_or_None, generate_reports: bool)`.
-    """
     if not use_tui:
         return None, True
     if sys.stdout.isatty() and sys.stdin.isatty():
@@ -66,25 +75,38 @@ def _resolve_summary_renderer_and_generate_reports(
         )
         return bound_run_tui, False
     print(
-        "[AVISO] --tui requiere una terminal interactiva; "
-        "se usará el resumen de consola simple",
+        "[AVISO] --tui requiere una terminal interactiva; se usará el resumen de consola simple",
         file=sys.stderr,
     )
     return None, True
 
 
-def _run_sp_verification(profiles: list, exclude_patterns: list[str] | None = None) -> None:
+def _run_routine_validation(
+    profiles: list,
+    exclude_routines: list[str] | None = None,
+    read_only: bool = True,
+) -> bool:
     from schema_comparator.infrastructure.providers.sqlserver import connection
-    from schema_comparator.infrastructure.providers.sqlserver.sp_validator import verify_sps_with_refresh
+    from schema_comparator.infrastructure.providers.sqlserver.sp_validator import (
+        refresh_modules_mutating,
+        validate_routines_read_only,
+    )
 
-    patterns = [p.lower() for p in (exclude_patterns or [])]
-    print("\n🔍 Ejecutando verificación de procedimientos almacenados y vistas (sp_refreshsqlmodule)...")
+    patterns = [p.lower() for p in (exclude_routines or [])]
+    mode_str = "solo lectura" if read_only else "recompilación mutante (sp_refreshsqlmodule)"
+    print(f"\n🔍 Ejecutando validación de rutinas [{mode_str}]...")
+    has_errors = False
+
     for profile in profiles:
         provider_name = str(getattr(profile, "provider", "sqlserver")).lower()
         if provider_name == "sqlserver":
             try:
                 with connection.connect(profile) as conn:
-                    results = verify_sps_with_refresh(conn)
+                    if read_only:
+                        results = validate_routines_read_only(conn)
+                    else:
+                        results = refresh_modules_mutating(conn)
+
                     if patterns:
                         results = tuple(
                             r for r in results
@@ -92,38 +114,65 @@ def _run_sp_verification(profiles: list, exclude_patterns: list[str] | None = No
                         )
                     failures = [r for r in results if not r.is_success]
                     if failures:
-                        print(f"❌ Perfil '{profile.name}': {len(failures)} objeto(s) con errores de compilación:")
+                        has_errors = True
+                        print(f"❌ Perfil '{profile.name}': {len(failures)} objeto(s) con fallos:")
                         for f in failures:
                             print(f"   - [{f.schema_name}].[{f.object_name}]: {f.error_message}")
                     else:
-                        print(f"✅ Perfil '{profile.name}': todos los procedimientos/vistas compilaron correctamente ({len(results)} verificados).")
+                        print(f"✅ Perfil '{profile.name}': todas las rutinas evaluadas están correctas ({len(results)} verificadas).")
             except Exception as exc:
-                print(f"⚠️ Perfil '{profile.name}': no se pudo conectar o verificar SPs: {exc}")
+                has_errors = True
+                print(f"⚠️ Perfil '{profile.name}': error al conectar o validar rutinas: {exc}")
+
+    return has_errors
 
 
-def main(argv: list[str] | None = None) -> None:
-    args = build_arg_parser().parse_args(argv)
-    profiles = load_profiles(args.config)
-    if args.profiles:
-        profiles = [p for p in profiles if p.name in args.profiles]
+def main(argv: list[str] | None = None) -> int:
+    try:
+        args = build_arg_parser().parse_args(argv)
+        profiles = load_profiles(args.config)
+        if args.profiles:
+            profiles = [p for p in profiles if p.name in args.profiles]
 
-    exclude_patterns = list(args.exclude_tables or [])
-    
-    result = run_comparison(profiles, exclude_patterns)
+        exclude_tables = list(args.exclude_tables or [])
+        exclude_routines = list(args.exclude_routines or [])
 
-    render_summary, do_generate = _resolve_summary_renderer_and_generate_reports(
-        args.tui, profiles, exclude_patterns
-    )
-    if render_summary is not None:
-        write_reports(result, render_summary=render_summary, generate_reports=do_generate)
-    else:
-        write_reports(result, generate_reports=do_generate)
+        result = run_comparison(profiles, exclude_tables)
 
-    if args.verify_sps:
-        _run_sp_verification(profiles, exclude_patterns=exclude_patterns)
+        render_summary, do_generate = _resolve_summary_renderer_and_generate_reports(
+            args.tui, profiles, exclude_tables
+        )
+        if render_summary is not None:
+            write_reports(result, render_summary=render_summary, generate_reports=do_generate)
+        else:
+            write_reports(result, generate_reports=do_generate)
 
+        validation_failed = False
+        if args.validate_routines:
+            validation_failed = _run_routine_validation(profiles, exclude_routines=exclude_routines, read_only=True)
 
+        if args.refresh_modules or args.verify_sps:
+            if not args.yes:
+                print(
+                    "\n⚠️ ATENCIÓN: --refresh-modules ejecuta sp_refreshsqlmodule para recompilar metadatos en la BD. "
+                    "Para confirmar esta acción mutante, incluye la bandera --yes.",
+                    file=sys.stderr,
+                )
+                return 1
+            v_fail = _run_routine_validation(profiles, exclude_routines=exclude_routines, read_only=False)
+            validation_failed = validation_failed or v_fail
+
+        if bool(result.entries) or validation_failed:
+            return 1
+        return 0
+
+    except SchemaComparatorError as exc:
+        print(f"[ERROR DE INFRAESTRUCTURA] {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:
+        print(f"[ERROR INESPERADO] {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

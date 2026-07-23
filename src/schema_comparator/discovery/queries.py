@@ -5,7 +5,8 @@ Re-exported from infrastructure.providers.sqlserver.introspector for backward co
 
 from schema_comparator.infrastructure.providers.sqlserver.introspector import (
     CATALOG_QUERY_SQL,
+    PROCEDURES_QUERY_SQL,
     _build_snapshot,
 )
 
-__all__ = ["CATALOG_QUERY_SQL", "_build_snapshot"]
+__all__ = ["CATALOG_QUERY_SQL", "PROCEDURES_QUERY_SQL", "_build_snapshot"]

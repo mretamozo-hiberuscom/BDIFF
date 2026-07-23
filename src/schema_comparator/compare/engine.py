@@ -20,11 +20,12 @@ from schema_comparator.compare.models import (
     PrimaryKeyMismatch,
     ProcedureMismatch,
 )
-from schema_comparator.domain.capabilities import ComparisonMode
+from schema_comparator.domain.capabilities import ComparisonMode, RoutineComparisonPolicy
 from schema_comparator.domain.comparison.type_equivalences import (
     are_types_semantically_equivalent,
 )
 from schema_comparator.domain.schema.models import (
+    DefinitionAvailability,
     ProcedureSnapshot,
     SchemaSnapshot,
     TableSnapshot,
@@ -296,7 +297,17 @@ def _evaluate_advanced_objects(
 def _evaluate_procedures(
     snapshots: Sequence[SchemaSnapshot],
     profile_names: tuple[str, ...],
+    routine_policy: RoutineComparisonPolicy = RoutineComparisonPolicy.SAME_PROVIDER,
 ) -> tuple[MissingProcedure | ProcedureMismatch, ...]:
+    if routine_policy == RoutineComparisonPolicy.DISABLED:
+        return ()
+
+    # Check cross-provider compatibility
+    providers = {s.provider_id for s in snapshots}
+    if routine_policy == RoutineComparisonPolicy.SAME_PROVIDER and len(providers) > 1:
+        # Cross-provider procedure comparison is disabled under SAME_PROVIDER policy
+        return ()
+
     entries: list[MissingProcedure | ProcedureMismatch] = []
 
     proc_index: dict[str, dict[tuple[str, str], ProcedureSnapshot]] = {
@@ -340,10 +351,12 @@ def _evaluate_procedures(
             has_mismatch = False
             for _, p_snap in present_procs_list[1:]:
                 if (
-                    p_snap.parameters != first_proc.parameters
+                    p_snap.routine_type != first_proc.routine_type
+                    or p_snap.parameters != first_proc.parameters
                     or p_snap.definition_hash != first_proc.definition_hash
+                    or p_snap.definition_availability != first_proc.definition_availability
+                    or p_snap.definition_availability != DefinitionAvailability.AVAILABLE
                 ):
-
                     has_mismatch = True
                     break
 
@@ -387,6 +400,7 @@ def _sort_key(
 def compare_snapshots(
     snapshots: Sequence[SchemaSnapshot],
     mode: ComparisonMode = ComparisonMode.NATIVE_STRICT,
+    routine_policy: RoutineComparisonPolicy = RoutineComparisonPolicy.SAME_PROVIDER,
 ) -> ComparisonResult:
     """Compare 2+ named schema snapshots and return a deterministic diff."""
     _validate(snapshots)
@@ -397,7 +411,7 @@ def compare_snapshots(
     table_entries = _evaluate_tables(union, presence, table_index, profile_names)
     column_entries = _evaluate_columns(union, presence, table_index, profile_names, mode=mode)
     advanced_entries = _evaluate_advanced_objects(union, presence, table_index, profile_names)
-    procedure_entries = _evaluate_procedures(snapshots, profile_names)
+    procedure_entries = _evaluate_procedures(snapshots, profile_names, routine_policy=routine_policy)
 
     entries = tuple(sorted(table_entries + column_entries + advanced_entries + procedure_entries, key=_sort_key))
     return ComparisonResult(compared_profiles=profile_names, entries=entries)

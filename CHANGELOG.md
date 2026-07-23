@@ -4,7 +4,24 @@ Todas las modificaciones destacables de este proyecto se documentarán en este a
 
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/), y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [1.2.1] - 2026-07-23
+
+### Añadido
+- Interfaz interactiva en TUI (`ProcedureVerificationScreen`) accesible mediante el atajo `[V]` para verificar y recompilar procedimientos almacenados y vistas en tiempo real.
+- Servicio centralizado de extracción de esquemas `SchemaExtractionService` que integra tablas y rutinas en el pipeline principal.
+- Banderas CLI `--validate-routines` (comprobación de solo lectura) y `--refresh-modules` (recompilación explícita mutante con confirmación `--yes`).
+- Verificación automática de firmas digitales en `sys.crypt_properties` para evitar la pérdida de firmas al ejecutar `sp_refreshsqlmodule`.
+- Modelo de vista unificado `FindingView` para la representación coherente de hallazgos en consola, Excel, HTML, PDF y TUI.
+- Política de comparación cross-provider `RoutineComparisonPolicy.SAME_PROVIDER` para evitar falsos faltantes entre distintos motores de bases de datos.
+
+### Corregido
+- Extracción de parámetros en `PROCEDURES_QUERY_SQL` incluyendo valores de retorno (`@RETURN_VALUE` con `parameter_id = 0`).
+- Cálculo preciso de longitud máxima de caracteres en tipos Unicode (`nvarchar`, `nchar`).
+- Preservación de rutinas en `discovery/filters.py` al aplicar filtros de exclusión de tablas.
+- Códigos de salida del CLI estandarizados: `0` (éxito), `1` (hallazgos/errores de compilación), `2` (error de infraestructura).
+
 ## [1.2.0] - 2026-07-23
+
 
 ### Añadido
 - Soporte para la extracción, comparación de deriva (drift) y verificación de Procedimientos Almacenados y Rutinas en SQL Server.

@@ -227,6 +227,12 @@ class DecisionScreen(Screen):
 
             self.display_groups[tbl_key] = display
 
+    BINDINGS = [
+        Binding("escape", "back", "Cancelar"),
+        Binding("g,G", "generate_sql", "Generar SQL"),
+        Binding("v,V", "open_sp_verification", "Verificar SPs"),
+    ]
+
     def compose(self) -> ComposeResult:
         with Container(id="decision-container"):
             yield Label("Fase de Decisiones: Consolidación de Esquemas", id="decision-title")
@@ -238,7 +244,9 @@ class DecisionScreen(Screen):
                     yield Label("Selecciona una tabla de la lista", id="empty-state-label")
             with Horizontal(id="footer-panel"):
                 yield Button("Cancelar [Esc]", variant="error", id="btn-cancel")
+                yield Button("Verificar SPs [V]", variant="default", id="btn-verify-sps", classes="button-bar")
                 yield Button("Generar SQL [G]", variant="success", id="btn-generate", classes="button-bar")
+
 
     def on_mount(self) -> None:
         self.populate_list()
@@ -284,11 +292,27 @@ class DecisionScreen(Screen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-cancel":
             self.action_back()
+        elif event.button.id == "btn-verify-sps":
+            self.action_open_sp_verification()
         elif event.button.id == "btn-generate":
             self.action_generate_sql()
 
     def action_back(self) -> None:
         self.dismiss(None)
+
+    def action_open_sp_verification(self) -> None:
+        from schema_comparator.tui.procedure_screen import ProcedureVerificationScreen
+
+        exclude_patterns = getattr(self.app, "_exclude_patterns", [])
+        self.app.push_screen(
+            ProcedureVerificationScreen(
+                profiles=self.profiles,
+                repo_root=self.repo_root,
+                exclude_patterns=exclude_patterns,
+            )
+        )
+
+
 
     def action_generate_sql(self) -> None:
         from schema_comparator.compare.consolidation import (

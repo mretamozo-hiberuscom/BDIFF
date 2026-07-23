@@ -3,6 +3,7 @@
 import pyodbc
 
 from schema_comparator.config.models import ConnectionProfile
+from schema_comparator.domain.errors import RoutineIntrospectionError
 from schema_comparator.domain.schema.models import SchemaSnapshot
 from schema_comparator.infrastructure.providers.sqlserver import connection, introspector
 from schema_comparator.infrastructure.providers.sqlserver.errors import (
@@ -34,15 +35,17 @@ class SqlServerProvider:
                     try:
                         cursor.execute(introspector.PROCEDURES_QUERY_SQL)
                         proc_rows = cursor.fetchall()
-                    except pyodbc.Error:
-                        proc_rows = []
+                    except pyodbc.Error as exc:
+                        raise RoutineIntrospectionError(
+                            f"No se pudieron extraer los procedimientos del perfil {profile.name!r}"
+                        ) from exc
                 except pyodbc.Error as exc:
-                    raise translate_query_error(profile.name, exc) from exc
+                    if not isinstance(exc, RoutineIntrospectionError):
+                        raise translate_query_error(profile.name, exc) from exc
+                    raise
                 finally:
                     cursor.close()
         except pyodbc.Error as exc:
             raise translate_connect_error(profile.name, exc) from exc
 
         return introspector.build_snapshot(profile.name, rows, proc_rows=proc_rows)
-
-

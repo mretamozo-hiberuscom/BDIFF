@@ -1,9 +1,4 @@
-"""Pure, Textual-independent business logic for TUI-triggered actions.
-
-Kept separate from `app.py`/`widgets.py` so it can be unit-tested without
-any Textual app/event-loop machinery, matching the existing
-`formatting.py` convention of isolating pure logic from widget code.
-"""
+"""Pure, Textual-independent business logic for TUI-triggered actions."""
 
 from schema_comparator.application.use_cases.compare_profiles import CompareProfilesUseCase
 from schema_comparator.compare.engine import compare_snapshots
@@ -23,12 +18,7 @@ __all__ = [
 def run_comparison(
     profiles: list[ConnectionProfile], exclude_patterns: list[str]
 ) -> ComparisonResult:
-    """Re-extract schemas for `profiles` and re-compare, delegating to `CompareProfilesUseCase`.
-
-    Raises on extraction/connection failure — callers (the Textual worker
-    in `app.py`) are responsible for catching and reporting it; this
-    function intentionally has no `try`/`except` of its own.
-    """
+    """Re-extract schemas for `profiles` and re-compare, delegating to `CompareProfilesUseCase`."""
     use_case = CompareProfilesUseCase(
         extractor=extract_schema,
         filter_fn=filter_excluded_tables,

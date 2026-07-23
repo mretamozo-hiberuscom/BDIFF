@@ -1,6 +1,15 @@
 """Normalized, immutable table/column schema metadata models."""
 
 from dataclasses import dataclass, field
+from enum import Enum
+
+
+class DefinitionAvailability(str, Enum):
+    """Availability status of SQL definition (body)."""
+
+    AVAILABLE = "available"
+    ENCRYPTED = "encrypted"
+    NOT_VISIBLE = "not-visible"
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,11 +89,14 @@ class ParameterSnapshot:
 
     name: str
     data_type: str
+    user_type_schema: str | None = None
+    max_length_bytes: int | None = None
     character_maximum_length: int | None = None
     numeric_precision: int | None = None
     numeric_scale: int | None = None
     is_output: bool = False
-    ordinal_position: int = 0
+    is_return_value: bool = False
+    ordinal_position: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +113,10 @@ class ProcedureSnapshot:
     parameters: tuple[ParameterSnapshot, ...] = ()
     definition_hash: str | None = None
     definition_sql: str | None = None
+    definition_availability: str = "available"
+    uses_ansi_nulls: bool | None = None
+    uses_quoted_identifier: bool | None = None
+    is_schema_bound: bool | None = None
 
     @property
     def qualified_name(self) -> tuple[str, str]:
@@ -117,4 +133,5 @@ class SchemaSnapshot:
     profile_name: str
     tables: tuple[TableSnapshot, ...]
     procedures: tuple[ProcedureSnapshot, ...] = ()
-
+    provider_id: str = "sqlserver"
+    extracted_features: tuple[str, ...] = ("tables", "procedures")

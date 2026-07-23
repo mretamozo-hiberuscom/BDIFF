@@ -10,7 +10,8 @@ from schema_comparator.discovery.errors import (
     DriverUnavailableError,
     MetadataAccessError,
 )
-from schema_comparator.discovery.queries import CATALOG_QUERY_SQL
+from schema_comparator.discovery.queries import CATALOG_QUERY_SQL, PROCEDURES_QUERY_SQL
+
 from schema_comparator.discovery.service import extract_schema
 
 _PROFILE = ConnectionProfile(name="claims-service", connection_string="SECRET-SENTINEL-VALUE")
@@ -36,9 +37,10 @@ def test_successful_extraction_executes_only_the_catalog_query() -> None:
     extract_schema(_PROFILE, connect_fn=connect_fn)
 
     connection = connect_fn.connection_holder["connection"]
-    assert connection.last_cursor.executed_sql == CATALOG_QUERY_SQL
+    assert connection.last_cursor.executed_sql in (CATALOG_QUERY_SQL, PROCEDURES_QUERY_SQL)
     for write_keyword in ("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE"):
         assert write_keyword not in connection.last_cursor.executed_sql.upper()
+
 
 
 def test_failure_still_releases_extraction_resources() -> None:

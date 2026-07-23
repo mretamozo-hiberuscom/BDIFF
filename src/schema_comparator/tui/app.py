@@ -179,9 +179,11 @@ class SchemaComparatorApp(App):
         Binding("slash", "focus_filter", "Filter"),
         Binding("e,E", "focus_exclude_editor", "Editar excludes"),
         Binding("r,R", "run_comparison", "Re-ejecutar comparación"),
+        Binding("v,V", "open_sp_verification", "Verificar/Reparar SPs"),
         Binding("g,G", "generate_reports", "Generar reportes"),
         Binding("d,D", "open_decision_screen", "Consolidar Diferencias"),
     ]
+
 
     filter_text: reactive[str] = reactive("")
 
@@ -339,6 +341,28 @@ class SchemaComparatorApp(App):
             ),
             callback=handle_decision_screen_result
         )
+
+    def action_open_sp_verification(self) -> None:
+        from schema_comparator.tui.procedure_screen import ProcedureVerificationScreen
+        from pathlib import Path
+        from schema_comparator.config.models import ConnectionProfile
+
+        repo_root = Path(__file__).resolve().parents[3]
+        profiles_to_pass = self._profiles
+        if not profiles_to_pass:
+            profiles_to_pass = [
+                ConnectionProfile(name=p, connection_string=f"Database={p};")
+                for p in self._result.compared_profiles
+            ]
+
+        self.push_screen(
+            ProcedureVerificationScreen(
+                profiles=tuple(profiles_to_pass),
+                repo_root=repo_root,
+                exclude_patterns=self._exclude_patterns,
+            )
+        )
+
 
 
 def run_tui(

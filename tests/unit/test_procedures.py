@@ -56,9 +56,10 @@ def test_introspector_build_snapshot_with_procedures():
         ("dbo", "Users", "Id", "int", None, 10, 0, "NO", 1),
     ]
     proc_rows = [
-        ("dbo", "sp_GetUser", "SQL_STORED_PROCEDURE", "CREATE PROC dbo.sp_GetUser AS SELECT 1;", "@UserId", "int", None, 10, 0, False, 1),
-        ("dbo", "sp_GetUser", "SQL_STORED_PROCEDURE", "CREATE PROC dbo.sp_GetUser AS SELECT 1;", "@ActiveOnly", "bit", None, None, None, False, 2),
+        ("dbo", "sp_GetUser", "SQL_STORED_PROCEDURE", "CREATE PROC dbo.sp_GetUser AS SELECT 1;", 0, "@UserId", "int", None, 10, 0, False, 1),
+        ("dbo", "sp_GetUser", "SQL_STORED_PROCEDURE", "CREATE PROC dbo.sp_GetUser AS SELECT 1;", 0, "@ActiveOnly", "bit", None, None, None, False, 2),
     ]
+
 
     snapshot = build_snapshot("Profile1", table_rows, proc_rows=proc_rows)
 
