@@ -15,7 +15,7 @@ scale: team
 strict_tdd: false
 
 project:
-  version: "1.2.2"
+  version: "1.2.3"
 
   status: foundation-defined
   stack:

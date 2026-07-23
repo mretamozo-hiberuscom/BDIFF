@@ -4,6 +4,16 @@ Todas las modificaciones destacables de este proyecto se documentarán en este a
 
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/), y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [1.2.3] - 2026-07-23
+
+### Corregido
+- Pipeline de CI bloqueante: eliminado `|| true` de los steps de lint (`ruff check`, `ruff format --check`) para que errores de linting impidan el merge.
+- SyntaxError en Python 3.11 por f-string con backslash en expresión dentro de `consolidation.py`; refactorizado a función auxiliar `_quote_tbl()`.
+- Añadido `ruff>=0.12` al extra `dev` en `pyproject.toml` para garantizar su instalación en CI.
+- Corregidos 31 errores de lint detectados por ruff (imports no utilizados, variables de contexto `pilot` sin prefijo `_`, formato de código) en 96 archivos del proyecto.
+- Imports de test corregidos para usar los módulos de origen reales tras eliminar re-exports innecesarios de `consolidation.py`.
+- Añadido Python 3.13 a la matriz de CI.
+
 ## [1.2.2] - 2026-07-23
 
 ### Añadido
