@@ -15,26 +15,26 @@ def test_run_comparison_detects_missing_sqlserver_procedure():
 
     snap1 = SchemaSnapshot(
         profile_name="Profile1",
+        provider_id="sqlserver",
         tables=(),
         procedures=(
             ProcedureSnapshot(schema_name="dbo", procedure_name="sp_CalculateInterest"),
         ),
-        provider_id="sqlserver",
     )
     snap2 = SchemaSnapshot(
         profile_name="Profile2",
+        provider_id="sqlserver",
         tables=(),
         procedures=(),
-        provider_id="sqlserver",
     )
 
-    def mock_extract(profile):
+    def mock_extract(self, profile):
         if profile.name == "Profile1":
             return snap1
         return snap2
 
-    with patch("schema_comparator.tui.actions.extract_schema", side_effect=mock_extract):
-        result = run_comparison([prof1, prof2], exclude_patterns=[])
+    with patch("schema_comparator.application.services.extraction.SchemaExtractionService.extract", side_effect=mock_extract, autospec=True):
+        result = run_comparison([prof1, prof2])
 
     missing_procs = [e for e in result.entries if isinstance(e, MissingProcedure)]
     assert len(missing_procs) == 1

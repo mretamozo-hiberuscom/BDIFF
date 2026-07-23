@@ -7,9 +7,7 @@ from schema_comparator.compare.models import (
     ComparisonResult,
     DiffEntry,
     MissingColumn,
-    MissingProcedure,
     MissingTable,
-    ProcedureMismatch,
 )
 from schema_comparator.report.attributes import MISSING_MARKER, format_attributes
 from schema_comparator.report.presentation import present_finding
@@ -35,6 +33,7 @@ _PICO_CSS_INLINE = _read_pico_css()
 def _row_for_group(entries: list[DiffEntry], profiles: tuple[str, ...]) -> dict:
     """Build a {profile_name: cell_dict} for one group of same-identity entries."""
     first = entries[0]
+    view = present_finding(entries, profiles)
     cells: dict[str, dict | None] = {}
 
     if isinstance(first, MissingTable):
@@ -66,7 +65,6 @@ def _row_for_group(entries: list[DiffEntry], profiles: tuple[str, ...]) -> dict:
                 cells[p] = None
         detail = first.column_name
     else:
-        view = present_finding(entries, profiles)
         for p in profiles:
             text_val = view.cells_by_profile.get(p, "")
             if text_val == MISSING_MARKER:
@@ -80,6 +78,9 @@ def _row_for_group(entries: list[DiffEntry], profiles: tuple[str, ...]) -> dict:
     return {
         "diff_type": type(first).__name__,
         "column_name": detail,
+        "object_kind": view.object_kind,
+        "display_detail": view.display_detail,
+        "finding_type": view.finding_type,
         "cells": cells,
     }
 

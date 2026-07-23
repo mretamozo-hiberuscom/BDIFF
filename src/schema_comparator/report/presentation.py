@@ -1,7 +1,7 @@
 """FindingView: Normalized intermediate representation of schema findings for all renderers."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from collections.abc import Sequence, Mapping
 
 from schema_comparator.compare.models import (
     ColumnMismatch,
@@ -14,6 +14,7 @@ from schema_comparator.compare.models import (
     PrimaryKeyMismatch,
     ProcedureMismatch,
 )
+from schema_comparator.domain.schema.models import ProcedureSnapshot
 from schema_comparator.report.attributes import MISSING_MARKER, format_attributes
 
 FINDING_TYPE_LABELS: dict[type, str] = {
@@ -42,6 +43,37 @@ class FindingView:
     @property
     def qualified_name(self) -> str:
         return f"{self.schema_name}.{self.object_name}"
+
+    @property
+    def display_detail(self) -> str:
+        if self.detail_name:
+            return self.detail_name
+        return f"({self.object_kind.lower()})"
+
+
+def _format_procedure_signature(p_snap: ProcedureSnapshot) -> str:
+    param_parts = []
+    for param in p_snap.parameters:
+        if param.is_return_value:
+            param_parts.append(f"RETURN {param.data_type}")
+            continue
+        out_str = " OUTPUT" if param.is_output else ""
+        length_str = (
+            f"({param.character_maximum_length})"
+            if param.character_maximum_length and param.character_maximum_length > 0
+            else ""
+        )
+        if (
+            param.numeric_precision
+            and param.numeric_scale is not None
+            and param.numeric_precision > 0
+        ):
+            length_str = f"({param.numeric_precision},{param.numeric_scale})"
+        param_parts.append(f"{param.name} {param.data_type}{length_str}{out_str}")
+    params_str = ", ".join(param_parts) if param_parts else "sin parámetros"
+    hash_str = f" [{p_snap.definition_hash[:8]}]" if p_snap.definition_hash else ""
+    r_type = p_snap.routine_type or "PROCEDURE"
+    return f"{r_type} ({params_str}){hash_str}"
 
 
 def present_finding(entries: Sequence[DiffEntry], profiles: tuple[str, ...]) -> FindingView:
@@ -97,18 +129,20 @@ def present_finding(entries: Sequence[DiffEntry], profiles: tuple[str, ...]) -> 
 
     if isinstance(first, MissingProcedure):
         missing_profiles = {e.missing_from_profile for e in entries if isinstance(e, MissingProcedure)}
-        proc_dict = dict(first.present_procedures)
+        proc_dict: dict[str, ProcedureSnapshot] = {}
+        for e in entries:
+            if isinstance(e, MissingProcedure):
+                proc_dict.update(dict(e.present_procedures))
         sample_snap = next(iter(proc_dict.values()), None)
-        kind = sample_snap.routine_type.capitalize() if sample_snap else "Procedimiento"
+        raw_kind = sample_snap.routine_type if sample_snap and sample_snap.routine_type else "PROCEDURE"
+        kind = raw_kind.capitalize()
         for p in profiles:
             if p in missing_profiles:
                 cells[p] = MISSING_MARKER
             else:
                 p_snap = proc_dict.get(p)
                 if p_snap:
-                    params_str = ", ".join(f"{param.name} {param.data_type}" for param in p_snap.parameters) or "sin parámetros"
-                    hash_str = p_snap.definition_hash[:8] if p_snap.definition_hash else ""
-                    cells[p] = f"{p_snap.routine_type} ({params_str}) [{hash_str}]"
+                    cells[p] = _format_procedure_signature(p_snap)
                 else:
                     cells[p] = "Presente"
         return FindingView(
@@ -123,13 +157,12 @@ def present_finding(entries: Sequence[DiffEntry], profiles: tuple[str, ...]) -> 
     if isinstance(first, ProcedureMismatch):
         values_dict = dict(first.values_by_profile)
         sample_snap = next(iter(values_dict.values()), None)
-        kind = sample_snap.routine_type.capitalize() if sample_snap else "Procedimiento"
+        raw_kind = sample_snap.routine_type if sample_snap and sample_snap.routine_type else "PROCEDURE"
+        kind = raw_kind.capitalize()
         for p in profiles:
             p_snap = values_dict.get(p)
             if p_snap:
-                params_str = ", ".join(f"{param.name} {param.data_type}" for param in p_snap.parameters) or "sin parámetros"
-                hash_str = p_snap.definition_hash[:8] if p_snap.definition_hash else ""
-                cells[p] = f"{p_snap.routine_type} ({params_str}) [{hash_str}]"
+                cells[p] = _format_procedure_signature(p_snap)
             else:
                 cells[p] = MISSING_MARKER
         return FindingView(

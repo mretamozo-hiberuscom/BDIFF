@@ -3,6 +3,7 @@
 import pyodbc
 
 from schema_comparator.config.models import ConnectionProfile
+from schema_comparator.domain.capabilities import ProviderCapabilities
 from schema_comparator.domain.errors import RoutineIntrospectionError
 from schema_comparator.domain.schema.models import SchemaSnapshot
 from schema_comparator.infrastructure.providers.sqlserver import connection, introspector
@@ -16,6 +17,19 @@ class SqlServerProvider:
     """SQL Server database provider adapter."""
 
     provider_id: str = "sqlserver"
+
+    def capabilities(self, profile: ConnectionProfile | None = None) -> ProviderCapabilities:
+        """Return capabilities supported by SQL Server."""
+        return ProviderCapabilities(
+            provider_id=self.provider_id,
+            supports_schemas=True,
+            supports_transactional_ddl=True,
+            supports_drop_column=True,
+            supports_alter_column=True,
+            supports_routine_introspection=True,
+            supports_routine_definition=True,
+            supports_module_refresh=True,
+        )
 
     def validate_profile(self, profile: ConnectionProfile) -> None:
         """Validate SQL Server profile settings."""

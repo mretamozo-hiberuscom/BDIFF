@@ -9,6 +9,7 @@ def make_snapshot(profile_name: str, *tables: tuple[str, str]) -> SchemaSnapshot
     tests, which never inspect column data."""
     return SchemaSnapshot(
         profile_name=profile_name,
+        provider_id="sqlserver",
         tables=tuple(
             TableSnapshot(schema_name=s, table_name=t, columns=())
             for s, t in sorted(tables)
@@ -54,4 +55,4 @@ def make_snapshot_with_tables(
 ) -> SchemaSnapshot:
     """Build a SchemaSnapshot from already-constructed TableSnapshots —
     used by column-level fixtures that need real column data."""
-    return SchemaSnapshot(profile_name=profile_name, tables=tuple(tables))
+    return SchemaSnapshot(profile_name=profile_name, provider_id="sqlserver", tables=tuple(tables))

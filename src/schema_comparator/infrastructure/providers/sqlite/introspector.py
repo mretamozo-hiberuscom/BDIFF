@@ -4,6 +4,7 @@ import sqlite3
 
 from schema_comparator.domain.schema.models import (
     ColumnSnapshot,
+    SchemaFeature,
     SchemaSnapshot,
     TableSnapshot,
 )
@@ -99,7 +100,9 @@ def introspect_sqlite_schema(conn: sqlite3.Connection, profile_name: str) -> Sch
 
         return SchemaSnapshot(
             profile_name=profile_name,
+            provider_id="sqlite",
             tables=tuple(sorted(tables, key=lambda t: (t.schema_name, t.table_name))),
+            extracted_features=frozenset({SchemaFeature.TABLES}),
         )
     finally:
         cursor.close()

@@ -5,11 +5,16 @@
   <title>Reporte de Diferencias de Esquema</title>
   <style>
 {{ pico_css_inline | safe }}
-    .diff-missing-table  { background-color: #fde2e1; }
-    .diff-missing-column { background-color: #fff3cd; }
-    .diff-column-mismatch { background-color: #d9edf7; }
-    td.cell-missing       { text-align: center; font-size: 1.15rem; }
-    .no-drift              { border: 1px solid #2e7d32; padding: 1rem; }
+    .diff-missing-table     { background-color: #fde2e1; }
+    .diff-missing-column    { background-color: #fff3cd; }
+    .diff-column-mismatch   { background-color: #d9edf7; }
+    .diff-primary-key-mismatch { background-color: #d9edf7; }
+    .diff-foreign-key-mismatch { background-color: #d9edf7; }
+    .diff-index-mismatch    { background-color: #d9edf7; }
+    .diff-missing-procedure { background-color: #fde2e1; }
+    .diff-procedure-mismatch { background-color: #fff3cd; }
+    td.cell-missing          { text-align: center; font-size: 1.15rem; }
+    .no-drift                 { border: 1px solid #2e7d32; padding: 1rem; }
     .legend { list-style: none; padding: 0; display: flex; gap: 1.5rem; flex-wrap: wrap; }
     .legend li { display: flex; align-items: center; gap: 0.4rem; }
     .legend-swatch { display: inline-block; width: 14px; height: 14px; border: 1px solid #999999; }
@@ -21,9 +26,9 @@
     <p>Perfiles comparados: {{ compared_profiles | join(", ") }}</p>
 
     <ul class="legend">
-      <li><span class="legend-swatch diff-missing-table"></span> Tabla faltante</li>
-      <li><span class="legend-swatch diff-missing-column"></span> Columna faltante</li>
-      <li><span class="legend-swatch diff-column-mismatch"></span> Discrepancia de atributos</li>
+      <li><span class="legend-swatch diff-missing-table"></span> Objeto faltante</li>
+      <li><span class="legend-swatch diff-missing-column"></span> Elemento faltante</li>
+      <li><span class="legend-swatch diff-column-mismatch"></span> Discrepancia de definición</li>
       <li>❌ No presente en ese perfil</li>
     </ul>
 
@@ -35,14 +40,18 @@
         <table>
           <thead>
             <tr>
-              <th>Columna</th>
+              <th>Detalle / Elemento</th>
+              <th>Tipo de Objeto</th>
+              <th>Tipo de Hallazgo</th>
               {% for profile in compared_profiles %}<th>{{ profile }}</th>{% endfor %}
             </tr>
           </thead>
           <tbody>
             {% for row in group.rows %}
               <tr class="diff-{{ row.diff_type | lower_kebab }}">
-                <td>{{ row.column_name or "(tabla)" }}</td>
+                <td>{{ row.display_detail }}</td>
+                <td>{{ row.object_kind }}</td>
+                <td>{{ row.finding_type }}</td>
                 {% for profile in compared_profiles %}
                   {% set cell = row.cells[profile] %}
                   <td class="{{ 'cell-missing' if cell and cell.kind == 'missing' else '' }}">

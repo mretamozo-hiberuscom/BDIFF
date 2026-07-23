@@ -52,4 +52,4 @@ class MySqlProvider:
         except Exception as exc:
             raise translate_connect_error(profile.name, exc) from exc
 
-        return introspector.build_snapshot(profile.name, rows)
+        return introspector.build_snapshot(profile.name, rows, provider_id="mysql")

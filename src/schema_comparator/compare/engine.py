@@ -27,6 +27,7 @@ from schema_comparator.domain.comparison.type_equivalences import (
 from schema_comparator.domain.schema.models import (
     DefinitionAvailability,
     ProcedureSnapshot,
+    SchemaFeature,
     SchemaSnapshot,
     TableSnapshot,
 )
@@ -302,11 +303,17 @@ def _evaluate_procedures(
     if routine_policy == RoutineComparisonPolicy.DISABLED:
         return ()
 
-    # Check cross-provider compatibility
-    providers = {s.provider_id for s in snapshots}
-    if routine_policy == RoutineComparisonPolicy.SAME_PROVIDER and len(providers) > 1:
-        # Cross-provider procedure comparison is disabled under SAME_PROVIDER policy
-        return ()
+    # Check provider capabilities
+    if routine_policy == RoutineComparisonPolicy.ALL_CAPABLE:
+        capable = [s for s in snapshots if SchemaFeature.ROUTINES in s.extracted_features]
+        if len(capable) < 2:
+            return ()
+        snapshots = capable
+        profile_names = tuple(sorted(s.profile_name for s in snapshots))
+    elif routine_policy == RoutineComparisonPolicy.SAME_PROVIDER:
+        providers = {s.provider_id for s in snapshots}
+        if len(providers) > 1:
+            return ()
 
     entries: list[MissingProcedure | ProcedureMismatch] = []
 
@@ -355,8 +362,8 @@ def _evaluate_procedures(
                     or p_snap.parameters != first_proc.parameters
                     or p_snap.definition_hash != first_proc.definition_hash
                     or p_snap.definition_availability != first_proc.definition_availability
-                    or p_snap.definition_availability != DefinitionAvailability.AVAILABLE
                 ):
+
                     has_mismatch = True
                     break
 

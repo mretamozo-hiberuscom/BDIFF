@@ -15,3 +15,7 @@ class ModuleEnumerationError(RuntimeError, SchemaComparatorError):
 
 class ModuleRefreshError(RuntimeError, SchemaComparatorError):
     """Raised when refresh/compilation of a database module fails."""
+
+
+class SignatureInspectionError(RuntimeError, SchemaComparatorError):
+    """Raised when checking cryptographic signatures of a module fails."""

@@ -2,6 +2,7 @@
 
 from schema_comparator.domain.schema.models import (
     ColumnSnapshot,
+    SchemaFeature,
     SchemaSnapshot,
     TableSnapshot,
 )
@@ -31,7 +32,9 @@ ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION;
 """.strip()
 
 
-def build_snapshot(profile_name: str, rows: list[tuple]) -> SchemaSnapshot:
+def build_snapshot(
+    profile_name: str, rows: list[tuple], provider_id: str = "mysql"
+) -> SchemaSnapshot:
     """Group raw MySQL/MariaDB catalog rows into a deterministic SchemaSnapshot."""
     grouped: dict[tuple[str, str], list[ColumnSnapshot]] = {}
     for row in rows:
@@ -75,4 +78,9 @@ def build_snapshot(profile_name: str, rows: list[tuple]) -> SchemaSnapshot:
         )
         for (schema, table), cols in sorted(grouped.items())
     )
-    return SchemaSnapshot(profile_name=profile_name, tables=tables)
+    return SchemaSnapshot(
+        profile_name=profile_name,
+        provider_id=provider_id,
+        tables=tables,
+        extracted_features=frozenset({SchemaFeature.TABLES}),
+    )

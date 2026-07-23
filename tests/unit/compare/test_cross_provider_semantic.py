@@ -37,12 +37,12 @@ def test_semantic_comparison_suppresses_equivalent_mismatches() -> None:
     # Profile 1 (PostgreSQL): VARCHAR
     col1 = ColumnSnapshot("name", "varchar", 50, None, None, False, 1)
     t1 = TableSnapshot("public", "users", (col1,))
-    s1 = SchemaSnapshot("pg_prof", (t1,))
+    s1 = SchemaSnapshot("pg_prof", provider_id="postgresql", tables=(t1,))
 
     # Profile 2 (Oracle): VARCHAR2
     col2 = ColumnSnapshot("name", "VARCHAR2", 50, None, None, False, 1)
     t2 = TableSnapshot("public", "users", (col2,))
-    s2 = SchemaSnapshot("ora_prof", (t2,))
+    s2 = SchemaSnapshot("ora_prof", provider_id="oracle", tables=(t2,))
 
     # Native strict mode flags mismatch
     strict_res = compare_snapshots([s1, s2], mode=ComparisonMode.NATIVE_STRICT)
@@ -59,12 +59,12 @@ def test_semantic_comparison_still_flags_length_and_attribute_mismatches() -> No
     # Profile 1: varchar(50)
     col1 = ColumnSnapshot("name", "varchar", 50, None, None, False, 1)
     t1 = TableSnapshot("public", "users", (col1,))
-    s1 = SchemaSnapshot("pg_prof", (t1,))
+    s1 = SchemaSnapshot("pg_prof", provider_id="postgresql", tables=(t1,))
 
     # Profile 2: VARCHAR2(100) - Different length!
     col2 = ColumnSnapshot("name", "VARCHAR2", 100, None, None, False, 1)
     t2 = TableSnapshot("public", "users", (col2,))
-    s2 = SchemaSnapshot("ora_prof", (t2,))
+    s2 = SchemaSnapshot("ora_prof", provider_id="oracle", tables=(t2,))
 
     # Semantic mode MUST flag mismatch due to length difference (50 vs 100)
     semantic_res = compare_snapshots([s1, s2], mode=ComparisonMode.SEMANTIC_EQUIVALENT)

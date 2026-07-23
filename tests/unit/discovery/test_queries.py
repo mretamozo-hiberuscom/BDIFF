@@ -35,7 +35,7 @@ def test_visible_base_table_metadata_is_returned_with_nulls_preserved() -> None:
 
 def test_empty_visible_catalog_returns_empty_snapshot() -> None:
     snapshot = _build_snapshot("claims-service", [])
-    assert snapshot == SchemaSnapshot(profile_name="claims-service", tables=())
+    assert snapshot == SchemaSnapshot(profile_name="claims-service", provider_id="sqlserver", tables=())
 
 
 def test_same_named_tables_in_distinct_schemas_remain_distinct() -> None:

@@ -13,8 +13,8 @@ def test_compare_profiles_use_case_execution() -> None:
     col1 = ColumnSnapshot("id", "int", None, None, None, False, 1)
     table_a = TableSnapshot("dbo", "users", (col1,))
 
-    snapshot_a = SchemaSnapshot("profileA", (table_a,))
-    snapshot_b = SchemaSnapshot("profileB", ())
+    snapshot_a = SchemaSnapshot("profileA", provider_id="sqlserver", tables=(table_a,))
+    snapshot_b = SchemaSnapshot("profileB", provider_id="sqlserver", tables=())
 
     fake_extractor_called = []
 
