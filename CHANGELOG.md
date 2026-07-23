@@ -4,6 +4,14 @@ Todas las modificaciones destacables de este proyecto se documentarán en este a
 
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/), y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [1.1.0] - 2026-07-23
+
+### Añadido
+- Organización automática de scripts DDL generados dentro de subcarpetas con marcas temporales en `scripts-db/<YYYYMMDD_HHMMSS>/`.
+- Organización automática de reportes generados (HTML, PDF, Excel) dentro de subcarpetas con marcas temporales en `reportes/<YYYYMMDD_HHMMSS>/`.
+- Generación automática del reporte de impacto `impact_report.md` en `scripts-db/<YYYYMMDD_HHMMSS>/`, detallando cambios por perfil, evaluación de riesgos en procedimientos almacenados, consultas T-SQL sobre `sys.sql_expression_dependencies` y recomendaciones `sp_recompile`.
+- Sanitización de nombres de archivo de perfiles y desduplicación de nombres para evitar colisiones en el sistema de archivos.
+
 ## [1.0.0] - 2026-07-23
 
 ### Añadido

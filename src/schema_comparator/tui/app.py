@@ -309,13 +309,16 @@ class SchemaComparatorApp(App):
             return
 
         def handle_decision_screen_result(result) -> None:
-            if result:
+            if result is None:
+                self.query_one(StatusLog).info("Consolidación cancelada.")
+            elif not result:
+                self.query_one(StatusLog).info("Consolidación exitosa. No se generaron archivos SQL.")
+            else:
+                subfolder = Path(result[0]).parent.name
                 self.query_one(StatusLog).info(
-                    f"Consolidación exitosa. Scripts generados en 'scripts-db/': "
+                    f"Consolidación exitosa. Scripts generados en 'scripts-db/{subfolder}/': "
                     f"{', '.join(Path(f).name for f in result)}"
                 )
-            else:
-                self.query_one(StatusLog).info("Consolidación cancelada.")
 
         # Hallar la raíz del proyecto
         repo_root = Path(__file__).resolve().parents[3]

@@ -17,11 +17,12 @@ from schema_comparator.report.pdf import export_pdf
 _REPORTS_DIR = "reportes"
 
 
-def _report_path(filename: str) -> str:
-    """Ensure `_REPORTS_DIR` exists (relative to the current invocation
+def _report_path(filename: str, subfolder: str | None = None) -> str:
+    """Ensure `_REPORTS_DIR / subfolder` exists (relative to the current invocation
     cwd) and return the joined path for `filename` inside it."""
-    Path(_REPORTS_DIR).mkdir(parents=True, exist_ok=True)
-    return str(Path(_REPORTS_DIR) / filename)
+    out_dir = Path(_REPORTS_DIR) / subfolder if subfolder else Path(_REPORTS_DIR)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return str(out_dir / filename)
 
 
 def _default_console_summary(result: ComparisonResult, *, out=sys.stdout) -> None:
@@ -33,12 +34,13 @@ def generate_all_reports(result: ComparisonResult, *, out=sys.stdout) -> None:
     `write_reports`'s per-format try/except blocks (REQ-reporting-and-
     output-007's isolation contract is unchanged — this is a pure
     extraction, not a behavior change)."""
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    subfolder = timestamp
     html_str: str | None = None
 
     try:
         html_str = render_html(result)
-        html_path = _report_path(f"schema-diff-report-{timestamp}.html")
+        html_path = _report_path(f"schema-diff-report-{timestamp}.html", subfolder=subfolder)
         with open(html_path, "w", encoding="utf-8", newline="") as f:
             f.write(html_str)
         print(f"Reporte HTML generado: {html_path}", file=out)
@@ -49,7 +51,7 @@ def generate_all_reports(result: ComparisonResult, *, out=sys.stdout) -> None:
         if html_str is None:
             raise PdfExportError("omitido: la generación de HTML no se completó")
         pdf_bytes = export_pdf(html_str)
-        pdf_path = _report_path(f"schema-diff-report-{timestamp}.pdf")
+        pdf_path = _report_path(f"schema-diff-report-{timestamp}.pdf", subfolder=subfolder)
         with open(pdf_path, "wb") as f:
             f.write(pdf_bytes)
         print(f"Reporte PDF generado: {pdf_path}", file=out)
@@ -58,7 +60,7 @@ def generate_all_reports(result: ComparisonResult, *, out=sys.stdout) -> None:
 
     try:
         xlsx_bytes = export_excel(result)
-        xlsx_path = _report_path(f"schema-diff-report-{timestamp}.xlsx")
+        xlsx_path = _report_path(f"schema-diff-report-{timestamp}.xlsx", subfolder=subfolder)
         with open(xlsx_path, "wb") as f:
             f.write(xlsx_bytes)
         print(f"Reporte Excel generado: {xlsx_path}", file=out)

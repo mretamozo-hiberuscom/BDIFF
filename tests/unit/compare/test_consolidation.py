@@ -186,16 +186,19 @@ def test_write_sql_scripts_creates_files() -> None:
         tmp_path = Path(tmp_dir)
         written_files = write_sql_scripts([res1, res2], tmp_path, [profile_a, profile_b], timestamp=ts)
         
-        assert len(written_files) == 2
+        assert len(written_files) == 3
         
-        file_a = tmp_path / "scripts-db" / "profileA.sql"
-        file_b = tmp_path / "scripts-db" / "profileB.sql"
+        file_a = tmp_path / "scripts-db" / "20260714_120000" / "profileA.sql"
+        file_b = tmp_path / "scripts-db" / "20260714_120000" / "profileB.sql"
+        report_file = tmp_path / "scripts-db" / "20260714_120000" / "impact_report.md"
         
         assert file_a.exists()
         assert file_b.exists()
+        assert report_file.exists()
         
         content_a = file_a.read_text(encoding="utf-8")
         content_b = file_b.read_text(encoding="utf-8")
+        report_content = report_file.read_text(encoding="utf-8")
         
         assert "USE [real_db_a];" in content_a
         assert "EXEC sys.sp_executesql N'ALTER TABLE [dbo].[users] ADD [age] int NULL;'" in content_a
@@ -204,6 +207,9 @@ def test_write_sql_scripts_creates_files() -> None:
         
         assert "USE [real_db_b];" in content_b
         assert "ALTER TABLE [dbo].[users] ALTER COLUMN [email] int NOT NULL;" in content_b
+
+        assert "# Reporte de Impacto en Procedimientos Almacenados y Objetos DB" in report_content
+        assert "sys.sql_expression_dependencies" in report_content
 
 
 def test_generate_ddl_for_profile_missing_table() -> None:
@@ -305,8 +311,8 @@ def test_write_sql_scripts_with_column_deletion_includes_affected_profile() -> N
             column_deletions=[deletion],
         )
 
-        assert len(written_files) == 1
-        file_b = tmp_path / "scripts-db" / "profileB.sql"
+        assert len(written_files) == 2
+        file_b = tmp_path / "scripts-db" / "20260714_120000" / "profileB.sql"
         assert file_b.exists()
         assert "DROP COLUMN [obsolete_code];" in file_b.read_text(encoding="utf-8")
 
@@ -336,8 +342,8 @@ def test_write_sql_scripts_with_table_resolution() -> None:
         tmp_path = Path(tmp_dir)
         written_files = write_sql_scripts([], tmp_path, [profile_a, profile_b], timestamp=ts, table_resolutions=[tres])
 
-        assert len(written_files) == 1
-        file_b = tmp_path / "scripts-db" / "profileB.sql"
+        assert len(written_files) == 2
+        file_b = tmp_path / "scripts-db" / "20260714_120000" / "profileB.sql"
         assert file_b.exists()
         content_b = file_b.read_text(encoding="utf-8")
         assert "CREATE TABLE [dbo].[products] (" in content_b

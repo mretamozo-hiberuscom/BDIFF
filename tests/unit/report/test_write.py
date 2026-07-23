@@ -42,7 +42,7 @@ def test_write_reports_pdf_failure_still_leaves_html_written_and_console_printed
 
     output = out.getvalue()
     assert "[ERROR] Falló la generación del reporte PDF" in output
-    html_files = list(tmp_path.glob("reportes/schema-diff-report-*.html"))
+    html_files = list(tmp_path.rglob("schema-diff-report-*.html"))
     assert len(html_files) == 1
     assert "Reporte de Diferencias de Esquema - Resumen de Consola" in output
 
@@ -61,8 +61,8 @@ def test_write_reports_console_failure_still_leaves_html_and_pdf_written(
 
     output = out.getvalue()
     assert "[ERROR] Falló la generación del resumen de consola" in output
-    assert list(tmp_path.glob("reportes/schema-diff-report-*.html"))
-    assert list(tmp_path.glob("reportes/schema-diff-report-*.pdf"))
+    assert list(tmp_path.rglob("schema-diff-report-*.html"))
+    assert list(tmp_path.rglob("schema-diff-report-*.pdf"))
 
 
 def test_write_reports_never_raises_past_the_function_boundary(
@@ -90,8 +90,8 @@ def test_write_reports_html_and_pdf_filenames_share_the_same_timestamp(
 
     write_reports(comparison_result_with_findings(), out=out)
 
-    html_file = next(tmp_path.glob("reportes/schema-diff-report-*.html"))
-    pdf_file = next(tmp_path.glob("reportes/schema-diff-report-*.pdf"))
+    html_file = next(tmp_path.rglob("schema-diff-report-*.html"))
+    pdf_file = next(tmp_path.rglob("schema-diff-report-*.pdf"))
     html_ts = re.search(r"schema-diff-report-(.+)\.html", html_file.name).group(1)
     pdf_ts = re.search(r"schema-diff-report-(.+)\.pdf", pdf_file.name).group(1)
     assert html_ts == pdf_ts
@@ -105,8 +105,8 @@ def test_write_reports_writes_into_reportes_subdirectory_of_cwd(
 
     write_reports(comparison_result_with_findings(), out=out)
 
-    assert list(tmp_path.glob("reportes/schema-diff-report-*.html"))
-    assert list(tmp_path.glob("reportes/schema-diff-report-*.pdf"))
+    assert list(tmp_path.rglob("schema-diff-report-*.html"))
+    assert list(tmp_path.rglob("schema-diff-report-*.pdf"))
 
 
 def test_write_reports_creates_reportes_directory_when_absent(
@@ -119,8 +119,8 @@ def test_write_reports_creates_reportes_directory_when_absent(
     write_reports(comparison_result_with_findings(), out=out)
 
     assert (tmp_path / "reportes").is_dir()
-    assert list((tmp_path / "reportes").glob("schema-diff-report-*.html"))
-    assert list((tmp_path / "reportes").glob("schema-diff-report-*.pdf"))
+    assert list((tmp_path / "reportes").rglob("schema-diff-report-*.html"))
+    assert list((tmp_path / "reportes").rglob("schema-diff-report-*.pdf"))
 
 
 def test_write_reports_default_render_summary_matches_prior_console_output(
@@ -167,8 +167,8 @@ def test_write_reports_isolates_render_summary_failure_from_html_pdf(
 
     output = out.getvalue()
     assert "[ERROR] Fall\u00f3 la generaci\u00f3n del resumen de consola" in output
-    assert list(tmp_path.glob("reportes/schema-diff-report-*.html"))
-    assert list(tmp_path.glob("reportes/schema-diff-report-*.pdf"))
+    assert list(tmp_path.rglob("schema-diff-report-*.html"))
+    assert list(tmp_path.rglob("schema-diff-report-*.pdf"))
 
 
 def test_generate_all_reports_produces_same_outcomes_as_before_extraction(
@@ -183,9 +183,9 @@ def test_generate_all_reports_produces_same_outcomes_as_before_extraction(
     assert "Reporte HTML generado:" in output
     assert "Reporte PDF generado:" in output
     assert "Reporte Excel generado:" in output
-    assert list(tmp_path.glob("reportes/schema-diff-report-*.html"))
-    assert list(tmp_path.glob("reportes/schema-diff-report-*.pdf"))
-    assert list(tmp_path.glob("reportes/schema-diff-report-*.xlsx"))
+    assert list(tmp_path.rglob("schema-diff-report-*.html"))
+    assert list(tmp_path.rglob("schema-diff-report-*.pdf"))
+    assert list(tmp_path.rglob("schema-diff-report-*.xlsx"))
 
 
 def test_generate_all_reports_html_failure_still_attempts_pdf(
@@ -245,6 +245,6 @@ def test_write_reports_generate_reports_true_is_unchanged(
 
     write_reports(comparison_result_with_findings(), out=out, generate_reports=True)
 
-    assert list(tmp_path.glob("reportes/schema-diff-report-*.html"))
-    assert list(tmp_path.glob("reportes/schema-diff-report-*.pdf"))
+    assert list(tmp_path.rglob("schema-diff-report-*.html"))
+    assert list(tmp_path.rglob("schema-diff-report-*.pdf"))
 

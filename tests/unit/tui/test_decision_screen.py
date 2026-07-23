@@ -200,7 +200,7 @@ async def test_decision_screen_saves_sql_scripts() -> None:
         assert len(app.dismissed_result) > 0
         
         # Verify the files actually exist on disk
-        sql_folder = tmp_path / "scripts-db"
+        sql_folder = list((tmp_path / "scripts-db").glob("*"))[0]
         assert sql_folder.exists()
         
         # At least one profile SQL script should have ALTER TABLE statements
@@ -363,7 +363,8 @@ async def test_decision_screen_generates_drop_table_sql() -> None:
             await pilot.press("g")
             await pilot.pause()
 
-        content = (tmp_path / "scripts-db" / "profileA.sql").read_text(encoding="utf-8")
+        scripts_dir = list((tmp_path / "scripts-db").glob("*"))[0]
+        content = (scripts_dir / "profileA.sql").read_text(encoding="utf-8")
         assert "DROP TABLE [dbo].[logs];" in content
         from schema_comparator.tui.decision_screen import MergedMissingTable
         merged_key = next(k for k in screen.decisions if isinstance(k, MergedMissingTable))
@@ -404,7 +405,8 @@ async def test_missing_column_drop_targets_only_present_profiles_and_generates_s
             await pilot.press("g")
             await pilot.pause()
 
-        content = (tmp_path / "scripts-db" / "profileA.sql").read_text(encoding="utf-8")
+        scripts_dir = list((tmp_path / "scripts-db").glob("*"))[0]
+        content = (scripts_dir / "profileA.sql").read_text(encoding="utf-8")
         assert "DROP COLUMN [age];" in content
         assert "ALTER COLUMN [email]" not in content
 
@@ -532,8 +534,9 @@ async def test_multiprofile_missing_table_drop_only_targets_present_profile() ->
             await pilot.press("g")
             await pilot.pause()
 
-        scripts_dir = tmp_path / "scripts-db"
-        assert scripts_dir.exists(), "No se generaron scripts SQL"
+        base_dir = tmp_path / "scripts-db"
+        assert base_dir.exists(), "No se generaron scripts SQL"
+        scripts_dir = list(base_dir.glob("*"))[0]
 
         a_sql = (scripts_dir / "profileA.sql").read_text(encoding="utf-8")
         assert "DROP TABLE [dbo].[logs];" in a_sql
@@ -656,8 +659,9 @@ async def test_multiprofile_missing_column_drop_only_targets_present_profile() -
             await pilot.press("g")
             await pilot.pause()
 
-        scripts_dir = tmp_path / "scripts-db"
-        assert scripts_dir.exists(), "No se generaron scripts SQL"
+        base_dir = tmp_path / "scripts-db"
+        assert base_dir.exists(), "No se generaron scripts SQL"
+        scripts_dir = list(base_dir.glob("*"))[0]
 
         a_sql = (scripts_dir / "profileA.sql").read_text(encoding="utf-8")
         assert "ALTER TABLE [dbo].[users] DROP COLUMN [phone];" in a_sql
