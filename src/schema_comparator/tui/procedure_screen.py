@@ -404,6 +404,15 @@ class ProcedureVerificationScreen(Screen):
                 "SET NOCOUNT ON;",
                 "GO",
                 "",
+                "IF OBJECT_ID('tempdb..#RefreshSummary') IS NOT NULL DROP TABLE #RefreshSummary;",
+                "CREATE TABLE #RefreshSummary (",
+                "    Esquema NVARCHAR(128),",
+                "    Objeto NVARCHAR(128),",
+                "    Estado NVARCHAR(20),",
+                "    ErrorDetalle NVARCHAR(MAX)",
+                ");",
+                "GO",
+                "",
                 "PRINT '============================================================================';",
                 f"PRINT '  INICIANDO RECOMPILACIÓN DE RUTINAS EN PERFIL: {profile_name}';",
                 "PRINT '============================================================================';",
@@ -430,6 +439,7 @@ class ProcedureVerificationScreen(Screen):
             master_lines.append("GO")
             master_lines.append("")
 
+            proc_idx = 0
             for r in res_list:
                 routine = getattr(r, "routine", None)
                 if (
@@ -447,18 +457,23 @@ class ProcedureVerificationScreen(Screen):
                     master_lines.append(comment_line)
                     continue
 
+                proc_idx += 1
                 safe_sch = routine.schema_name.replace("'", "''")
                 safe_obj = routine.object_name.replace("'", "''")
                 qname = f"[{safe_sch}].[{safe_obj}]"
+                var_err = f"@err_{proc_idx}"
 
                 tsql_block = [
                     f"PRINT 'Recompilando {qname}...';",
                     "BEGIN TRY",
                     f"    EXEC sys.sp_refreshsqlmodule @name = N'{qname}';",
-                    "    PRINT '  -> ✅ Éxito';",
+                    f"    INSERT INTO #RefreshSummary VALUES (N'{safe_sch}', N'{safe_obj}', N'[OK]', NULL);",
+                    "    PRINT '  -> [OK] Recompilado correctamente.';",
                     "END TRY",
                     "BEGIN CATCH",
-                    f"    PRINT '  -> ❌ ERROR en {qname}: ' + ERROR_MESSAGE() + ' (Error ' + CAST(ERROR_NUMBER() AS VARCHAR) + ')';",
+                    f"    DECLARE {var_err} NVARCHAR(MAX) = ERROR_MESSAGE() + N' (Error ' + CAST(ERROR_NUMBER() AS NVARCHAR) + N')';",
+                    f"    INSERT INTO #RefreshSummary VALUES (N'{safe_sch}', N'{safe_obj}', N'[ERROR]', {var_err});",
+                    f"    PRINT '  -> [ERROR] en {qname}: ' + {var_err};",
                     "END CATCH;",
                     "GO",
                     "",
@@ -466,28 +481,23 @@ class ProcedureVerificationScreen(Screen):
                 prof_lines.extend(tsql_block)
                 master_lines.extend(tsql_block)
 
-            prof_lines.append(
-                "PRINT '============================================================================';"
-            )
-            prof_lines.append(
-                f"PRINT '  RECOMPILACIÓN FINALIZADA PARA PERFIL: {profile_name}';"
-            )
-            prof_lines.append(
-                "PRINT '============================================================================';"
-            )
-            prof_lines.append("GO")
-
-            master_lines.append(
-                "PRINT '============================================================================';"
-            )
-            master_lines.append(
-                f"PRINT '  RECOMPILACIÓN FINALIZADA PARA PERFIL: {profile_name}';"
-            )
-            master_lines.append(
-                "PRINT '============================================================================';"
-            )
-            master_lines.append("GO")
-            master_lines.append("")
+            summary_grid_block = [
+                "PRINT '============================================================================';",
+                f"PRINT '  RESUMEN FINAL DE RECOMPILACIÓN PARA PERFIL: {profile_name}';",
+                "PRINT '============================================================================';",
+                "SELECT ",
+                "    Esquema AS [Esquema],",
+                "    Objeto AS [Rutina / Objeto],",
+                "    Estado AS [Resultado],",
+                "    ISNULL(ErrorDetalle, '-') AS [Mensaje de Error / Diagnostico]",
+                "FROM #RefreshSummary",
+                "ORDER BY CASE WHEN Estado = '[ERROR]' THEN 0 ELSE 1 END, Esquema, Objeto;",
+                "DROP TABLE #RefreshSummary;",
+                "GO",
+                "",
+            ]
+            prof_lines.extend(summary_grid_block)
+            master_lines.extend(summary_grid_block)
 
             try:
                 prof_file_path.write_text("\n".join(prof_lines), encoding="utf-8")

@@ -143,6 +143,8 @@ def test_action_generate_script_escapes_single_quotes_and_skips_signed_and_place
     assert "[SYSTEM].[CONNECT]" not in content
     assert "BEGIN TRY" in content
     assert "BEGIN CATCH" in content
+    assert "#RefreshSummary" in content
+    assert "[OK]" in content
 
     # Check profile-specific script file inside repair_sps/ subfolder
     profile_script_files = list(
@@ -152,6 +154,7 @@ def test_action_generate_script_escapes_single_quotes_and_skips_signed_and_place
     prof_content = profile_script_files[0].read_text(encoding="utf-8")
     assert "INICIANDO RECOMPILACIÓN DE RUTINAS EN PERFIL: test_prof" in prof_content
     assert "BEGIN TRY" in prof_content
+    assert "#RefreshSummary" in prof_content
 
 
 def test_clean_sql_error_message():

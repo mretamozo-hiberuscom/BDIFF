@@ -4,6 +4,12 @@ Todas las modificaciones destacables de este proyecto se documentarán en este a
 
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/), y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [1.2.5] - 2026-07-23
+
+### Mejorado
+- **Formateo ASCII compatible en T-SQL**: sustituidos emojis por indicadores universales `[OK]` y `[ERROR]` en los logs de salida del script de reparación para evitar caracteres no representables o símbolos extraños `??` en SSMS, DBeaver y herramientas ODBC.
+- **Tabla de Resultados Grid (`#RefreshSummary`)**: incorporación de una tabla temporal T-SQL `#RefreshSummary` al final del script de reparación. Al ejecutarlo en SSMS/sqlcmd, genera una pestaña de Resultados (Grid) ordenada priorizando los errores `[ERROR]` en la parte superior con su mensaje de diagnóstico exacto.
+
 ## [1.2.4] - 2026-07-23
 
 ### Mejorado
