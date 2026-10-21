@@ -64,6 +64,12 @@ class ColumnResolution:
     # column differs from it. A destination left out is checked only for
     # existence.
     observed_by_profile: tuple[tuple[str, ColumnAttributes], ...] = ()
+    # Value for the rows left NULL when the column becomes NOT NULL without
+    # a default; without one, the script aborts if there are such rows.
+    backfill_value: str | None = None
+    # The user accepted truncation, rounding or failed conversions for this
+    # column; otherwise the script aborts when a value would be lost.
+    accept_data_loss: bool = False
 
 
 @dataclass(frozen=True, slots=True)

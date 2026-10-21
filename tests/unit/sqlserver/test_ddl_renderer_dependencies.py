@@ -111,7 +111,7 @@ def test_generate_ddl_escapes_single_quotes_in_print_statements() -> None:
     assert "PRINT N'Columna [Age''s] agregada con exito a [d''bo].[User''s].';" in ddl
 
 
-def test_generate_ddl_not_null_column_backfills_nulls() -> None:
+def test_generate_ddl_not_null_column_never_invents_a_fill_value() -> None:
     profile = ConnectionProfile(name="dev_db", connection_string="Database=TestDB;")
     not_null_attrs = ColumnAttributes(
         data_type="int",
@@ -120,45 +120,40 @@ def test_generate_ddl_not_null_column_backfills_nulls() -> None:
         numeric_scale=None,
         is_nullable=False,
     )
-    mod_res = [
-        ColumnResolution(
+
+    def resolution(column: str, missing: bool, fill: str | None) -> ColumnResolution:
+        return ColumnResolution(
             schema_name="dbo",
             table_name="Orders",
-            column_name="CustomerId",
+            column_name=column,
             target_attributes=not_null_attrs,
             profiles_to_update=("dev_db",),
-            is_missing_column=False,
+            is_missing_column=missing,
+            backfill_value=fill,
         )
-    ]
-    add_res = [
-        ColumnResolution(
-            schema_name="dbo",
-            table_name="Orders",
-            column_name="WarehouseId",
-            target_attributes=not_null_attrs,
-            profiles_to_update=("dev_db",),
-            is_missing_column=True,
-        )
-    ]
 
-    ddl_mod = generate_ddl_for_profile(resolutions=mod_res, profile=profile)
-    assert "UPDATE [dbo].[Orders]" in ddl_mod
-    assert "SET [CustomerId] = 0" in ddl_mod
-    assert "WHERE [CustomerId] IS NULL;" in ddl_mod
-    assert (
-        "ALTER TABLE [dbo].[Orders] ALTER COLUMN [CustomerId] int NOT NULL;" in ddl_mod
+    ddl_mod = generate_ddl_for_profile(
+        resolutions=[resolution("CustomerId", False, None)], profile=profile
     )
+    assert "FROM [dbo].[Orders] WHERE [CustomerId] IS NULL;" in ddl_mod
+    assert "fila(s) con NULL" in ddl_mod
+    assert "SET [CustomerId] = 0" not in ddl_mod
 
-    ddl_add = generate_ddl_for_profile(resolutions=add_res, profile=profile)
-    assert (
-        "EXEC sys.sp_executesql N'ALTER TABLE [dbo].[Orders] ADD [WarehouseId] int NULL;'"
-        in ddl_add
+    ddl_filled = generate_ddl_for_profile(
+        resolutions=[resolution("CustomerId", False, "7")], profile=profile
     )
     assert (
-        "EXEC sys.sp_executesql N'UPDATE [dbo].[Orders] SET [WarehouseId] = 0 WHERE [WarehouseId] IS NULL;'"
-        in ddl_add
+        "UPDATE [dbo].[Orders] SET [CustomerId] = CONVERT(int, N''7'')"
+        " WHERE [CustomerId] IS NULL;" in ddl_filled
     )
-    assert (
-        "EXEC sys.sp_executesql N'ALTER TABLE [dbo].[Orders] ALTER COLUMN [WarehouseId] int NOT NULL;'"
-        in ddl_add
+    assert "IF TRY_CONVERT(int, N'7') IS NULL" in ddl_filled
+
+    ddl_add = generate_ddl_for_profile(
+        resolutions=[resolution("WarehouseId", True, "1")], profile=profile
     )
+    for statement in (
+        "ALTER TABLE [dbo].[Orders] ADD [WarehouseId] int NULL;",
+        "UPDATE [dbo].[Orders] SET [WarehouseId] = CONVERT(int, N''1'') WHERE [WarehouseId] IS NULL;",
+        "ALTER TABLE [dbo].[Orders] ALTER COLUMN [WarehouseId] int NOT NULL;",
+    ):
+        assert f"EXEC sys.sp_executesql N'{statement}';" in ddl_add

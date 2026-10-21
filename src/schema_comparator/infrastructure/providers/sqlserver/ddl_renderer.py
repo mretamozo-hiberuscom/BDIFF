@@ -50,8 +50,8 @@ def extract_database_name(connection_string: str) -> str | None:
     return None
 
 
-def format_sql_column_definition(attrs: ColumnAttributes) -> str:
-    """Format column attributes to their corresponding SQL Server (T-SQL) definition."""
+def _type_sql(attrs: ColumnAttributes) -> str:
+    """The T-SQL type of `attrs`, without nullability."""
     clean_type = re.sub(r"\s*\(.*\)", "", attrs.data_type).strip()
     data_type_lower = clean_type.lower()
 
@@ -64,20 +64,121 @@ def format_sql_column_definition(attrs: ColumnAttributes) -> str:
             if attrs.character_maximum_length == -1
             else str(attrs.character_maximum_length)
         )
-        type_str = f"{clean_type}({size})"
-    elif attrs.numeric_precision is not None and data_type_lower in (
+        return f"{clean_type}({size})"
+    if attrs.numeric_precision is not None and data_type_lower in (
         "decimal",
         "numeric",
     ):
         if attrs.numeric_scale is not None:
-            type_str = f"{clean_type}({attrs.numeric_precision}, {attrs.numeric_scale})"
-        else:
-            type_str = f"{clean_type}({attrs.numeric_precision})"
-    else:
-        type_str = clean_type
+            return f"{clean_type}({attrs.numeric_precision}, {attrs.numeric_scale})"
+        return f"{clean_type}({attrs.numeric_precision})"
+    return clean_type
 
+
+def format_sql_column_definition(attrs: ColumnAttributes) -> str:
+    """Format column attributes to their corresponding SQL Server (T-SQL) definition."""
     nullability = "NULL" if attrs.is_nullable else "NOT NULL"
-    return f"{type_str} {nullability}"
+    return f"{_type_sql(attrs)} {nullability}"
+
+
+_STRING_TYPES = frozenset({"char", "varchar", "nchar", "nvarchar"})
+_UNICODE_TYPES = frozenset({"nchar", "nvarchar"})
+_NUMERIC_TYPES = frozenset(
+    {
+        "bit",
+        "tinyint",
+        "smallint",
+        "int",
+        "bigint",
+        "decimal",
+        "numeric",
+        "float",
+        "real",
+        "money",
+        "smallmoney",
+    }
+)
+_TEMPORAL_TYPES = frozenset(
+    {"date", "datetime", "datetime2", "smalldatetime", "datetimeoffset", "time"}
+)
+_BINARY_TYPES = frozenset({"binary", "varbinary"})
+_FAMILIES = (_STRING_TYPES, _NUMERIC_TYPES, _TEMPORAL_TYPES, _BINARY_TYPES)
+# Changes that never lose a value, beyond same-type widening.
+_SAFE_WIDENINGS = frozenset(
+    {
+        ("tinyint", "smallint"),
+        ("tinyint", "int"),
+        ("tinyint", "bigint"),
+        ("smallint", "int"),
+        ("smallint", "bigint"),
+        ("int", "bigint"),
+        ("smallmoney", "money"),
+        ("real", "float"),
+        ("smalldatetime", "datetime"),
+        ("date", "datetime2"),
+        ("datetime", "datetime2"),
+    }
+)
+
+
+def _base_type(attrs: ColumnAttributes) -> str:
+    return re.sub(r"\s*\(.*\)", "", attrs.data_type).strip().lower()
+
+
+def _family(base_type: str) -> frozenset | None:
+    return next((f for f in _FAMILIES if base_type in f), None)
+
+
+def _shorter(observed: ColumnAttributes, target: ColumnAttributes) -> bool:
+    target_len = target.character_maximum_length
+    observed_len = observed.character_maximum_length
+    if target_len == -1:
+        return False
+    if observed_len == -1 or target_len is None or observed_len is None:
+        return True
+    return target_len < observed_len
+
+
+def column_change_may_lose_data(
+    observed: ColumnAttributes, target: ColumnAttributes
+) -> bool:
+    """Whether turning a column defined as `observed` into `target` can
+    truncate, round or fail to convert a value: the script then counts the
+    affected rows before changing anything."""
+    old, new = _base_type(observed), _base_type(target)
+    if old in _STRING_TYPES and new in _STRING_TYPES:
+        if old in _UNICODE_TYPES and new not in _UNICODE_TYPES:
+            return True
+        return _shorter(observed, target)
+    if old == new:
+        if old in ("decimal", "numeric"):
+            old_p, old_s = observed.numeric_precision or 18, observed.numeric_scale or 0
+            new_p, new_s = target.numeric_precision or 18, target.numeric_scale or 0
+            return new_s < old_s or new_p - new_s < old_p - old_s
+        return False
+    return (old, new) not in _SAFE_WIDENINGS
+
+
+def _loss_is_checkable(observed: ColumnAttributes, target: ColumnAttributes) -> bool:
+    """Whether the loss query can convert between both types; for other
+    pairs the ALTER itself decides (and rolls back on error)."""
+    old, new = _family(_base_type(observed)), _family(_base_type(target))
+    if old is None or new is None:
+        return False
+    return old is new or _STRING_TYPES in (old, new)
+
+
+def _fill_expression(attrs: ColumnAttributes, backfill_value: str | None) -> str | None:
+    """What fills the rows left NULL by a change to NOT NULL: the value the
+    user gave, else the column's default; None when there is neither."""
+    if backfill_value is not None:
+        return f"CONVERT({_type_sql(attrs)}, N'{_escape_literal(backfill_value)}')"
+    if attrs.default_expression:
+        expr = attrs.default_expression.strip()
+        while expr.startswith("(") and expr.endswith(")") and len(expr) > 2:
+            expr = expr[1:-1].strip()
+        return expr or None
+    return None
 
 
 def _escape_ident(identifier: str) -> str:
@@ -88,48 +189,6 @@ def _escape_ident(identifier: str) -> str:
 def _escape_literal(literal: str) -> str:
     """Escape single quote for T-SQL string literals."""
     return literal.replace("'", "''")
-
-
-def _get_default_backfill_literal(attrs: ColumnAttributes) -> str:
-    """Return a safe T-SQL literal to backfill NULL values when converting a column to NOT NULL."""
-    if attrs.default_expression:
-        expr = attrs.default_expression.strip()
-        while expr.startswith("(") and expr.endswith(")") and len(expr) > 2:
-            expr = expr[1:-1].strip()
-        return expr if expr else "0"
-
-    clean_type = re.sub(r"\s*\(.*\)", "", attrs.data_type).strip().lower()
-    if clean_type in (
-        "bit",
-        "int",
-        "bigint",
-        "smallint",
-        "tinyint",
-        "decimal",
-        "numeric",
-        "float",
-        "real",
-        "money",
-        "smallmoney",
-    ):
-        return "0"
-    if clean_type in ("varchar", "nvarchar", "char", "nchar", "text", "ntext", "xml"):
-        return "''"
-    if clean_type == "time":
-        return "'00:00:00'"
-    if clean_type in (
-        "date",
-        "datetime",
-        "datetime2",
-        "smalldatetime",
-        "datetimeoffset",
-    ):
-        return "'1900-01-01'"
-    if clean_type == "uniqueidentifier":
-        return "'00000000-0000-0000-0000-000000000000'"
-    if clean_type in ("varbinary", "binary", "image"):
-        return "0x00"
-    return "''"
 
 
 @dataclass(frozen=True)
@@ -370,6 +429,84 @@ def _drop_column_step(cdel, pos: _Position) -> _Step:
     )
 
 
+def _dynamic(sql: str) -> str:
+    """Run `sql` through sp_executesql: a statement naming a column that
+    does not exist yet (or any more) would stop the whole batch compiling."""
+    return f"EXEC sys.sp_executesql N'{_escape_literal(sql)}';"
+
+
+def _count_rows(var: str, query: str) -> str:
+    """Declare `var` and set it to the COUNT_BIG(*) of `query`'s FROM/WHERE."""
+    sql = f"SELECT @n = COUNT_BIG(*) {query};"
+    return (
+        f"DECLARE {var} bigint;\n"
+        f"EXEC sys.sp_executesql N'{_escape_literal(sql)}', "
+        f"N'@n bigint OUTPUT', @n = {var} OUTPUT;"
+    )
+
+
+def _abort_if_rows(var: str, query: str, before: str, after: str) -> str:
+    """Abort with `<before><count><after>` when `query` finds rows."""
+    prefix = _escape_literal(before).replace("%", "%%")
+    suffix = _escape_literal(after).replace("%", "%%")
+    message = var.replace("@n_", "@msg_")
+    return (
+        f"{_count_rows(var, query)}\n"
+        f"IF {var} > 0\n"
+        "BEGIN\n"
+        f"    DECLARE {message} nvarchar(2048) = N'{prefix}' + CAST({var} AS nvarchar(20)) + N'{suffix}';\n"
+        f"    THROW 50003, {message}, 1;\n"
+        "END"
+    )
+
+
+def _fill_value_check(label: str, attrs: ColumnAttributes, value: str) -> str:
+    """Abort when the user's fill value does not convert to the column type
+    (or, for text, would be cut or change on the way)."""
+    type_sql = _type_sql(attrs)
+    literal = f"N'{_escape_literal(value)}'"
+    converted = f"TRY_CONVERT({type_sql}, {literal})"
+    invalid = f"{converted} IS NULL"
+    if _base_type(attrs) in _STRING_TYPES:
+        invalid += (
+            f" OR CAST(CAST({converted} AS nvarchar(4000)) AS varbinary(max))"
+            f" <> CAST({literal} AS varbinary(max))"
+        )
+    return f"IF {invalid}\n    " + _throw(
+        50004, f"{label}: el valor de relleno '{value}' no es valido para {type_sql}."
+    )
+
+
+def _lost_rows_query(
+    table: str, col: str, observed: ColumnAttributes, target: ColumnAttributes
+) -> str:
+    """FROM/WHERE of the rows whose value would not survive the change: it
+    does not convert, or converting it back does not give the same bytes.
+    Text turned into another kind of type is only checked for conversion,
+    since its spelling changes on the way back (dates, numbers)."""
+    new_type, old_type = _type_sql(target), _type_sql(observed)
+    converted = f"TRY_CONVERT({new_type}, [{col}])"
+    lost = f"{converted} IS NULL"
+    if not (
+        _base_type(observed) in _STRING_TYPES
+        and _base_type(target) not in _STRING_TYPES
+    ):
+        back = f"TRY_CONVERT({old_type}, {converted})"
+        lost += (
+            f" OR {back} IS NULL"
+            f" OR CAST({back} AS varbinary(max)) <> CAST([{col}] AS varbinary(max))"
+        )
+    return f"FROM {table} WHERE [{col}] IS NOT NULL AND ({lost})"
+
+
+def _data_checks(lines: list[str], skip: str) -> str:
+    """Data checks run only when the step is not already applied."""
+    if not lines:
+        return ""
+    body = "\n".join(_indent(line, 4) for line in lines)
+    return f"\nIF {skip} = 0\nBEGIN\n{body}\nEND"
+
+
 def _add_column_step(res, pos: _Position) -> _Step:
     table = _qualified(res.schema_name, res.table_name)
     column = _qualified(res.schema_name, res.table_name, res.column_name)
@@ -377,20 +514,39 @@ def _add_column_step(res, pos: _Position) -> _Step:
     col_esc = _escape_ident(res.column_name)
     attrs = res.target_attributes
     col_def = format_sql_column_definition(attrs)
+    fill = _fill_expression(attrs, res.backfill_value)
+    data: list[str] = []
     if attrs.is_nullable:
         apply = f"ALTER TABLE {table} ADD [{col_esc}] {col_def};\n"
-    else:
-        # Dynamic SQL: a statement naming the new column would not compile
-        # in the same batch that adds it.
-        nullable_def = format_sql_column_definition(replace(attrs, is_nullable=True))
-        backfill = _get_default_backfill_literal(attrs)
-        statements = (
-            f"ALTER TABLE {table} ADD [{col_esc}] {nullable_def};",
-            f"UPDATE {table} SET [{col_esc}] = {backfill} WHERE [{col_esc}] IS NULL;",
-            f"ALTER TABLE {table} ALTER COLUMN [{col_esc}] {col_def};",
+    elif fill is None:
+        # Only an empty table can take a NOT NULL column with no value.
+        data.append(
+            _abort_if_rows(
+                f"@n_{pos.number}_rows",
+                f"FROM {table}",
+                f"{label}: ",
+                " fila(s) en la tabla y la columna nueva es NOT NULL sin DEFAULT;"
+                " indica un valor de relleno en la TUI.",
+            )
         )
-        apply = "".join(
-            f"EXEC sys.sp_executesql N'{_escape_literal(sql)}';\n" for sql in statements
+        apply = f"ALTER TABLE {table} ADD [{col_esc}] {col_def};\n"
+    else:
+        if res.backfill_value is not None:
+            data.append(
+                "-- Relleno de NULL con el valor indicado en la TUI.\n"
+                + _fill_value_check(label, attrs, res.backfill_value)
+            )
+        nullable_def = format_sql_column_definition(replace(attrs, is_nullable=True))
+        apply = (
+            "\n".join(
+                _dynamic(sql)
+                for sql in (
+                    f"ALTER TABLE {table} ADD [{col_esc}] {nullable_def};",
+                    f"UPDATE {table} SET [{col_esc}] = {fill} WHERE [{col_esc}] IS NULL;",
+                    f"ALTER TABLE {table} ALTER COLUMN [{col_esc}] {col_def};",
+                )
+            )
+            + "\n"
         )
     target = _column_is(res.schema_name, res.table_name, res.column_name, attrs)
     return _Step(
@@ -409,7 +565,9 @@ def _add_column_step(res, pos: _Position) -> _Step:
             )
             + "\nEND\n"
             f"ELSE IF NOT ({_table_exists(res.schema_name, res.table_name)})\n"
-            "    " + _throw(50001, f"{label}: la tabla {table} no existe.")
+            "    "
+            + _throw(50001, f"{label}: la tabla {table} no existe.")
+            + _data_checks(data, pos.skip)
         ),
         apply=apply
         + f"PRINT N'Columna [{_escape_literal(col_esc)}] agregada con exito a {_escape_literal(table)}.';",
@@ -445,23 +603,71 @@ def _modify_column_step(
                 "vuelve a comparar antes de aplicar.",
             )
         )
+
+    data: list[str] = []
+    fill = None
+    if not attrs.is_nullable and (observed is None or observed.is_nullable):
+        fill = _fill_expression(attrs, res.backfill_value)
+        if fill is None:
+            data.append(
+                _abort_if_rows(
+                    f"@n_{pos.number}_nulls",
+                    f"FROM {table} WHERE [{col_esc}] IS NULL",
+                    f"{label}: ",
+                    " fila(s) con NULL y la definicion objetivo es NOT NULL sin"
+                    " DEFAULT; indica un valor de relleno en la TUI o corrige los"
+                    " datos.",
+                )
+            )
+        elif res.backfill_value is not None:
+            data.append(
+                "-- Relleno de NULL con el valor indicado en la TUI.\n"
+                + _fill_value_check(label, attrs, res.backfill_value)
+            )
+    if (
+        observed is not None
+        and column_change_may_lose_data(observed, attrs)
+        and _loss_is_checkable(observed, attrs)
+    ):
+        query = _lost_rows_query(table, col_esc, observed, attrs)
+        var = f"@n_{pos.number}_lost"
+        if res.accept_data_loss:
+            data.append(
+                "-- Perdida de datos aceptada explicitamente en la TUI para esta columna.\n"
+                f"{_count_rows(var, query)}\n"
+                f"IF {var} > 0\n"
+                f"    PRINT N'{_escape_literal(label)}: perdida de datos aceptada en '"
+                f" + CAST({var} AS nvarchar(20)) + N' fila(s).';"
+            )
+        else:
+            data.append(
+                _abort_if_rows(
+                    var,
+                    query,
+                    f"{label}: ",
+                    f" fila(s) perderian datos al convertir a {_type_sql(attrs)}"
+                    " (truncamiento, redondeo o conversion); corrige los datos o"
+                    " acepta la perdida en la TUI.",
+                )
+            )
+
     apply = ""
-    if not attrs.is_nullable:
-        backfill = _get_default_backfill_literal(attrs)
+    if fill is not None:
+        update = f"UPDATE {table} SET [{col_esc}] = {fill} WHERE [{col_esc}] IS NULL;"
         apply = (
-            f"IF EXISTS (SELECT 1 FROM {table} WHERE [{col_esc}] IS NULL)\n"
-            "BEGIN\n"
-            f"    UPDATE {table}\n"
-            f"    SET [{col_esc}] = {backfill}\n"
-            f"    WHERE [{col_esc}] IS NULL;\n"
-            f"    PRINT N'Valores NULL en {table_lit}.[{col_print}] actualizados pre-ALTER.';\n"
-            "END\n"
+            f"{_dynamic(update)}\n"
+            f"PRINT N'Valores NULL en {table_lit}.[{col_print}] actualizados pre-ALTER.';\n"
         )
     apply += (
         f"ALTER TABLE {table} ALTER COLUMN [{col_esc}] {format_sql_column_definition(attrs)};\n"
         f"PRINT N'Columna [{col_print}] de {table_lit} modificada con exito.';"
     )
-    return _Step(label=label, check=check, apply=apply, verify=target)
+    return _Step(
+        label=label,
+        check=check + _data_checks(data, pos.skip),
+        apply=apply,
+        verify=target,
+    )
 
 
 def _indent(text: str, spaces: int) -> str:

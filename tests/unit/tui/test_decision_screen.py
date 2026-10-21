@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import pytest
 from textual.app import App
-from textual.widgets import ListView, RadioSet, SelectionList
+from textual.widgets import Checkbox, Input, ListView, RadioSet, SelectionList
 
 from schema_comparator.compare.models import (
     ColumnAttributes,
@@ -13,7 +13,7 @@ from schema_comparator.compare.models import (
     MissingTable,
     NamedColumnAttributes,
 )
-from schema_comparator.tui.decision_screen import DecisionScreen
+from schema_comparator.tui.decision_screen import ColumnResolutionWidget, DecisionScreen
 from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.compare.consolidation import ColumnAction, TableAction
 
@@ -710,3 +710,42 @@ async def test_multiprofile_missing_column_drop_only_targets_present_profile() -
             if pf.exists():
                 content = pf.read_text(encoding="utf-8")
                 assert "phone" not in content.lower()
+
+
+@pytest.mark.asyncio
+async def test_column_card_asks_for_fill_value_and_loss_only_when_needed() -> None:
+    entries = _sample_entries()
+    mismatch = entries[0]  # email: varchar(100) in profileA, varchar(200) in profileB
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        app = DummyApp(entries, _sample_profiles(), Path(tmp_dir))
+
+        async with app.run_test() as pilot:
+            screen = app.screen
+            list_view = screen.query_one("#findings-list", ListView)
+            list_view.focus()
+            list_view.index = 1
+            await pilot.press("enter")
+            await pilot.pause()
+            card = screen.query(ColumnResolutionWidget).first()
+            fill = card.query_one(".fill-value", Input)
+            loss = card.query_one(".accept-loss", Checkbox)
+            assert not fill.display and not loss.display
+
+            # varchar(100) NOT NULL for profileB, which has varchar(200):
+            # shrinking may lose data and the target has no default.
+            card.query_one(RadioSet).children[0].value = True
+            await pilot.pause()
+            assert fill.display and loss.display
+
+            fill.value = "sin-email"
+            loss.value = True
+            await pilot.pause()
+            options = screen.column_options[mismatch]
+            assert options.backfill_value == "sin-email"
+            assert options.accept_data_loss is True
+
+            # varchar(200) for profileA (varchar(100)) only widens.
+            card.query_one(RadioSet).children[1].value = True
+            await pilot.pause()
+            assert fill.display and not loss.display

@@ -15,6 +15,9 @@ from schema_comparator.compare.consolidation import (
     TableDeletionResolution,
     TableResolution,
 )
+from schema_comparator.infrastructure.providers.sqlserver.ddl_renderer import (
+    column_change_may_lose_data,
+)
 from schema_comparator.compare.models import (
     ColumnAttributes,
     ColumnMismatch,
@@ -152,6 +155,41 @@ def default_destinations(entry: DecisionEntry, target: object) -> tuple[str, ...
     return entry.missing_from_profiles
 
 
+@dataclass(frozen=True)
+class ColumnOptions:
+    """What the user said about a column fix's data: a value for rows left
+    NULL, and whether truncation or rounding is acceptable."""
+
+    backfill_value: str | None = None
+    accept_data_loss: bool = False
+
+
+def needs_fill_value(target: object) -> bool:
+    """A column fix asks for a fill value when it ends NOT NULL without a
+    default: rows left NULL would otherwise abort the script."""
+    return (
+        isinstance(target, ColumnAttributes)
+        and not target.is_nullable
+        and not target.default_expression
+    )
+
+
+def may_lose_data(
+    entry: DecisionEntry, target: object, destinations: tuple[str, ...]
+) -> bool:
+    """Whether applying `target` to a destination of a mismatch can
+    truncate, round or fail to convert its values."""
+    if not isinstance(entry, ColumnMismatch) or not isinstance(
+        target, ColumnAttributes
+    ):
+        return False
+    return any(
+        column_change_may_lose_data(attrs, target)
+        for profile, attrs in entry.values_by_profile
+        if profile in destinations
+    )
+
+
 @dataclass
 class Resolutions:
     columns: list[ColumnResolution] = field(default_factory=list)
@@ -167,9 +205,13 @@ class Resolutions:
 
 def build_resolutions(
     decisions: dict[DecisionEntry, tuple[object, tuple[str, ...]]],
+    options: dict[DecisionEntry, ColumnOptions] | None = None,
 ) -> Resolutions:
     """Resolutions for every decision with a target and destinations; each
-    destination outside `destination_choices` is dropped."""
+    destination outside `destination_choices` is dropped. `options` carries
+    the fill value and accepted loss of column fixes; a blank fill value
+    counts as none."""
+    options = options or {}
     result = Resolutions()
     for entry, (target, destinations) in decisions.items():
         if target is None or not destinations:
@@ -211,6 +253,7 @@ def build_resolutions(
                 )
             )
         else:
+            column_options = options.get(entry, ColumnOptions())
             observed = (
                 tuple(
                     (profile, attrs)
@@ -229,6 +272,12 @@ def build_resolutions(
                     profiles_to_update=dests,
                     is_missing_column=isinstance(entry, MergedMissingColumn),
                     observed_by_profile=observed,
+                    backfill_value=(
+                        column_options.backfill_value
+                        if (column_options.backfill_value or "").strip()
+                        else None
+                    ),
+                    accept_data_loss=column_options.accept_data_loss,
                 )
             )
     return result

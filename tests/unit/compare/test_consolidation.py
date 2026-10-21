@@ -225,18 +225,11 @@ def test_write_sql_scripts_creates_files() -> None:
         report_content = report_file.read_text(encoding="utf-8")
 
         assert "USE [real_db_a];" in content_a
-        assert (
-            "EXEC sys.sp_executesql N'ALTER TABLE [dbo].[users] ADD [age] int NULL;'"
-            in content_a
-        )
-        assert (
-            "EXEC sys.sp_executesql N'UPDATE [dbo].[users] SET [age] = 0 WHERE [age] IS NULL;'"
-            in content_a
-        )
-        assert (
-            "EXEC sys.sp_executesql N'ALTER TABLE [dbo].[users] ALTER COLUMN [age] int NOT NULL;'"
-            in content_a
-        )
+        # NOT NULL with no default nor fill value: only an empty table can
+        # take it, so the script counts the rows first.
+        assert "SELECT @n = COUNT_BIG(*) FROM [dbo].[users];" in content_a
+        assert "ALTER TABLE [dbo].[users] ADD [age] int NOT NULL;" in content_a
+        assert "= 0 WHERE" not in content_a
 
         assert "USE [real_db_b];" in content_b
         assert (

@@ -1,0 +1,292 @@
+{
+  "schema": "idd-state/v1",
+  "change": "script-data-loss-guard",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "El script de consolidación no inventa valores ni pierde datos en silencio: aborta con el número de filas afectadas cuando pasar a NOT NULL encuentra NULL sin default, o cuando un cambio de tipo, longitud o precisión truncaría, redondearía o no podría convertir valores, salvo que en la TUI se indique un valor de relleno o se acepte la pérdida para esa columna, lo que queda anotado en el script",
+    "acceptance": "Con filas NULL y sin default ni valor de relleno, el script aborta antes de cambiar nada diciendo cuántas filas; con un valor de relleno las rellena con él (y aborta si no es convertible al tipo); reducir longitud, pasar nvarchar a varchar con caracteres no representables, bajar escala/precisión o cambiar a un tipo que no admite los valores aborta con el número de filas salvo que se acepte la pérdida, y entonces el script lo anota y lo aplica; ya no se usan 0, '' ni 1900-01-01 como relleno"
+  },
+  "facts": {
+    "basis": "Decisión del usuario en esta sesión ('Cuando un cambio perdería datos...'): 'Abortar salvo decisión: por defecto aborta con el número de filas afectadas; en la TUI puedes indicar explícitamente un valor de relleno o aceptar la pérdida para esa columna, y queda anotado en el script'. Relleno inventado actual en sqlserver/ddl_renderer.py:93."
+  },
+  "plan": {
+    "paths": [
+      "src/schema_comparator/compare/consolidation.py",
+      "src/schema_comparator/infrastructure/providers/sqlserver/ddl_renderer.py",
+      "src/schema_comparator/tui/decision_model.py",
+      "src/schema_comparator/tui/decision_screen.py",
+      "tests/fixtures/golden/sqlserver/expected_add_column.sql",
+      "tests/integration/test_consolidation_scripts_live.py",
+      "tests/unit/compare/test_consolidation.py",
+      "tests/unit/tui/test_decision_model.py",
+      "tests/unit/tui/test_decision_screen.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    },
+    {
+      "id": "persistent-data",
+      "reason": "persistent data: touches tests/fixtures/golden/sqlserver/expected_add_column.sql (matches **/*.sql)",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "components compare, presentation, providers: ADR 0001, 0002, 0003, 0005, 0006, 0007 and quality scenario mutation-requires-confirmation, no-false-drift, optional-drivers, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "none",
+      "reason": "decision_model (TUI) importa una función pura del renderer SQL Server, igual que procedure_screen; no hay dirección de dependencia nueva."
+    },
+    {
+      "kind": "adr",
+      "id": "0002",
+      "impact": "none",
+      "reason": "No toca el registro de proveedores."
+    },
+    {
+      "kind": "adr",
+      "id": "0003",
+      "impact": "none",
+      "reason": "No cambia tipos canónicos; la clasificación de pérdida es del dialecto T-SQL."
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "conforms",
+      "reason": "BDIFF sigue sin ejecutar scripts; la pérdida de datos aceptada y el relleno quedan anotados en el script, en línea con la clasificación de operaciones destructivas que pide la ADR."
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "none",
+      "reason": "No añade escrituras ejecutadas por BDIFF."
+    },
+    {
+      "kind": "adr",
+      "id": "0007",
+      "impact": "none",
+      "reason": "No cambia identidad de objetos."
+    },
+    {
+      "kind": "scenario",
+      "id": "mutation-requires-confirmation",
+      "impact": "conforms",
+      "reason": "Aceptar pérdida de datos exige una casilla explícita por columna; sin ella el script aborta."
+    },
+    {
+      "kind": "scenario",
+      "id": "no-false-drift",
+      "impact": "none",
+      "reason": "No cambia la comparación."
+    },
+    {
+      "kind": "scenario",
+      "id": "optional-drivers",
+      "impact": "none",
+      "reason": "No importa drivers."
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "none",
+      "reason": "Mensajes con nombres de objetos y conteos, sin cadenas de conexión."
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "conforms",
+      "reason": "Mensajes del script en ASCII; textos de la TUI con tildes como el resto de la interfaz."
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "migration-compat-and-test",
+      "signal": "persistent-data",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-4"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T13:44:01.725Z",
+      "detail": {
+        "red": "run-2",
+        "green": "run-3"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "migration-test",
+      "obligation": "migration-compat-and-test",
+      "recorded_at": "2026-10-21T13:44:16.136Z",
+      "detail": {
+        "run": "run-4",
+        "tree": "sha256:94115dda57c08d66aca9455024fdee88271ac858e846cec362cb43fc5f6c87ea",
+        "plan": "Los scripts generados antes siguen siendo válidos. Los nuevos ya no rellenan NULL con valores inventados: abortan con el conteo salvo valor de relleno o pérdida aceptada, todo dentro de la transacción con ROLLBACK ante error (probado en SQL Server 2022). Los campos nuevos de ColumnResolution son opcionales."
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T13:44:48.626Z",
+      "detail": {
+        "tree": "sha256:02dbf013ee80e956aee15e41c02e53fab81afffe51d73057fbe87a39e5f249e9",
+        "runs": [
+          "run-5",
+          "run-6"
+        ]
+      }
+    },
+    {
+      "id": "ev-4",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T13:44:48.626Z",
+      "detail": {
+        "refs": [
+          "adr:0001 none",
+          "adr:0002 none",
+          "adr:0003 none",
+          "adr:0005 conforms",
+          "adr:0006 none",
+          "adr:0007 none",
+          "scenario:mutation-requires-confirmation conforms",
+          "scenario:no-false-drift none",
+          "scenario:optional-drivers none",
+          "scenario:secret-safety none",
+          "scenario:windows-first-run conforms"
+        ],
+        "records": [],
+        "tree": "sha256:02dbf013ee80e956aee15e41c02e53fab81afffe51d73057fbe87a39e5f249e9",
+        "fitness": [
+          "run-7"
+        ]
+      }
+    }
+  ],
+  "base": "6692038c11da2afaf4ee86d98d49ceff355fa6e9",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/tui/test_decision_model.py tests/unit/tui/test_decision_screen.py tests/integration/test_consolidation_scripts_live.py",
+      "exit_code": 2,
+      "output_sha256": "sha256:a24f5165fb89befcae10c8e3a92bc7858c0a34591056eb81833b0705afc02c3c",
+      "tree": "sha256:0917ef68b3b75f22da016747f42e0a46d03e8e4454dfdf915be04f358cc16031",
+      "recorded_at": "2026-10-21T13:37:24.793Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/tui/test_decision_model.py tests/unit/tui/test_decision_screen.py tests/integration/test_consolidation_scripts_live.py",
+      "exit_code": 1,
+      "output_sha256": "sha256:15eed0485b269f8dfc2390d09573359851d965d7bd311eab2ca8f8ebd04c57aa",
+      "tree": "sha256:ad9a81d3e98c116f3fd114ef3fb3b4b82a6f9a00c4ccf7369b4a0a6f442c14cf",
+      "recorded_at": "2026-10-21T13:37:59.124Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/tui/test_decision_model.py tests/unit/tui/test_decision_screen.py tests/integration/test_consolidation_scripts_live.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:4fe4e5070a17359008b48144d8c9ad96a2fde7108ee2205279e9865c4c15c59a",
+      "tree": "sha256:94115dda57c08d66aca9455024fdee88271ac858e846cec362cb43fc5f6c87ea",
+      "recorded_at": "2026-10-21T13:44:01.725Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "migration-test",
+      "command": "python -m pytest -q tests/integration/test_consolidation_scripts_live.py tests/unit/sqlserver/test_characterization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f6d6913e8994725236b094b4009dbdc3cf8e386e1672671f7afb6283350cc53d",
+      "tree": "sha256:94115dda57c08d66aca9455024fdee88271ac858e846cec362cb43fc5f6c87ea",
+      "recorded_at": "2026-10-21T13:44:16.136Z"
+    },
+    {
+      "id": "run-5",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:c8ad735b121568a82bbc4cb7f80532779f95a58e86813f6d046312b16b5bf68d",
+      "tree": "sha256:02dbf013ee80e956aee15e41c02e53fab81afffe51d73057fbe87a39e5f249e9",
+      "recorded_at": "2026-10-21T13:44:48.626Z"
+    },
+    {
+      "id": "run-6",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:74a0e5e3b1d650547f1e4b1055a0cbeb1a28d78665eb31f0de40ba3bc574bd4f",
+      "tree": "sha256:02dbf013ee80e956aee15e41c02e53fab81afffe51d73057fbe87a39e5f249e9",
+      "recorded_at": "2026-10-21T13:44:48.626Z"
+    },
+    {
+      "id": "run-7",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f9fd93d4bfe07fbc3f2ca83028355ce747308424b00ccac0298c99213e915731",
+      "tree": "sha256:02dbf013ee80e956aee15e41c02e53fab81afffe51d73057fbe87a39e5f249e9",
+      "recorded_at": "2026-10-21T13:44:48.626Z"
+    }
+  ],
+  "assumptions": [
+    "Si la definición objetivo tiene DEFAULT, las filas NULL se rellenan con esa expresión sin pedir valor (el caso a decidir era 'sin default').",
+    "Un único valor de relleno y una única aceptación de pérdida por tarjeta de decisión, válidos para todos sus destinos; el script valida el valor con TRY_CONVERT al tipo destino.",
+    "La comprobación de pérdida compara cada valor con su conversión de ida y vuelta; espacios finales recortados en varchar/char no cuentan como pérdida (SQL Server los ignora al comparar)."
+  ],
+  "closed_at": "2026-10-21T13:45:00.875Z"
+}

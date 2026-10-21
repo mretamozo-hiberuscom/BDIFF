@@ -198,6 +198,7 @@ def test_widens_a_column_and_makes_it_not_null(
                 target_attributes=_attrs("varchar", length=40, nullable=False),
                 profiles_to_update=(_PROFILE,),
                 is_missing_column=False,
+                backfill_value="SIN-CODIGO",
             )
         ],
     )
@@ -207,6 +208,9 @@ def test_widens_a_column_and_makes_it_not_null(
     assert _columns(mssql_server, mssql_db, "productos") == {
         "codigo": ("varchar", "40", "NO")
     }
+    assert mssql_server.query(
+        "SELECT codigo FROM dbo.productos ORDER BY codigo", database=mssql_db
+    ) == [("A1",), ("SIN-CODIGO",)]
 
 
 def test_drops_a_column_with_its_index_check_and_default(
@@ -330,7 +334,8 @@ def test_a_failing_step_leaves_the_database_unchanged(
                 profiles_to_update=(_PROFILE,),
                 is_missing_column=True,
             ),
-            # 'no-numerico' cannot become an int: this step fails last.
+            # 'no-numerico' cannot become an int: with the loss accepted the
+            # check lets it through and the ALTER fails after earlier steps.
             ColumnResolution(
                 schema_name="dbo",
                 table_name="ventas",
@@ -338,6 +343,7 @@ def test_a_failing_step_leaves_the_database_unchanged(
                 target_attributes=_attrs("int", nullable=False),
                 profiles_to_update=(_PROFILE,),
                 is_missing_column=False,
+                accept_data_loss=True,
             ),
         ],
     )
@@ -406,6 +412,7 @@ def test_a_failure_reports_the_original_error_number(
                 target_attributes=_attrs("int", nullable=False),
                 profiles_to_update=(_PROFILE,),
                 is_missing_column=False,
+                accept_data_loss=True,
             )
         ],
     )
@@ -604,3 +611,204 @@ def test_skips_a_step_already_in_the_target_state(
     assert result.returncode == 0, result.stdout
     assert "ya aplicado; se omite" in result.stdout
     assert "modificada con exito" not in result.stdout
+
+
+def _change(table: str, column: str, target, observed, **options):
+    return ColumnResolution(
+        schema_name="dbo",
+        table_name=table,
+        column_name=column,
+        target_attributes=target,
+        profiles_to_update=(_PROFILE,),
+        is_missing_column=False,
+        observed_by_profile=((_PROFILE, observed),),
+        **options,
+    )
+
+
+def test_aborts_with_the_count_when_nulls_have_no_fill_value(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.clientes (pais varchar(20) NULL);"
+        " INSERT dbo.clientes VALUES ('ES'), (NULL), (NULL);",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        table_resolutions=[_new_table("auditoria")],
+        columns=[
+            _change(
+                "clientes",
+                "pais",
+                _attrs("varchar", length=20, nullable=False),
+                _attrs("varchar", length=20),
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[clientes].[pais]", "2 fila(s) con NULL")
+    assert _tables(mssql_server, mssql_db) == {"clientes"}
+    assert mssql_server.query(
+        "SELECT COUNT(*) FROM dbo.clientes WHERE pais IS NULL", database=mssql_db
+    ) == [("2",)]
+
+
+def test_aborts_when_the_fill_value_does_not_fit_the_type(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.stock (cantidad int NULL); INSERT dbo.stock VALUES (NULL);",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _change(
+                "stock",
+                "cantidad",
+                _attrs("int", nullable=False),
+                _attrs("int"),
+                backfill_value="mucho",
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[stock].[cantidad]", "valor de relleno")
+
+
+def test_aborts_adding_a_not_null_column_without_fill_to_a_table_with_rows(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.pedidos (id int NOT NULL); INSERT dbo.pedidos VALUES (1);"
+        " CREATE TABLE dbo.vacia (id int NOT NULL);",
+    )
+
+    def add(table: str) -> ColumnResolution:
+        return ColumnResolution(
+            schema_name="dbo",
+            table_name=table,
+            column_name="estado",
+            target_attributes=_attrs("int", nullable=False),
+            profiles_to_update=(_PROFILE,),
+            is_missing_column=True,
+        )
+
+    failing = mssql_server.run_file(
+        _script(tmp_path / "con-filas", mssql_db, columns=[add("pedidos")])
+    )
+    _apply(mssql_server, _script(tmp_path / "vacia", mssql_db, columns=[add("vacia")]))
+
+    _assert_aborted(failing, "[dbo].[pedidos].[estado]", "1 fila(s)")
+    assert "estado" not in _columns(mssql_server, mssql_db, "pedidos")
+    assert _columns(mssql_server, mssql_db, "vacia")["estado"] == ("int", "", "NO")
+
+
+@pytest.mark.parametrize(
+    ("setup", "observed", "target"),
+    [
+        (
+            "CREATE TABLE dbo.t (c varchar(20) NULL); INSERT dbo.t VALUES ('abcdefgh');",
+            _attrs("varchar", length=20),
+            _attrs("varchar", length=5),
+        ),
+        (
+            "CREATE TABLE dbo.t (c nvarchar(10) NULL); INSERT dbo.t VALUES (N'日本');",
+            _attrs("nvarchar", length=10),
+            _attrs("varchar", length=10),
+        ),
+        (
+            "CREATE TABLE dbo.t (c decimal(10,4) NULL); INSERT dbo.t VALUES (1.2345);",
+            _attrs("decimal", precision=10, scale=4),
+            _attrs("decimal", precision=10, scale=2),
+        ),
+        (
+            "CREATE TABLE dbo.t (c varchar(20) NULL); INSERT dbo.t VALUES ('x1');",
+            _attrs("varchar", length=20),
+            _attrs("int"),
+        ),
+    ],
+    ids=["truncate", "unicode-to-codepage", "round-scale", "not-convertible"],
+)
+def test_aborts_with_the_count_when_a_change_would_lose_data(
+    mssql_server, mssql_db, tmp_path, setup, observed, target
+) -> None:
+    _setup(mssql_server, mssql_db, setup)
+    before = mssql_server.query(
+        "SELECT CAST(c AS nvarchar(50)) FROM dbo.t", database=mssql_db
+    )
+    script = _script(tmp_path, mssql_db, columns=[_change("t", "c", target, observed)])
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[t].[c]", "1 fila(s) perderian datos")
+    assert (
+        mssql_server.query(
+            "SELECT CAST(c AS nvarchar(50)) FROM dbo.t", database=mssql_db
+        )
+        == before
+    )
+
+
+def test_applies_an_accepted_data_loss_and_says_so_in_the_script(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.t (c nvarchar(10) NULL); INSERT dbo.t VALUES (N'日本');",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _change(
+                "t",
+                "c",
+                _attrs("varchar", length=10),
+                _attrs("nvarchar", length=10),
+                accept_data_loss=True,
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    assert result.returncode == 0, result.stdout
+    assert "perdida de datos aceptada" in script.read_text(encoding="utf-8-sig")
+    assert _columns(mssql_server, mssql_db, "t") == {"c": ("varchar", "10", "YES")}
+
+
+def test_a_not_null_change_on_a_missing_column_reports_the_step(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    # A query naming a missing column breaks the compilation of the whole
+    # batch; the checks must still report which step and object failed.
+    _setup(mssql_server, mssql_db, "CREATE TABLE dbo.clientes (id int NOT NULL);")
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _change(
+                "clientes",
+                "email",
+                _attrs("varchar", length=50, nullable=False),
+                _attrs("varchar", length=50),
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[clientes].[email]", "no existe")
