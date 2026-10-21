@@ -84,7 +84,9 @@ validación, `2` error o uso incorrecto (p. ej. `--refresh-modules` sin
   que no se pierden datos, recrea índices y restricciones afectados y, ante
   cualquier error, lo deshace todo. Antes de cada eliminación copia los datos
   al esquema `bdiff_respaldo`, que BDIFF nunca borra. Ejecútalo con
-  `sqlcmd -b -i <archivo>.sql` o completo desde SSMS.
+  `sqlcmd -b -i <archivo>.sql` o completo desde SSMS. Junto a cada script,
+  `<perfil>.deshacer.sql` revierte sus pasos en orden inverso, recuperando
+  tablas, columnas, índices, restricciones y datos desde esos respaldos.
 
 ## Instalación manual
 

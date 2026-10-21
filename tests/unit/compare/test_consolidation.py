@@ -212,7 +212,8 @@ def test_write_sql_scripts_creates_files() -> None:
             [res1, res2], tmp_path, [profile_a, profile_b], timestamp=ts
         )
 
-        assert len(written_files) == 3
+        # A script and its undo per profile, plus the impact report.
+        assert len(written_files) == 5
 
         file_a = tmp_path / "scripts-db" / "20260714_120000" / "profileA.sql"
         file_b = tmp_path / "scripts-db" / "20260714_120000" / "profileB.sql"
@@ -368,7 +369,7 @@ def test_write_sql_scripts_with_column_deletion_includes_affected_profile() -> N
             column_deletions=[deletion],
         )
 
-        assert len(written_files) == 2
+        assert len(written_files) == 3
         file_b = tmp_path / "scripts-db" / "20260714_120000" / "profileB.sql"
         assert file_b.exists()
         assert "DROP COLUMN [obsolete_code];" in file_b.read_text(encoding="utf-8")
@@ -403,7 +404,7 @@ def test_write_sql_scripts_with_table_resolution() -> None:
             [], tmp_path, [profile_a, profile_b], timestamp=ts, table_resolutions=[tres]
         )
 
-        assert len(written_files) == 2
+        assert len(written_files) == 3
         file_b = tmp_path / "scripts-db" / "20260714_120000" / "profileB.sql"
         assert file_b.exists()
         content_b = file_b.read_text(encoding="utf-8")
@@ -618,3 +619,45 @@ def test_impact_report_lists_the_backups_and_how_to_clean_them() -> None:
     assert "[bdiff_respaldo].[bdiff_bak_20261021_120000_stock_cantidad]" in report
     assert "[bdiff_respaldo].[bdiff_diario_20261021_120000]" in report
     assert "DROP TABLE" in report
+
+
+def test_undo_refuses_steps_it_has_no_previous_definition_for() -> None:
+    from schema_comparator.infrastructure.providers.sqlserver.ddl_renderer import (
+        generate_undo_for_profile,
+    )
+
+    attrs = ColumnAttributes(
+        data_type="int",
+        character_maximum_length=None,
+        numeric_precision=None,
+        numeric_scale=None,
+        is_nullable=True,
+    )
+    undo = generate_undo_for_profile(
+        [
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="t",
+                column_name="c",
+                target_attributes=attrs,
+                profiles_to_update=("p",),
+                is_missing_column=False,
+            )
+        ],
+        ConnectionProfile(name="p", connection_string="Database=a;"),
+        timestamp=datetime.datetime(2026, 10, 21, 12, 0, 0),
+        table_deletions=[
+            TableDeletionResolution(
+                schema_name="dbo", table_name="vieja", profiles_to_update=("p",)
+            )
+        ],
+    )
+
+    assert (
+        "Paso 1/2: modificar la columna [dbo].[t].[c]: no se conoce su definicion anterior"
+        in undo
+    )
+    assert (
+        "Paso 2/2: recrear la tabla [dbo].[vieja]: no se conoce su definicion" in undo
+    )
+    assert "-- Script para DESHACER" in undo

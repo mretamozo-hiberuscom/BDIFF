@@ -246,15 +246,37 @@ def _bounded(name: str) -> str:
 
 
 def backup_table_name(
-    timestamp: datetime.datetime, table: str, column: str | None = None
+    timestamp: datetime.datetime,
+    table: str,
+    column: str | None = None,
+    undo: bool = False,
 ) -> str:
+    """Backup of a table (or of a table's column) a script drops; the undo
+    script's own backups say so in their name."""
     stamp = timestamp.strftime("%Y%m%d_%H%M%S")
+    kind = "_deshacer" if undo else ""
     suffix = f"_{column}" if column is not None else ""
-    return _bounded(f"bdiff_bak_{stamp}_{table}{suffix}")
+    return _bounded(f"bdiff_bak_{stamp}{kind}_{table}{suffix}")
 
 
-def journal_table_name(timestamp: datetime.datetime) -> str:
-    return f"bdiff_diario_{timestamp.strftime('%Y%m%d_%H%M%S')}"
+def journal_table_name(timestamp: datetime.datetime, undo: bool = False) -> str:
+    kind = "_deshacer" if undo else ""
+    return f"bdiff_diario_{timestamp.strftime('%Y%m%d_%H%M%S')}{kind}"
+
+
+@dataclass(frozen=True)
+class _Storage:
+    """Where one script keeps its backups and its journal."""
+
+    ts: datetime.datetime
+    undo: bool = False
+
+    def backup(self, table: str, column: str | None = None) -> str:
+        return _backup_qualified(backup_table_name(self.ts, table, column, self.undo))
+
+    @property
+    def journal(self) -> str:
+        return _backup_qualified(journal_table_name(self.ts, self.undo))
 
 
 def _backup_qualified(name: str) -> str:
@@ -266,7 +288,7 @@ def _ensure_backup_storage(journal: str) -> str:
     sp_executesql: CREATE SCHEMA must be alone in its batch)."""
     create_journal = (
         f"CREATE TABLE {journal} (seq int IDENTITY(1, 1) PRIMARY KEY, paso int NOT NULL,"
-        " objeto sysname NOT NULL, sql nvarchar(max) NOT NULL);"
+        " objeto sysname NOT NULL, es_fk bit NOT NULL, sql nvarchar(max) NOT NULL);"
     )
     return (
         f"IF SCHEMA_ID(N'{BACKUP_SCHEMA}') IS NULL\n"
@@ -313,6 +335,8 @@ class _Step:
     verify: str
     # Drops foreign keys into the script-wide `@bdiff_fk` table.
     uses_fk_table: bool = False
+    # Restores objects whose indexes and constraints this journal holds.
+    replays_journal: str | None = None
 
 
 def _qualified(*names: str) -> str:
@@ -436,42 +460,70 @@ def _create_table_step(tres, pos: _Position) -> _Step:
     )
 
 
-def _drop_table_step(tdel, pos: _Position, ts: datetime.datetime) -> _Step:
+def _journal_dependents(n: int, journal: str) -> str:
+    """Record how to recreate what step `n` collected: indexes and
+    constraints first (clustered before nonclustered), foreign keys apart
+    so undoing recreates them after every table is back."""
+    return (
+        f"INSERT {journal} (paso, objeto, es_fk, sql)\n"
+        f"SELECT {n}, name, 0, create_sql FROM @deps_{n} WHERE create_sql IS NOT NULL\n"
+        "ORDER BY kind DESC, seq;\n"
+        f"INSERT {journal} (paso, objeto, es_fk, sql)\n"
+        f"SELECT {n}, name, 1, create_sql FROM @bdiff_fk WHERE step = {n} ORDER BY fk_id;\n"
+    )
+
+
+def _drop_table_step(tdel, pos: _Position, storage: _Storage) -> _Step:
     table = _qualified(tdel.schema_name, tdel.table_name)
     table_lit = _escape_literal(table)
     label = pos.label(f"eliminar la tabla {table}")
     exists = _table_exists(tdel.schema_name, tdel.table_name)
-    backup = _backup_qualified(backup_table_name(ts, tdel.table_name))
-    journal = _backup_qualified(journal_table_name(ts))
+    backup = storage.backup(tdel.table_name)
     n = pos.number
+    not_journaled = _escape_literal(
+        f"{label}: aviso: la tabla tiene indices no rowstore, particionados o full-text"
+        " que no se anotan en el diario; deshacer no los recreara."
+    )
     return _Step(
         label=label,
         check=(
+            f"DECLARE @obj_{n} int = OBJECT_ID(N'{table_lit}');\n"
+            f"DECLARE @tbl_{n} nvarchar(400) = N'{table_lit}';\n"
             f"IF NOT ({exists})\n    SET {pos.skip} = 1;"
             + _data_checks([_backup_must_not_exist(label, backup)], pos.skip)
         ),
         apply=(
-            _ensure_backup_storage(journal)
+            _ensure_backup_storage(storage.journal)
             + f"{_dynamic(f'SELECT * INTO {backup} FROM {table};')}\n"
             + f"PRINT N'Datos respaldados en {_escape_literal(backup)}.';\n"
-            # Keys of other tables pointing at it: journaled, then dropped.
-            + f"DECLARE @fk_{n} TABLE (name sysname, drop_sql nvarchar(max), create_sql nvarchar(max));\n"
-            + f"DECLARE @fk_sql_{n} nvarchar(max);\n"
-            + f"INSERT @fk_{n} (name, drop_sql, create_sql)\n"
-            + f"SELECT fk.name, {_FK_DROP_SQL},\n    {_fk_create_sql()}\n"
-            + f"FROM sys.foreign_keys fk WHERE fk.referenced_object_id = OBJECT_ID(N'{table_lit}');\n"
-            + f"INSERT {journal} (paso, objeto, sql) SELECT {n}, name, create_sql FROM @fk_{n};\n"
+            # Its indexes, constraints and keys from or to it go to the
+            # journal; the keys of other tables are dropped first.
+            + _collect_dependents(
+                n,
+                widen_only=False,
+                keep_default=True,
+                recreate_fks=False,
+                whole_table=True,
+            )
+            + _journal_dependents(n, storage.journal)
+            + f"IF EXISTS (SELECT 1 FROM sys.indexes i WHERE i.object_id = @obj_{n}\n"
+            + "    AND (i.type NOT IN (0, 1, 2) OR i.data_space_id IN (SELECT data_space_id FROM sys.partition_schemes)))\n"
+            + f"    OR EXISTS (SELECT 1 FROM sys.fulltext_indexes f WHERE f.object_id = @obj_{n})\n"
+            + f"    PRINT N'{not_journaled}';\n"
             + _run_each(
-                f"bdiff_fk_drop_{n}", f"@fk_sql_{n}", f"SELECT drop_sql FROM @fk_{n}"
+                f"bdiff_fk_drop_{n}",
+                f"@dep_sql_{n}",
+                f"SELECT drop_sql FROM @bdiff_fk WHERE step = {n} ORDER BY fk_id",
             )
             + f"\nDROP TABLE {table};\n"
             + f"PRINT N'Tabla {table_lit} eliminada con exito.';"
         ),
         verify=f"NOT ({exists})",
+        uses_fk_table=True,
     )
 
 
-def _drop_column_step(cdel, pos: _Position, ts: datetime.datetime) -> _Step:
+def _drop_column_step(cdel, pos: _Position, storage: _Storage) -> _Step:
     table = _qualified(cdel.schema_name, cdel.table_name)
     table_lit = _escape_literal(table)
     col_esc = _escape_ident(cdel.column_name)
@@ -480,9 +532,9 @@ def _drop_column_step(cdel, pos: _Position, ts: datetime.datetime) -> _Step:
         f"eliminar la columna {_qualified(cdel.schema_name, cdel.table_name, cdel.column_name)}"
     )
     exists = _column_exists(cdel.schema_name, cdel.table_name, cdel.column_name)
-    backup = _backup_qualified(backup_table_name(ts, cdel.table_name, cdel.column_name))
+    backup = storage.backup(cdel.table_name, cdel.column_name)
     backup_lit = _escape_literal(backup)
-    journal = _backup_qualified(journal_table_name(ts))
+    journal = storage.journal
     n = pos.number
     pk_columns = _list_sql(
         "SELECT N', ' + QUOTENAME(c.name) FROM sys.indexes i "
@@ -528,9 +580,7 @@ def _drop_column_step(cdel, pos: _Position, ts: datetime.datetime) -> _Step:
             + _collect_dependents(
                 n, widen_only=False, keep_default=True, recreate_fks=False
             )
-            + f"INSERT {journal} (paso, objeto, sql)\n"
-            + f"SELECT {n}, name, create_sql FROM @deps_{n} WHERE create_sql IS NOT NULL\n"
-            + f"UNION ALL SELECT {n}, name, create_sql FROM @bdiff_fk WHERE step = {n};\n"
+            + _journal_dependents(n, journal)
             + _drop_dependents(n, label)
             + f"\nALTER TABLE {table} DROP COLUMN [{col_esc}];\n"
             + f"PRINT N'Columna [{_escape_literal(col_esc)}] eliminada con exito de {table_lit}.';"
@@ -845,16 +895,45 @@ def _fk_create_sql() -> str:
 
 
 def _collect_dependents(
-    n: int, widen_only: bool, keep_default: bool, recreate_fks: bool = True
+    n: int,
+    widen_only: bool,
+    keep_default: bool,
+    recreate_fks: bool = True,
+    whole_table: bool = False,
 ) -> str:
     """Fill `@deps_<n>` with the drop and recreate statements of the
     column's indexes, statistics, DEFAULT and CHECK, and `@bdiff_fk` with
-    its foreign keys (recreated once every step has run)."""
+    its foreign keys (recreated once every step has run unless
+    `recreate_fks` is false). With `whole_table`, every one of the table's
+    and every foreign key from or to it."""
     obj, col, tbl, deps = f"@obj_{n}", f"@col_{n}", f"@tbl_{n}", f"@deps_{n}"
-    on_column = (
-        "EXISTS (SELECT 1 FROM sys.index_columns ic WHERE ic.object_id = i.object_id "
-        f"AND ic.index_id = i.index_id AND ic.column_id = {col})"
-    )
+    if whole_table:
+        on_index = on_stats = on_default = on_check = ""
+        on_fk = (
+            f"  AND (fk.parent_object_id = {obj} OR fk.referenced_object_id = {obj});\n"
+        )
+        stats_kinds = "s.user_created = 1"
+    else:
+        on_index = (
+            " AND EXISTS (SELECT 1 FROM sys.index_columns ic WHERE ic.object_id = i.object_id "
+            f"AND ic.index_id = i.index_id AND ic.column_id = {col})"
+        )
+        on_stats = (
+            "\n  AND EXISTS (SELECT 1 FROM sys.stats_columns sc WHERE sc.object_id = s.object_id\n"
+            f"      AND sc.stats_id = s.stats_id AND sc.column_id = {col})"
+        )
+        on_default = f" AND dc.parent_column_id = {col}"
+        on_check = (
+            f"\n  AND (cc.parent_column_id = {col} OR EXISTS (SELECT 1 FROM sys.sql_expression_dependencies d\n"
+            f"      WHERE d.referencing_id = cc.object_id AND d.referenced_id = {obj} AND d.referenced_minor_id = {col}))"
+        )
+        on_fk = (
+            f"  AND ((fk.parent_object_id = {obj} AND EXISTS (SELECT 1 FROM sys.foreign_key_columns fkc\n"
+            f"          WHERE fkc.constraint_object_id = fk.object_id AND fkc.parent_column_id = {col}))\n"
+            f"    OR (fk.referenced_object_id = {obj} AND EXISTS (SELECT 1 FROM sys.foreign_key_columns fkc\n"
+            f"          WHERE fkc.constraint_object_id = fk.object_id AND fkc.referenced_column_id = {col})));\n"
+        )
+        stats_kinds = "(s.user_created = 1 OR s.auto_created = 1)"
     is_constraint = "(i.is_primary_key = 1 OR i.is_unique_constraint = 1)"
     kind_word = "CASE WHEN i.type = 1 THEN N'CLUSTERED' ELSE N'NONCLUSTERED' END"
     index_sql = (
@@ -885,7 +964,7 @@ def _collect_dependents(
         "    + CASE WHEN i.is_disabled = 1\n"
         f"        THEN N'; ALTER INDEX ' + QUOTENAME(i.name) + N' ON ' + {tbl} + N' DISABLE' ELSE N'' END\n"
         "FROM sys.indexes i JOIN sys.data_spaces ds ON ds.data_space_id = i.data_space_id\n"
-        f"WHERE i.object_id = {obj} AND i.type IN (1, 2) AND i.is_hypothetical = 0 AND {on_column};\n"
+        f"WHERE i.object_id = {obj} AND i.type IN (1, 2) AND i.is_hypothetical = 0{on_index};\n"
     )
     stats_columns = _list_sql(
         "SELECT N', ' + QUOTENAME(COL_NAME(sc.object_id, sc.column_id)) FROM sys.stats_columns sc "
@@ -898,16 +977,14 @@ def _collect_dependents(
         f"        THEN N'CREATE STATISTICS ' + QUOTENAME(s.name) + N' ON ' + {tbl} + N' (' + {stats_columns} + N')'\n"
         "            + CASE WHEN s.has_filter = 1 THEN N' WHERE ' + s.filter_definition ELSE N'' END END\n"
         "FROM sys.stats s\n"
-        f"WHERE s.object_id = {obj} AND (s.user_created = 1 OR s.auto_created = 1)\n"
-        "  AND EXISTS (SELECT 1 FROM sys.stats_columns sc WHERE sc.object_id = s.object_id\n"
-        f"      AND sc.stats_id = s.stats_id AND sc.column_id = {col});\n"
+        f"WHERE s.object_id = {obj} AND {stats_kinds}{on_stats};\n"
     )
     default_sql = (
         f"INSERT {deps} (kind, name, drop_sql, create_sql)\n"
         f"SELECT {_KIND_CONSTRAINT}, dc.name, N'ALTER TABLE ' + {tbl} + N' DROP CONSTRAINT ' + QUOTENAME(dc.name),\n"
         f"    N'ALTER TABLE ' + {tbl} + N' ADD CONSTRAINT ' + QUOTENAME(dc.name) + N' DEFAULT ' + dc.definition\n"
-        f"    + N' FOR ' + QUOTENAME(COL_NAME({obj}, {col}))\n"
-        f"FROM sys.default_constraints dc WHERE dc.parent_object_id = {obj} AND dc.parent_column_id = {col};\n"
+        "    + N' FOR ' + QUOTENAME(COL_NAME(dc.parent_object_id, dc.parent_column_id))\n"
+        f"FROM sys.default_constraints dc WHERE dc.parent_object_id = {obj}{on_default};\n"
     )
     check_sql = (
         f"INSERT {deps} (kind, name, drop_sql, create_sql)\n"
@@ -917,9 +994,7 @@ def _collect_dependents(
         "    + CASE WHEN cc.is_not_for_replication = 1 THEN N'NOT FOR REPLICATION ' ELSE N'' END + cc.definition\n"
         "    + CASE WHEN cc.is_disabled = 1\n"
         f"        THEN N'; ALTER TABLE ' + {tbl} + N' NOCHECK CONSTRAINT ' + QUOTENAME(cc.name) ELSE N'' END\n"
-        f"FROM sys.check_constraints cc WHERE cc.parent_object_id = {obj}\n"
-        f"  AND (cc.parent_column_id = {col} OR EXISTS (SELECT 1 FROM sys.sql_expression_dependencies d\n"
-        f"      WHERE d.referencing_id = cc.object_id AND d.referenced_id = {obj} AND d.referenced_minor_id = {col}));\n"
+        f"FROM sys.check_constraints cc WHERE cc.parent_object_id = {obj}{on_check};\n"
     )
     fk_sql = (
         "INSERT @bdiff_fk (fk_id, step, recreate, name, drop_sql, create_sql)\n"
@@ -927,11 +1002,7 @@ def _collect_dependents(
         f"    {_FK_DROP_SQL},\n"
         f"    {_fk_create_sql()}\n"
         "FROM sys.foreign_keys fk\n"
-        "WHERE fk.object_id NOT IN (SELECT fk_id FROM @bdiff_fk)\n"
-        f"  AND ((fk.parent_object_id = {obj} AND EXISTS (SELECT 1 FROM sys.foreign_key_columns fkc\n"
-        f"          WHERE fkc.constraint_object_id = fk.object_id AND fkc.parent_column_id = {col}))\n"
-        f"    OR (fk.referenced_object_id = {obj} AND EXISTS (SELECT 1 FROM sys.foreign_key_columns fkc\n"
-        f"          WHERE fkc.constraint_object_id = fk.object_id AND fkc.referenced_column_id = {col})));\n"
+        "WHERE fk.object_id NOT IN (SELECT fk_id FROM @bdiff_fk)\n" + on_fk
     )
     sql = (
         f"DECLARE {deps} TABLE (seq int IDENTITY(1, 1), kind tinyint NOT NULL, name sysname NOT NULL,\n"
@@ -1138,7 +1209,14 @@ def _render_steps(steps: list[_Step]) -> list[str]:
         return ["    PRINT N'No se requieren cambios para este perfil.';"]
     flags = ", ".join(f"@skip_{n} bit = 0" for n in range(1, len(steps) + 1))
     uses_fk_table = any(step.uses_fk_table for step in steps)
+    journals = sorted({step.replays_journal for step in steps if step.replays_journal})
     lines = [f"    DECLARE {flags};"]
+    if journals:
+        lines += [
+            "    -- Pasos del script deshecho cuyas entradas del diario se recrean al final.",
+            "    DECLARE @bdiff_replay TABLE (paso int PRIMARY KEY);",
+            "    DECLARE @bdiff_replay_sql nvarchar(max);",
+        ]
     if uses_fk_table:
         lines += [
             "    -- Claves foraneas eliminadas por los pasos; se recrean al final.",
@@ -1177,6 +1255,23 @@ def _render_steps(steps: list[_Step]) -> list[str]:
                 4,
             ),
         ]
+    for journal in journals:
+        lines += [
+            "",
+            "    -- Indices y restricciones del diario, tras restaurar tablas y columnas.",
+            "    IF EXISTS (SELECT 1 FROM @bdiff_replay)",
+            "    BEGIN",
+            _indent(
+                _run_each(
+                    "bdiff_replay",
+                    "@bdiff_replay_sql",
+                    f"SELECT sql FROM {journal} WHERE paso IN (SELECT paso FROM @bdiff_replay)"
+                    " ORDER BY es_fk, seq",
+                ),
+                8,
+            ),
+            "    END",
+        ]
     lines += ["", "    -- 3. Verificacion final antes de confirmar."]
     for step in steps:
         lines += [
@@ -1187,6 +1282,290 @@ def _render_steps(steps: list[_Step]) -> list[str]:
     return lines
 
 
+def _must_exist(label: str, table: str, what: str) -> str:
+    return f"IF OBJECT_ID(N'{_escape_literal(table)}', N'U') IS NULL\n    " + _throw(
+        50008, f"{label}: no existe {what} {table}; no se puede deshacer este paso."
+    )
+
+
+def _unsupported_step(pos: _Position, title: str, reason: str) -> _Step:
+    """A step undoing cannot do: it aborts before anything changes."""
+    label = pos.label(title)
+    return _Step(
+        label=label,
+        check=_throw(50010, f"{label}: {reason}"),
+        apply="SET NOCOUNT ON;",
+        verify="1 = 1",
+    )
+
+
+def _restore_table_step(
+    tdel, columns, forward_number: int, pos: _Position, forward: _Storage
+) -> _Step:
+    """Recreate a dropped table with its compared columns and its rows from
+    the backup; its indexes, constraints and keys come from the journal."""
+    table = _qualified(tdel.schema_name, tdel.table_name)
+    label = pos.label(f"recrear la tabla {table}")
+    backup = forward.backup(tdel.table_name)
+    target = _table_is(tdel.schema_name, tdel.table_name, columns)
+    col_defs = ",\n".join(
+        f"    [{_escape_ident(c.name)}] {_column_parts(c.attributes, identity=True)}"
+        for c in columns
+    )
+    names = ", ".join(f"[{_escape_ident(c.name)}]" for c in columns)
+    insert = f"INSERT INTO {table} ({names}) SELECT {names} FROM {backup};"
+    if any(c.attributes.is_identity for c in columns):
+        insert = (
+            f"SET IDENTITY_INSERT {table} ON; {insert} SET IDENTITY_INSERT {table} OFF;"
+        )
+    return _Step(
+        label=label,
+        check=(
+            f"IF {_table_exists(tdel.schema_name, tdel.table_name)}\n"
+            "BEGIN\n"
+            f"    IF {target}\n"
+            f"        SET {pos.skip} = 1;\n"
+            "    ELSE\n"
+            "        "
+            + _throw(50001, f"{label}: la tabla ya existe con otra definicion.")
+            + "\nEND"
+            + _data_checks(
+                [
+                    _must_exist(label, backup, "el respaldo"),
+                    _must_exist(label, forward.journal, "el diario"),
+                ],
+                pos.skip,
+            )
+        ),
+        apply=(
+            f"CREATE TABLE {table} (\n{col_defs}\n);\n"
+            f"{_dynamic(insert)}\n"
+            f"INSERT @bdiff_replay (paso) VALUES ({forward_number});\n"
+            f"PRINT N'Tabla {_escape_literal(table)} recreada con sus datos de {_escape_literal(backup)}.';"
+        ),
+        verify=target,
+        replays_journal=forward.journal,
+    )
+
+
+def _restore_column_step(
+    cdel,
+    observed: ColumnAttributes,
+    forward_number: int,
+    pos: _Position,
+    forward: _Storage,
+) -> _Step:
+    """Recreate a dropped column and put back each row's value from the
+    backup by primary key; its indexes and constraints come from the
+    journal."""
+    table = _qualified(cdel.schema_name, cdel.table_name)
+    table_lit = _escape_literal(table)
+    column = _qualified(cdel.schema_name, cdel.table_name, cdel.column_name)
+    label = pos.label(f"recrear la columna {column}")
+    if observed.is_identity:
+        return _unsupported_step(
+            pos,
+            f"recrear la columna {column}",
+            "es IDENTITY y sus valores no se pueden reponer; restaurala a mano.",
+        )
+    backup = forward.backup(cdel.table_name, cdel.column_name)
+    backup_lit = _escape_literal(backup)
+    col_esc = _escape_ident(cdel.column_name)
+    col_lit = _escape_literal(cdel.column_name)
+    n = pos.number
+    target = _column_is(cdel.schema_name, cdel.table_name, cdel.column_name, observed)
+    keyed = (
+        f"DECLARE @bak_obj_{n} int = OBJECT_ID(N'{backup_lit}');\n"
+        f"DECLARE @pk_cols_{n} TABLE (name sysname PRIMARY KEY);\n"
+        f"INSERT @pk_cols_{n} (name) SELECT c.name FROM sys.indexes i\n"
+        "JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id\n"
+        "JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id\n"
+        f"WHERE i.object_id = @obj_{n} AND i.is_primary_key = 1;\n"
+        # The backup holds the key and the column only when it was taken by
+        # primary key; a whole-table copy cannot be matched row by row.
+        f"DECLARE @keyed_{n} bit = CASE WHEN EXISTS (SELECT 1 FROM @pk_cols_{n})\n"
+        f"    AND (SELECT COUNT(*) FROM sys.columns WHERE object_id = @bak_obj_{n} AND name <> N'{col_lit}')\n"
+        f"        = (SELECT COUNT(*) FROM @pk_cols_{n})\n"
+        f"    AND NOT EXISTS (SELECT name FROM sys.columns WHERE object_id = @bak_obj_{n} AND name <> N'{col_lit}'\n"
+        f"        EXCEPT SELECT name FROM @pk_cols_{n})\n"
+        "    THEN 1 ELSE 0 END;"
+    )
+    data = [
+        _must_exist(label, backup, "el respaldo"),
+        _must_exist(label, forward.journal, "el diario"),
+        keyed,
+    ]
+    if not observed.is_nullable:
+        data.append(
+            f"IF @keyed_{n} = 0\n    "
+            + _throw(
+                50009,
+                f"{label}: el respaldo es la tabla entera (no habia una PK sin esta"
+                " columna) y no se pueden reponer los valores de una columna NOT NULL;"
+                f" restaurala a mano desde {backup}.",
+            )
+        )
+    unmatched = _escape_literal(
+        f"{label}: aviso: el respaldo es la tabla entera; la columna queda NULL."
+        f" Sus valores siguen en {backup}."
+    )
+    restore = (
+        f"N'UPDATE t SET t.[{_escape_literal(col_esc)}] = b.[{_escape_literal(col_esc)}] FROM '"
+        f" + @tbl_{n} + N' AS t JOIN {backup_lit} AS b ON ' + @join_{n}"
+    )
+    join = (
+        "STUFF((SELECT N' AND t.' + QUOTENAME(name) + N' = b.' + QUOTENAME(name)"
+        f" FROM @pk_cols_{n} FOR XML PATH(''), TYPE).value('.', 'nvarchar(max)'), 1, 5, N'')"
+    )
+    apply = (
+        f"ALTER TABLE {table} ADD [{col_esc}] "
+        f"{_column_parts(replace(observed, is_nullable=True), identity=False)};\n"
+        f"IF @keyed_{n} = 1\n"
+        "BEGIN\n"
+        f"    DECLARE @join_{n} nvarchar(max) = {join};\n"
+        f"    DECLARE @restore_{n} nvarchar(max) = {restore};\n"
+        f"    EXEC sys.sp_executesql @restore_{n};\n"
+        "END\n"
+        "ELSE\n"
+        f"    PRINT N'{unmatched}';\n"
+    )
+    if not observed.is_nullable:
+        apply += (
+            f"ALTER TABLE {table} ALTER COLUMN [{col_esc}] "
+            f"{format_sql_column_definition(observed)};\n"
+        )
+    apply += (
+        f"INSERT @bdiff_replay (paso) VALUES ({forward_number});\n"
+        f"PRINT N'Columna [{_escape_literal(col_esc)}] recreada en {table_lit}.';"
+    )
+    return _Step(
+        label=label,
+        check=(
+            f"DECLARE @obj_{n} int = OBJECT_ID(N'{table_lit}');\n"
+            f"DECLARE @tbl_{n} nvarchar(400) = N'{table_lit}';\n"
+            f"IF {target}\n"
+            f"    SET {pos.skip} = 1;\n"
+            f"ELSE IF {_column_exists(cdel.schema_name, cdel.table_name, cdel.column_name)}\n"
+            "    "
+            + _throw(50001, f"{label}: la columna ya existe con otra definicion.")
+            + f"\nELSE IF NOT ({_table_exists(cdel.schema_name, cdel.table_name)})\n"
+            "    "
+            + _throw(50001, f"{label}: la tabla {table} no existe.")
+            + _data_checks(data, pos.skip)
+        ),
+        apply=apply,
+        verify=target,
+        replays_journal=forward.journal,
+    )
+
+
+@dataclass(frozen=True)
+class _Target:
+    """The object a generated drop removes when undoing a creation."""
+
+    schema_name: str
+    table_name: str
+    column_name: str | None = None
+
+
+@dataclass(frozen=True)
+class _Op:
+    """One change of a profile's script, in the order the script runs."""
+
+    kind: str
+    item: object
+
+
+def _forward_ops(
+    profile_name: str,
+    resolutions: list,
+    table_resolutions: list,
+    table_deletions: list,
+    column_deletions: list,
+) -> list[_Op]:
+    def mine(items):
+        return [i for i in items if profile_name in i.profiles_to_update]
+
+    return (
+        [_Op("create_table", t) for t in mine(table_resolutions)]
+        + [_Op("drop_table", t) for t in mine(table_deletions)]
+        + [_Op("drop_column", c) for c in mine(column_deletions)]
+        + [
+            _Op("add_column" if r.is_missing_column else "modify_column", r)
+            for r in mine(resolutions)
+        ]
+    )
+
+
+def _forward_step(
+    op: _Op, pos: _Position, profile_name: str, storage: _Storage
+) -> _Step:
+    item = op.item
+    if op.kind == "create_table":
+        return _create_table_step(item, pos)
+    if op.kind == "drop_table":
+        return _drop_table_step(item, pos, storage)
+    if op.kind == "drop_column":
+        return _drop_column_step(item, pos, storage)
+    if op.kind == "add_column":
+        return _add_column_step(item, pos)
+    return _modify_column_step(
+        item, dict(item.observed_by_profile).get(profile_name), pos
+    )
+
+
+def _undo_step(
+    op: _Op,
+    forward_number: int,
+    pos: _Position,
+    profile_name: str,
+    forward: _Storage,
+    undo: _Storage,
+) -> _Step:
+    item = op.item
+    if op.kind == "create_table":
+        return _drop_table_step(_Target(item.schema_name, item.table_name), pos, undo)
+    if op.kind == "add_column":
+        return _drop_column_step(
+            _Target(item.schema_name, item.table_name, item.column_name), pos, undo
+        )
+    if op.kind == "drop_table":
+        table = _qualified(item.schema_name, item.table_name)
+        columns = dict(item.observed_columns_by_profile).get(profile_name)
+        if not columns:
+            return _unsupported_step(
+                pos,
+                f"recrear la tabla {table}",
+                "no se conoce su definicion; restaurala a mano desde el respaldo.",
+            )
+        return _restore_table_step(item, columns, forward_number, pos, forward)
+    observed = dict(item.observed_by_profile).get(profile_name)
+    column = _qualified(item.schema_name, item.table_name, item.column_name)
+    if op.kind == "drop_column":
+        if observed is None:
+            return _unsupported_step(
+                pos,
+                f"recrear la columna {column}",
+                "no se conoce su definicion; restaurala a mano desde el respaldo.",
+            )
+        return _restore_column_step(item, observed, forward_number, pos, forward)
+    if observed is None:
+        return _unsupported_step(
+            pos,
+            f"modificar la columna {column}",
+            "no se conoce su definicion anterior; revierte el cambio a mano.",
+        )
+    back = replace(
+        item,
+        target_attributes=observed,
+        observed_by_profile=((profile_name, item.target_attributes),),
+        profiles_to_update=(profile_name,),
+        backfill_value=None,
+        accept_data_loss=False,
+    )
+    return _modify_column_step(back, item.target_attributes, pos)
+
+
 def _steps_for(
     ts: datetime.datetime,
     profile_name: str,
@@ -1195,80 +1574,63 @@ def _steps_for(
     table_deletions: list,
     column_deletions: list,
 ) -> list[_Step]:
-    builders = (
-        [
-            lambda pos, t=t: _create_table_step(t, pos)
-            for t in table_resolutions
-            if profile_name in t.profiles_to_update
-        ]
-        + [
-            lambda pos, t=t: _drop_table_step(t, pos, ts)
-            for t in table_deletions
-            if profile_name in t.profiles_to_update
-        ]
-        + [
-            lambda pos, c=c: _drop_column_step(c, pos, ts)
-            for c in column_deletions
-            if profile_name in c.profiles_to_update
-        ]
-        + [
-            (
-                lambda pos, r=r: (
-                    _add_column_step(r, pos)
-                    if r.is_missing_column
-                    else _modify_column_step(
-                        r, dict(r.observed_by_profile).get(profile_name), pos
-                    )
-                )
-            )
-            for r in resolutions
-            if profile_name in r.profiles_to_update
-        ]
+    ops = _forward_ops(
+        profile_name, resolutions, table_resolutions, table_deletions, column_deletions
     )
-    total = len(builders)
-    return [build(_Position(n, total)) for n, build in enumerate(builders, 1)]
+    return [
+        _forward_step(op, _Position(n, len(ops)), profile_name, _Storage(ts))
+        for n, op in enumerate(ops, 1)
+    ]
 
 
-def generate_ddl_for_profile(
+def _undo_steps_for(
+    ts: datetime.datetime,
+    profile_name: str,
     resolutions: list,
-    profile: ConnectionProfile,
-    timestamp: datetime.datetime | None = None,
-    table_resolutions: list | None = None,
-    table_deletions: list | None = None,
-    column_deletions: list | None = None,
+    table_resolutions: list,
+    table_deletions: list,
+    column_deletions: list,
+) -> list[_Step]:
+    """The forward steps undone in reverse order, each by its forward
+    number so restored objects replay that step's journal entries."""
+    ops = _forward_ops(
+        profile_name, resolutions, table_resolutions, table_deletions, column_deletions
+    )
+    numbered = list(enumerate(ops, 1))[::-1]
+    return [
+        _undo_step(
+            op,
+            forward_number,
+            _Position(n, len(numbered)),
+            profile_name,
+            _Storage(ts),
+            _Storage(ts, undo=True),
+        )
+        for n, (forward_number, op) in enumerate(numbered, 1)
+    ]
+
+
+_RUN_HELP = [
+    "-- Ejecución:",
+    '--   sqlcmd -S <servidor> -E -b -i "<este archivo>.sql"',
+    "--     (-b detiene sqlcmd en el primer error y devuelve código de salida <> 0)",
+    "--   SSMS: abrir el archivo y ejecutarlo completo (F5).",
+    "-- Si la base activa no es la esperada, el script no ejecuta nada.",
+]
+
+
+def _render_script(
+    profile: ConnectionProfile, steps: list[_Step], header: list[str]
 ) -> str:
-    """The profile's T-SQL script: one transaction that checks every step
-    against the compared state before changing anything, applies the steps
-    and verifies them before committing; any failure rolls everything back."""
-    ts = timestamp or datetime.datetime.now()
     raw_db = extract_database_name(profile.connection_string)
     if not raw_db:
         raise ValueError(f"profile {profile.name!r} names no database")
     db_name = _escape_ident(raw_db)
     db_lit = _escape_literal(raw_db)
-    steps = _steps_for(
-        ts,
-        profile.name,
-        resolutions or [],
-        table_resolutions or [],
-        table_deletions or [],
-        column_deletions or [],
-    )
-
     return "\n".join(
         [
-            f"-- Script de corrección para la base de datos del perfil: {profile.name}",
-            f"-- Generado por BDIFF el {ts.strftime('%Y-%m-%d %H:%M:%S')}",
-            "--",
-            "-- Todos los cambios van en una única transacción: primero se comprueba",
-            "-- que cada objeto sigue como se comparó, después se aplican los cambios",
-            "-- y se verifican antes de confirmar. Ante cualquier error se deshacen",
-            "-- completos y la base queda como estaba.",
-            "-- Ejecución:",
-            '--   sqlcmd -S <servidor> -E -b -i "<este archivo>.sql"',
-            "--     (-b detiene sqlcmd en el primer error y devuelve código de salida <> 0)",
-            "--   SSMS: abrir el archivo y ejecutarlo completo (F5).",
-            "-- Si la base activa no es la esperada, el script no ejecuta nada.",
+            *header,
+            *_RUN_HELP,
             "",
             f"USE [{db_name}];",
             "GO",
@@ -1307,4 +1669,77 @@ def generate_ddl_for_profile(
             "GO",
             "",
         ]
+    )
+
+
+def generate_ddl_for_profile(
+    resolutions: list,
+    profile: ConnectionProfile,
+    timestamp: datetime.datetime | None = None,
+    table_resolutions: list | None = None,
+    table_deletions: list | None = None,
+    column_deletions: list | None = None,
+) -> str:
+    """The profile's T-SQL script: one transaction that checks every step
+    against the compared state before changing anything, applies the steps
+    and verifies them before committing; any failure rolls everything back."""
+    ts = timestamp or datetime.datetime.now()
+    steps = _steps_for(
+        ts,
+        profile.name,
+        resolutions or [],
+        table_resolutions or [],
+        table_deletions or [],
+        column_deletions or [],
+    )
+    return _render_script(
+        profile,
+        steps,
+        [
+            f"-- Script de corrección para la base de datos del perfil: {profile.name}",
+            f"-- Generado por BDIFF el {ts.strftime('%Y-%m-%d %H:%M:%S')}",
+            "--",
+            "-- Todos los cambios van en una única transacción: primero se comprueba",
+            "-- que cada objeto sigue como se comparó, después se aplican los cambios",
+            "-- y se verifican antes de confirmar. Ante cualquier error se deshacen",
+            "-- completos y la base queda como estaba.",
+        ],
+    )
+
+
+def generate_undo_for_profile(
+    resolutions: list,
+    profile: ConnectionProfile,
+    timestamp: datetime.datetime,
+    table_resolutions: list | None = None,
+    table_deletions: list | None = None,
+    column_deletions: list | None = None,
+) -> str:
+    """The script that undoes the profile's script generated with the same
+    resolutions and `timestamp`: its steps in reverse order, with the same
+    checks, transaction and final verification."""
+    steps = _undo_steps_for(
+        timestamp,
+        profile.name,
+        resolutions or [],
+        table_resolutions or [],
+        table_deletions or [],
+        column_deletions or [],
+    )
+    stamp = timestamp.strftime("%Y%m%d_%H%M%S")
+    return _render_script(
+        profile,
+        steps,
+        [
+            f"-- Script para DESHACER la corrección del perfil: {profile.name}",
+            f"-- Generado por BDIFF el {timestamp.strftime('%Y-%m-%d %H:%M:%S')}",
+            "--",
+            "-- Ejecútalo solo después de aplicar el script de corrección de este perfil.",
+            "-- Revierte sus pasos en orden inverso en una única transacción, con las",
+            "-- mismas comprobaciones previas y verificación final: tablas y columnas",
+            f"-- eliminadas vuelven con sus datos desde [{BACKUP_SCHEMA}] (respaldos",
+            f"-- bdiff_bak_{stamp}_*) y sus índices y restricciones desde el diario",
+            f"-- bdiff_diario_{stamp}. No recupera valores perdidos por una pérdida de",
+            "-- datos aceptada explícitamente.",
+        ],
     )

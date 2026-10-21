@@ -17,6 +17,7 @@ from schema_comparator.infrastructure.providers.sqlserver.ddl_renderer import (
     backup_table_name,
     extract_database_name,
     generate_ddl_for_profile,
+    generate_undo_for_profile,
     journal_table_name,
 )
 
@@ -98,6 +99,10 @@ class TableDeletionResolution:
     schema_name: str
     table_name: str
     profiles_to_update: tuple[str, ...]
+    # The columns each destination had, to recreate the table when undoing.
+    observed_columns_by_profile: tuple[
+        tuple[str, tuple[NamedColumnAttributes, ...]], ...
+    ] = ()
 
 
 class ColumnAction(str, Enum):
@@ -114,6 +119,8 @@ class ColumnDeletionResolution:
     table_name: str
     column_name: str
     profiles_to_update: tuple[str, ...]
+    # The column each destination had, to recreate it when undoing.
+    observed_by_profile: tuple[tuple[str, ColumnAttributes], ...] = ()
 
 
 _WINDOWS_RESERVED_NAMES = frozenset(
@@ -184,7 +191,11 @@ def generate_impact_report(
     for profile_name in sorted(profiles_to_update):
         lines.append(f"## Perfil / Base de Datos: `{profile_name}`")
         lines.append(
-            f"**Archivo de Script SQL:** `{script_filenames[profile_name]}.sql`\n"
+            f"**Archivo de Script SQL:** `{script_filenames[profile_name]}.sql`"
+        )
+        lines.append(
+            f"**Script para deshacer:** `{script_filenames[profile_name]}.deshacer.sql`"
+            " (ejecutar solo después del anterior; necesita sus respaldos)\n"
         )
 
         prof_table_creations = [
@@ -388,14 +399,29 @@ def write_sql_scripts(
         )
         for profile_name in sorted_profiles
     }
+    undo_scripts = {
+        profile_name: generate_undo_for_profile(
+            resolutions,
+            profile_map[profile_name],
+            timestamp=ts,
+            table_resolutions=table_resolutions,
+            table_deletions=table_deletions,
+            column_deletions=column_deletions,
+        )
+        for profile_name in sorted_profiles
+    }
 
     output_dir = root_path / "scripts-db" / ts.strftime("%Y%m%d_%H%M%S")
     output_dir.mkdir(parents=True, exist_ok=True)
     written_files = []
     for profile_name, ddl in scripts.items():
-        file_path = output_dir / f"{script_filenames[profile_name]}.sql"
+        stem = script_filenames[profile_name]
+        file_path = output_dir / f"{stem}.sql"
         file_path.write_text(ddl, encoding=SQL_SCRIPT_ENCODING)
         written_files.append(str(file_path.resolve()))
+        undo_path = output_dir / f"{stem}.deshacer.sql"
+        undo_path.write_text(undo_scripts[profile_name], encoding=SQL_SCRIPT_ENCODING)
+        written_files.append(str(undo_path.resolve()))
 
     if sorted_profiles:
         report_content = generate_impact_report(

@@ -229,7 +229,14 @@ def build_resolutions(
             if target is TableAction.DROP:
                 result.table_deletions.append(
                     TableDeletionResolution(
-                        schema_name=schema, table_name=table, profiles_to_update=dests
+                        schema_name=schema,
+                        table_name=table,
+                        profiles_to_update=dests,
+                        observed_columns_by_profile=tuple(
+                            (profile, columns)
+                            for profile, columns in entry.present_columns
+                            if profile in dests
+                        ),
                     )
                 )
                 continue
@@ -244,12 +251,22 @@ def build_resolutions(
                     )
                 )
         elif target is ColumnAction.DROP:
+            present = (
+                entry.present_attributes
+                if isinstance(entry, MergedMissingColumn)
+                else entry.values_by_profile
+            )
             result.column_deletions.append(
                 ColumnDeletionResolution(
                     schema_name=schema,
                     table_name=table,
                     column_name=entry.column_name,
                     profiles_to_update=dests,
+                    observed_by_profile=tuple(
+                        (profile, attrs)
+                        for profile, attrs in present
+                        if profile in dests
+                    ),
                 )
             )
         else:

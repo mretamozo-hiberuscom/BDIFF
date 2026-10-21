@@ -1193,7 +1193,10 @@ def test_backs_up_a_dropped_table_and_journals_the_foreign_keys_to_it(
         f"SELECT id, nombre FROM {_BACKUP}.bdiff_bak_{_TS}_paises ORDER BY id",
         database=mssql_db,
     ) == [("33", "Francia"), ("34", "España")]
-    assert _journal(mssql_server, mssql_db) == ["FK_ciudades_paises"]
+    # Its own primary key first, the foreign keys to it last.
+    journal = _journal(mssql_server, mssql_db)
+    assert journal[-1] == "FK_ciudades_paises"
+    assert len(journal) == 2 and journal[0].startswith("PK__paises")
     assert "paises" not in _tables(mssql_server, mssql_db)
 
 
@@ -1308,3 +1311,157 @@ def _columns_of(server, database: str, schema: str, table: str) -> list[str]:
             database=database,
         )
     ]
+
+
+def _undo_of(script: Path) -> Path:
+    return script.with_name(script.stem + ".deshacer.sql")
+
+
+def _state(server, database: str) -> dict:
+    """Columns, dependents, foreign keys and rows of every application table."""
+    state = {}
+    for table in sorted(_tables(server, database)):
+        columns = _extract(server, database, table)
+        ordered = ", ".join(f"[{name}]" for name in sorted(columns))
+        state[table] = (
+            columns,
+            _dependents(server, database, table),
+            server.query(
+                f"SELECT {ordered} FROM dbo.[{table}] ORDER BY {ordered}",
+                database=database,
+            ),
+        )
+    state["fks"] = server.query(
+        "SELECT name, OBJECT_NAME(parent_object_id), OBJECT_NAME(referenced_object_id),"
+        " delete_referential_action_desc, is_not_trusted FROM sys.foreign_keys ORDER BY name",
+        database=database,
+    )
+    return state
+
+
+_UNDO_SETUP = (
+    "CREATE TABLE dbo.paises (id int NOT NULL CONSTRAINT PK_paises PRIMARY KEY,"
+    " nombre nvarchar(20) NOT NULL CONSTRAINT DF_paises_nombre DEFAULT N'?');"
+    " CREATE INDEX IX_paises_nombre ON dbo.paises (nombre);"
+    " CREATE TABLE dbo.ciudades (id int NOT NULL CONSTRAINT PK_ciudades PRIMARY KEY,"
+    " pais_id int NOT NULL CONSTRAINT FK_ciudades_paises REFERENCES dbo.paises (id)"
+    " ON DELETE CASCADE, codigo varchar(10) NOT NULL,"
+    " nota varchar(30) NULL CONSTRAINT DF_ciudades_nota DEFAULT 'x');"
+    " CREATE INDEX IX_ciudades_codigo ON dbo.ciudades (codigo);"
+    " CREATE INDEX IX_ciudades_nota ON dbo.ciudades (nota, id);"
+    " INSERT dbo.paises VALUES (34, N'España'), (33, N'Francia');"
+    " INSERT dbo.ciudades VALUES (1, 34, 'MAD', 'capital'), (2, 33, 'PAR', NULL);"
+)
+
+
+def _full_script(server, database: str, tmp_path: Path) -> Path:
+    """A script that creates, drops and modifies tables and columns."""
+    paises = _extract(server, database, "paises")
+    ciudades = _extract(server, database, "ciudades")
+    return _script(
+        tmp_path,
+        database,
+        table_resolutions=[_new_table("nueva")],
+        table_deletions=[
+            TableDeletionResolution(
+                schema_name="dbo",
+                table_name="paises",
+                profiles_to_update=(_PROFILE,),
+                observed_columns_by_profile=(
+                    (
+                        _PROFILE,
+                        tuple(NamedColumnAttributes(n, a) for n, a in paises.items()),
+                    ),
+                ),
+            )
+        ],
+        column_deletions=[
+            ColumnDeletionResolution(
+                schema_name="dbo",
+                table_name="ciudades",
+                column_name="nota",
+                profiles_to_update=(_PROFILE,),
+                observed_by_profile=((_PROFILE, ciudades["nota"]),),
+            )
+        ],
+        columns=[
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="ciudades",
+                column_name="extra",
+                target_attributes=_attrs("int"),
+                profiles_to_update=(_PROFILE,),
+                is_missing_column=True,
+            ),
+            _change(
+                "ciudades",
+                "codigo",
+                replace(
+                    ciudades["codigo"],
+                    data_type="nvarchar",
+                    character_maximum_length=20,
+                ),
+                ciudades["codigo"],
+            ),
+        ],
+    )
+
+
+def test_undo_restores_schema_dependents_and_data(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(mssql_server, mssql_db, _UNDO_SETUP)
+    before = _state(mssql_server, mssql_db)
+    script = _full_script(mssql_server, mssql_db, tmp_path)
+
+    _apply(mssql_server, script)
+    assert _state(mssql_server, mssql_db) != before
+    _apply(mssql_server, _undo_of(script))
+
+    assert _state(mssql_server, mssql_db) == before
+
+
+def test_running_the_undo_twice_changes_nothing_the_second_time(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(mssql_server, mssql_db, _UNDO_SETUP)
+    before = _state(mssql_server, mssql_db)
+    script = _full_script(mssql_server, mssql_db, tmp_path)
+    _apply(mssql_server, script)
+    _apply(mssql_server, _undo_of(script))
+
+    result = mssql_server.run_file(_undo_of(script))
+
+    assert result.returncode == 0, result.stdout
+    assert "ya aplicado; se omite" in result.stdout
+    assert _state(mssql_server, mssql_db) == before
+
+
+def test_undo_aborts_before_any_change_when_a_backup_is_missing(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(mssql_server, mssql_db, _UNDO_SETUP)
+    script = _full_script(mssql_server, mssql_db, tmp_path)
+    _apply(mssql_server, script)
+    _setup(mssql_server, mssql_db, f"DROP TABLE {_BACKUP}.bdiff_bak_{_TS}_paises;")
+    after_script = _state(mssql_server, mssql_db)
+
+    result = mssql_server.run_file(_undo_of(script))
+
+    _assert_aborted(result, f"bdiff_bak_{_TS}_paises", "no existe el respaldo")
+    assert _state(mssql_server, mssql_db) == after_script
+
+
+def test_undo_backs_up_rows_written_to_a_created_table(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    script = _script(tmp_path, mssql_db, table_resolutions=[_new_table("nueva")])
+    _apply(mssql_server, script)
+    _setup(mssql_server, mssql_db, "INSERT dbo.nueva VALUES (5);")
+
+    _apply(mssql_server, _undo_of(script))
+
+    assert "nueva" not in _tables(mssql_server, mssql_db)
+    assert mssql_server.query(
+        f"SELECT id FROM {_BACKUP}.bdiff_bak_{_TS}_deshacer_nueva", database=mssql_db
+    ) == [("5",)]

@@ -40,8 +40,9 @@ def test_generate_ddl_table_deletion_cleans_foreign_keys() -> None:
 
     assert "sys.foreign_keys" in ddl
     assert "DROP TABLE [dbo].[Orders];" in ddl
-    assert "@fk_sql_1" in ddl
-    assert "referenced_object_id = OBJECT_ID(N'[dbo].[Orders]')" in ddl
+    assert "DECLARE bdiff_fk_drop_1 CURSOR" in ddl
+    assert "DECLARE @obj_1 int = OBJECT_ID(N'[dbo].[Orders]');" in ddl
+    assert "OR fk.referenced_object_id = @obj_1" in ddl
 
 
 def test_generate_ddl_column_deletion_cleans_fks_and_default_constraints() -> None:
