@@ -43,7 +43,7 @@ class ProviderRegistry:
             except ImportError as exc:
                 raise DriverUnavailableError(
                     f"El proveedor '{provider_id}' requiere dependencias adicionales no instaladas: {exc}. "
-                    f"Ejecuta 'pip install bdiff[{pid}]' para instalar las dependencias requeridas."
+                    f"Ejecutá 'pip install schema-comparator[{pid}]' para instalar las dependencias requeridas."
                 ) from exc
         return None
 

@@ -49,12 +49,12 @@ class MetadataAccessError(DiscoveryError):
     """Raised when the connection cannot read required catalog metadata."""
 
     @classmethod
-    def for_profile(cls, profile_name: str) -> "MetadataAccessError":
+    def for_profile(cls, profile_name: str, detail: str = "") -> "MetadataAccessError":
         return cls(
             f"La extracción de esquema para '{profile_name}' falló: la "
             "conexión no pudo leer los metadatos de catálogo requeridos. "
             "Verificá que el usuario del perfil tenga permisos de lectura "
-            "de metadatos."
+            f"de metadatos.{f' {detail}' if detail else ''}"
         )
 
 

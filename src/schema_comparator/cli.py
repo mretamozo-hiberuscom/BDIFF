@@ -10,7 +10,7 @@ from schema_comparator.config.errors import UnknownProfileError
 from schema_comparator.config.loader import load_profiles
 from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.domain.comparison.models import ComparisonFilters
-from schema_comparator.domain.errors import SchemaComparatorError
+from schema_comparator.domain.errors import SchemaComparatorError, describe_error
 from schema_comparator.report.write import write_reports
 from schema_comparator.tui import run_tui
 from schema_comparator.tui.actions import run_comparison
@@ -94,6 +94,9 @@ def _run_routine_validation(
     read_only: bool = True,
 ) -> bool:
     from schema_comparator.infrastructure.providers.sqlserver import connection
+    from schema_comparator.infrastructure.providers.sqlserver.errors import (
+        describe_failure,
+    )
     from schema_comparator.infrastructure.providers.sqlserver.sp_validator import (
         enumerate_routines,
         refresh_modules_mutating,
@@ -143,7 +146,8 @@ def _run_routine_validation(
             except Exception as exc:
                 has_errors = True
                 print(
-                    f"[AVISO] Perfil '{profile.name}': error al conectar o validar rutinas: {exc}"
+                    f"[AVISO] Perfil '{profile.name}': error al conectar o validar rutinas: "
+                    f"{describe_failure(profile, exc)}"
                 )
 
     return has_errors
@@ -229,7 +233,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return 2
     except Exception as exc:
-        print(f"[ERROR INESPERADO] {exc}", file=sys.stderr)
+        print(f"[ERROR INESPERADO] {describe_error(exc)}", file=sys.stderr)
         return 2
 
 

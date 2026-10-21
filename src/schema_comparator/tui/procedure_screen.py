@@ -13,6 +13,7 @@ from textual.widgets import Button, DataTable, Footer, Header, Label, Static
 from schema_comparator.compare.consolidation import assign_script_filenames
 from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.infrastructure.providers.sqlserver import connection
+from schema_comparator.infrastructure.providers.sqlserver.errors import describe_failure
 from schema_comparator.infrastructure.providers.sqlserver.sp_validator import (
     ModuleRefreshResult,
     RoutineIdentity,
@@ -212,7 +213,7 @@ class ProcedureVerificationScreen(Screen):
                             routine=dummy,
                             status=RoutineValidationStatus.UNVERIFIABLE,
                             signature_status=SignatureStatus.UNKNOWN,
-                            error_message=f"Error de conexión: {exc}",
+                            error_message=f"Error de conexión: {describe_failure(profile, exc)}",
                         ),
                     )
         self._validation_results = results_map
@@ -311,7 +312,7 @@ class ProcedureVerificationScreen(Screen):
                     results_map[profile.name] = (
                         ModuleRefreshResult.failure(
                             dummy,
-                            error_message=f"Error de conexión: {exc}",
+                            error_message=f"Error de conexión: {describe_failure(profile, exc)}",
                             signature_status=SignatureStatus.UNKNOWN,
                         ),
                     )

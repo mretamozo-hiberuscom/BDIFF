@@ -281,7 +281,10 @@ async def test_run_comparison_failure_leaves_previous_result_and_logs_error() ->
 
             assert app._result is original_result
             assert app._tree_data is original_tree_data
-            assert any("Falló la comparación: boom" in str(line) for line in log.lines)
+            assert any(
+                "Falló la comparación: RuntimeError" in str(line) for line in log.lines
+            )
+            assert not any("boom" in str(line) for line in log.lines)
 
 
 @pytest.mark.asyncio

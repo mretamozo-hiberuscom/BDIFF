@@ -16,7 +16,7 @@ def connect(
     except ImportError as exc:
         raise ImportError(
             "pymysql es necesario para conectar a MySQL/MariaDB. Instálalo con 'pip install pymysql' "
-            "o 'pip install bdiff[mysql]'."
+            "o 'pip install schema-comparator[mysql]'."
         ) from exc
 
     conn_args: dict[str, Any] = {

@@ -1,0 +1,268 @@
+{
+  "schema": "idd-state/v1",
+  "change": "driver-error-redaction",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "Los errores de MySQL/MariaDB y Oracle, la validación de rutinas del CLI y de la TUI y el error inesperado del CLI interpolan el texto del driver, que puede incluir host y usuario; las pistas de instalación dicen bdiff[...] en vez de schema-comparator[...]",
+    "acceptance": "Ningún mensaje de error de extracción o de rutinas contiene cadena, host, usuario ni texto libre del driver; los de MySQL/Oracle nombran perfil y código del driver; un driver ausente pide 'pip install schema-comparator[<motor>]'"
+  },
+  "facts": {
+    "open": [
+      "Para errores inesperados (no traducidos), ¿se muestra solo el tipo de excepción o también su mensaje, que puede contener datos de conexión?"
+    ]
+  },
+  "plan": {
+    "paths": [
+      "docs/architecture/component-map.yaml",
+      "src/schema_comparator/cli.py",
+      "src/schema_comparator/discovery/errors.py",
+      "src/schema_comparator/domain/errors.py",
+      "src/schema_comparator/infrastructure/providers/mysql_family/connection.py",
+      "src/schema_comparator/infrastructure/providers/mysql_family/errors.py",
+      "src/schema_comparator/infrastructure/providers/oracle/connection.py",
+      "src/schema_comparator/infrastructure/providers/oracle/errors.py",
+      "src/schema_comparator/infrastructure/providers/postgresql/errors.py",
+      "src/schema_comparator/infrastructure/providers/registry.py",
+      "src/schema_comparator/infrastructure/providers/sqlserver/errors.py",
+      "src/schema_comparator/tui/app.py",
+      "src/schema_comparator/tui/procedure_screen.py",
+      "tests/unit/test_error_redaction.py",
+      "tests/unit/tui/test_app.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "components domain, legacy, presentation, providers: ADR 0001, 0002, 0003, 0005, 0006, 0007 and quality scenario mutation-requires-confirmation, no-false-drift, optional-drivers, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "conforms",
+      "reason": "describe_error vive en domain/errors; los adaptadores traducen sus excepciones a errores de dominio"
+    },
+    {
+      "kind": "adr",
+      "id": "0002",
+      "impact": "conforms",
+      "reason": "Las pistas de instalación nombran el extra real schema-comparator[<motor>]"
+    },
+    {
+      "kind": "adr",
+      "id": "0003",
+      "impact": "none",
+      "reason": "Sin cambios de comparación"
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "none",
+      "reason": "Sin cambios de scripts"
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "none",
+      "reason": "Solo cambia el texto de los fallos de validación/recompilación"
+    },
+    {
+      "kind": "adr",
+      "id": "0007",
+      "impact": "none",
+      "reason": "Sin cambios de identidad"
+    },
+    {
+      "kind": "scenario",
+      "id": "mutation-requires-confirmation",
+      "impact": "none",
+      "reason": "Sin cambios"
+    },
+    {
+      "kind": "scenario",
+      "id": "no-false-drift",
+      "impact": "none",
+      "reason": "Sin cambios"
+    },
+    {
+      "kind": "scenario",
+      "id": "optional-drivers",
+      "impact": "conforms",
+      "reason": "Sin driver Python, MySQL y Oracle piden el extra correcto"
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "conforms",
+      "reason": "Tests: errores de MySQL/Oracle, validación de rutinas, TUI y CLI no contienen el texto libre del driver"
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "none",
+      "reason": "Sin efecto"
+    }
+  ],
+  "attestations": [
+    {
+      "kind": "adr",
+      "id": "0006",
+      "evidence": "commit() solo en sp_validator.py:360; test_refresh_without_yes_fails_before_loading_profiles sigue en verde",
+      "recorded_at": "2026-10-21T11:21:27.391Z"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "open-facts",
+      "status": "resolved",
+      "answer": "Solo el tipo de excepción para errores inesperados; nunca su mensaje",
+      "source": "user"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T11:21:19.043Z",
+      "detail": {
+        "red": "run-1",
+        "green": "run-2"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T11:21:43.998Z",
+      "detail": {
+        "tree": "sha256:c8a7c6e879791b19c750373fb84f559f6b1e7639ea3b06c83e23f3f290579dc6",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T11:21:43.998Z",
+      "detail": {
+        "refs": [
+          "adr:0001 conforms",
+          "adr:0002 conforms",
+          "adr:0003 none",
+          "adr:0005 none",
+          "adr:0006 none",
+          "adr:0007 none",
+          "scenario:mutation-requires-confirmation none",
+          "scenario:no-false-drift none",
+          "scenario:optional-drivers conforms",
+          "scenario:secret-safety conforms",
+          "scenario:windows-first-run none"
+        ],
+        "records": [],
+        "tree": "sha256:c8a7c6e879791b19c750373fb84f559f6b1e7639ea3b06c83e23f3f290579dc6",
+        "fitness": [
+          "run-5"
+        ]
+      }
+    }
+  ],
+  "base": "1f774fe0dc55f181025edace281752529b16a8d9",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/test_error_redaction.py",
+      "exit_code": 2,
+      "output_sha256": "sha256:4218a7f4002a997d5d9ff8aeb8875e06f639da62cffc5ae602289999efcdd2a2",
+      "tree": "sha256:7e2efb682916423bd0ac80b392a4d0e2ec1c36f3557a3e1cf17b501936dbf9fe",
+      "recorded_at": "2026-10-21T11:20:26.404Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/test_error_redaction.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:0085d2fe770f9c904745927c3e33bba2ea49faad98932efd37127c7ae5f11fd8",
+      "tree": "sha256:7d79cbd7c11692b00d5475dd99810c9c8c7686b773f3008d279721801ffb0ffa",
+      "recorded_at": "2026-10-21T11:21:19.043Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:baabc664eaff202c46d3ced8421de413825e8319050468f0ce6bc41502fd27ee",
+      "tree": "sha256:c8a7c6e879791b19c750373fb84f559f6b1e7639ea3b06c83e23f3f290579dc6",
+      "recorded_at": "2026-10-21T11:21:43.998Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:4a163a5d90faa7d60d6392f52dc32056519ac4cf71a71a1f53c7bfe1369f6eeb",
+      "tree": "sha256:c8a7c6e879791b19c750373fb84f559f6b1e7639ea3b06c83e23f3f290579dc6",
+      "recorded_at": "2026-10-21T11:21:43.998Z"
+    },
+    {
+      "id": "run-5",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f9fd93d4bfe07fbc3f2ca83028355ce747308424b00ccac0298c99213e915731",
+      "tree": "sha256:c8a7c6e879791b19c750373fb84f559f6b1e7639ea3b06c83e23f3f290579dc6",
+      "recorded_at": "2026-10-21T11:21:43.998Z"
+    }
+  ],
+  "closed_at": "2026-10-21T11:21:48.106Z"
+}

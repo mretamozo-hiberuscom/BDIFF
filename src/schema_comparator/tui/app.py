@@ -13,6 +13,7 @@ from textual.widgets import Footer, Input, Label, Static, Tree
 from schema_comparator.compare.models import ComparisonResult
 from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.domain.comparison.models import ComparisonFilters
+from schema_comparator.domain.errors import describe_error
 from schema_comparator.report.write import generate_all_reports
 from schema_comparator.tui.actions import run_comparison
 from schema_comparator.tui.formatting import build_tree_data, header_text
@@ -279,7 +280,7 @@ class SchemaComparatorApp(App):
         except Exception as exc:
             self.call_from_thread(
                 self.query_one(StatusLog).error,
-                f"Falló la comparación: {exc}",
+                f"Falló la comparación: {describe_error(exc)}",
             )
             return
         self.call_from_thread(self._apply_new_result, new_result)
@@ -404,4 +405,7 @@ def run_tui(
     try:
         app.run()
     except Exception as exc:
-        print(f"[ERROR] Falló la interfaz interactiva: {exc}", file=sys.stderr)
+        print(
+            f"[ERROR] Falló la interfaz interactiva: {describe_error(exc)}",
+            file=sys.stderr,
+        )

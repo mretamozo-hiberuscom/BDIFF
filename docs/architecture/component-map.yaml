@@ -384,16 +384,6 @@
       ]
     },
     {
-      "id": "baseline-secret-leak",
-      "summary": "Los errores de MySQL/MariaDB y Oracle, y los del CLI de rutinas, interpolan el texto del driver, que puede incluir host y usuario",
-      "documented": "docs/architecture/technical-baseline.md:19",
-      "evidence": [
-        "src/schema_comparator/infrastructure/providers/mysql_family/errors.py:12",
-        "src/schema_comparator/infrastructure/providers/oracle/errors.py:12",
-        "src/schema_comparator/cli.py:140"
-      ]
-    },
-    {
       "id": "spec-schema-extraction-sqlserver-only",
       "summary": "El spec describe solo SQL Server con tablas y columnas; el código tiene 6 proveedores y extrae rutinas",
       "documented": "openspec/specs/schema-extraction/spec.md:5",

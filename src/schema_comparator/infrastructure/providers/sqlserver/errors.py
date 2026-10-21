@@ -1,5 +1,6 @@
 """SQL Server error translation from pyodbc exceptions to domain discovery errors."""
 
+from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.discovery.errors import (
     ConnectionFailedError,
     DiscoveryError,
@@ -9,11 +10,12 @@ from schema_comparator.discovery.errors import (
 from schema_comparator.discovery.errors import (
     translate_connect_error as _translate_connect_error,
 )
+from schema_comparator.domain.errors import describe_error
 from schema_comparator.infrastructure.providers.sqlserver.profile_parser import (
     has_driver_keyword,
 )
 
-__all__ = ["translate_connect_error", "translate_query_error"]
+__all__ = ["describe_failure", "translate_connect_error", "translate_query_error"]
 
 _DRIVER_18 = "ODBC Driver 18 for SQL Server"
 
@@ -61,3 +63,23 @@ def translate_connect_error(
             "TrustServerCertificate=yes a la cadena del perfil.",
         )
     return error
+
+
+def describe_failure(profile: ConnectionProfile, exc: BaseException) -> str:
+    """User-facing text for a failure while connecting to or validating a
+    SQL Server profile: pyodbc errors are translated, anything else shows
+    only BDIFF's own message or the exception type."""
+    import pyodbc
+
+    from schema_comparator.infrastructure.providers.sqlserver import connection
+
+    if isinstance(exc, pyodbc.Error):
+        return str(
+            translate_connect_error(
+                profile.name,
+                exc,
+                connection_string=profile.connection_string,
+                installed_drivers=connection.installed_sqlserver_drivers(),
+            )
+        )
+    return describe_error(exc)

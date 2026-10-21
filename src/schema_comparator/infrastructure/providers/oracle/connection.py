@@ -16,7 +16,7 @@ def connect(
     except ImportError as exc:
         raise ImportError(
             "python-oracledb es necesario para conectar a Oracle. Instálalo con 'pip install oracledb' "
-            "o 'pip install bdiff[oracle]'."
+            "o 'pip install schema-comparator[oracle]'."
         ) from exc
 
     user = kwargs.get("user")

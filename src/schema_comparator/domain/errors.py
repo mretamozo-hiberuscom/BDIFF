@@ -2,7 +2,18 @@
 
 
 class SchemaComparatorError(Exception):
-    """Base domain exception for BDIFF schema comparator."""
+    """Base domain exception for BDIFF schema comparator.
+
+    Subclass messages are composed by BDIFF and never carry connection
+    strings or driver free text, so they are safe to show."""
+
+
+def describe_error(exc: BaseException) -> str:
+    """User-facing text for `exc`: BDIFF's own message, or only the type of
+    an unexpected error, whose text may hold server, database or user."""
+    if isinstance(exc, SchemaComparatorError):
+        return str(exc)
+    return type(exc).__name__
 
 
 class RoutineIntrospectionError(RuntimeError, SchemaComparatorError):
