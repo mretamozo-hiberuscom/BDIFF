@@ -42,10 +42,10 @@ para la recompilación confirmada (ADR 0006).
 | Dependencia | Propietario | Protocolo | Modo de fallo |
 |---|---|---|---|
 | SQL Server | Equipo de cada microservicio | ODBC (`pyodbc`, driver 17/18 de Microsoft) | Driver ausente, timeout, permisos de catálogo → error traducido sin secretos |
-| PostgreSQL | Idem | `psycopg` 3 | Igual; hoy sin timeout de conexión |
-| MySQL / MariaDB | Idem | `pymysql` | Igual; los mensajes actuales filtran host y usuario |
-| Oracle | Idem | `python-oracledb` (thin) | Igual; hoy la consulta falla siempre |
-| SQLite | Usuario (archivo) | `sqlite3` | Ruta inexistente → hoy crea una base vacía |
+| PostgreSQL | Idem | `psycopg` 3 | Igual; sin timeout de conexión |
+| MySQL / MariaDB | Idem | `pymysql` | Igual; el mensaje solo lleva el código del driver |
+| Oracle | Idem | `python-oracledb` (thin) | Igual; el mensaje solo lleva el código ORA/DPY |
+| SQLite | Usuario (archivo) | `sqlite3` (solo lectura) | Ruta inexistente → error de conexión sin mostrar la ruta |
 
 ## Escenarios de calidad
 
@@ -76,7 +76,7 @@ No hay medidas numéricas acordadas para ningún escenario.
 | Unitarios | Reglas del motor, filtros, parsers de cadenas, traducción de errores, renderers DDL, formateo de reportes, lógica pura de la TUI | `tests/unit/` |
 | Integración | Arranque de `run.py`, escritura de reportes, PDF, flujo de rutinas con dobles de conexión | `tests/integration/` |
 | Contrato por proveedor | Consultas reales contra cada motor | Pendiente (roadmap) |
-| CI | Matriz Windows + Ubuntu × Python 3.11-3.13 | `.github/workflows/ci.yml` (Windows pendiente) |
+| CI | Matriz Windows + Ubuntu × Python 3.11-3.13 | `.github/workflows/ci.yml` |
 
 Los unitarios no abren red ni bases reales. Sin porcentaje de cobertura
 obligatorio.

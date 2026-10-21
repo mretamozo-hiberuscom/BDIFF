@@ -1,6 +1,6 @@
 # Alcance funcional — BDIFF
 
-> Estado verificado contra el código v1.2.5 el 2026-10-21. "Parcial" y
+> Estado verificado el 2026-10-21 tras la tanda de endurecimiento. "Parcial" y
 > "Roto" remiten al backlog de `docs/roadmap.md`.
 
 ## Actores
@@ -42,17 +42,17 @@
 | 1 | Config YAML v2 (`profiles:` con `provider`, `connection_string`, `options`) y v1 (`databases:`) | Hecho |
 | 2 | Cadenas ODBC y ADO.NET para SQL Server | Hecho |
 | 3 | Extracción de tablas y columnas — SQL Server | Parcial: sin default, identity, collation ni precisión de fecha |
-| 4 | Extracción — PostgreSQL, MySQL, MariaDB, SQLite | Parcial: MySQL pierde parámetros de tipo; SQLite crea la BD si la ruta no existe |
-| 5 | Extracción — Oracle | Roto: la consulta termina en `;` |
+| 4 | Extracción — PostgreSQL, MySQL, MariaDB, SQLite | Parcial: MySQL pierde parámetros de tipo; SQLite se abre en solo lectura |
+| 5 | Extracción — Oracle | Hecho (sin probar contra una instancia real) |
 | 6 | Extracción de procedimientos (SQL Server) | Hecho |
 | 7 | Comparación N-way de tablas, columnas y procedimientos | Hecho para un mismo motor |
-| 8 | Comparación de PK, FK e índices | Roto: falsos positivos; ningún proveedor los extrae |
-| 9 | Emparejamiento por identidad normalizada (esquema MySQL/Oracle, mayúsculas) | Pendiente (decidido 2026-10-21) |
+| 8 | Comparación de PK, FK e índices | Comparación correcta (estructura y nombre); ningún proveedor los extrae |
+| 9 | Emparejamiento por identidad normalizada (esquema MySQL/Oracle, mayúsculas) | Hecho (ADR 0007) |
 | 10 | Comparación semántica entre motores | Parcial: existe en el motor, sin acceso desde CLI ni TUI |
 | 11 | Reportes consola, HTML, PDF, Excel | Hecho, con conteos no homogéneos entre formatos |
-| 12 | TUI de hallazgos, consolidación y rutinas | Hecho, con fallos de concurrencia y de markup |
-| 13 | Scripts T-SQL de consolidación | Hecho solo para SQL Server; se restringe a ese motor (decisión 2026-10-21) |
-| 14 | Validación y recompilación de rutinas | Hecho; el script maestro de reparación está roto |
+| 12 | TUI de hallazgos, consolidación y rutinas | Hecho |
+| 13 | Scripts T-SQL de consolidación | Hecho; solo para perfiles SQL Server |
+| 14 | Validación y recompilación de rutinas | Hecho |
 | 15 | Detección de renombres | No implementado |
 | 16 | Export CSV | No implementado |
 | 17 | Descubrimiento desde DDL exportado (offline) | No implementado |

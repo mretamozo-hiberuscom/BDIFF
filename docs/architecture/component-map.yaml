@@ -422,14 +422,6 @@
       "evidence": [
         "src/schema_comparator/config/models.py:8"
       ]
-    },
-    {
-      "id": "ci-linux-only",
-      "summary": "Windows es la plataforma principal pero el CI solo ejecuta en ubuntu-latest",
-      "documented": "docs/architecture/technical-baseline.md:79",
-      "evidence": [
-        ".github/workflows/ci.yml:11"
-      ]
     }
   ]
 }

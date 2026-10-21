@@ -7,45 +7,47 @@
 > historial de git). Estado verificado contra el código v1.2.5; cada
 > cambio se ejecuta con IDD y se cierra solo con evidencia de `ospec`.
 
-## Estado real (v1.2.5)
+## Estado real (rama `refactor/baseline-hardening`, 2026-10-21)
 
 | Área | Estado |
 |---|---|
-| Config v1/v2, cadenas ODBC y ADO.NET | Hecho |
+| Config v1/v2, cadenas ODBC y ADO.NET; driver ODBC 17/18 elegido al conectar | Hecho |
 | Extracción SQL Server (tablas, columnas, procedimientos) | Hecho, sin default/identity/collation |
-| Proveedores PostgreSQL, MySQL, MariaDB, SQLite | Funcionan con huecos (tipos MySQL, SQLite crea archivos) |
-| Proveedor Oracle | Roto (consulta con `;`) |
-| Comparación N-way de tablas, columnas, procedimientos | Hecho para un mismo motor |
-| PK, FK, índices | Modelos y motor existen; comparación con falsos positivos; sin extracción |
+| Proveedores PostgreSQL, MySQL, MariaDB, SQLite (solo lectura), Oracle | Funcionan; MySQL pierde parámetros de tipo |
+| Carga diferida de drivers (sin libodbc arranca para otros motores) | Hecho |
+| Comparación N-way con identidad normalizada (ADR 0007) | Hecho |
+| PK, FK, índices | Comparación correcta; sin extracción en ningún proveedor |
 | Modo semántico entre motores | En el motor, sin acceso desde CLI/TUI |
-| Reportes consola, HTML, PDF, Excel | Hecho |
-| TUI: hallazgos, consolidación T-SQL, rutinas | Hecho con fallos de robustez |
-| CI | Solo Ubuntu; lint roto con ruff 0.17 (corregido en `pin-ruff-config`) |
+| Reportes consola (segura en Windows), HTML, PDF, Excel | Hecho |
+| TUI: hallazgos, consolidación T-SQL (solo SQL Server), rutinas | Hecho |
+| Errores sin datos de conexión | Hecho |
+| CI Windows + Ubuntu, lint estable | Hecho (pendiente de la primera ejecución en GitHub) |
 
-## Tanda actual — endurecimiento (rama `refactor/baseline-hardening`)
+## Tanda de endurecimiento — cerrada (rama `refactor/baseline-hardening`)
 
-Orden de ejecución. Prioridad: Windows primero, luego corrección, luego
-deuda.
+Cada cambio se cerró con evidencia de `ospec` y está archivado en
+`idd/archive/2026-10-21-<cambio>/`.
 
-| # | Cambio IDD | Tipo | Qué resuelve |
-|---|---|---|---|
-| 1 | `pin-ruff-config` | bug | Lint del CI estable con cualquier versión de ruff. **Cerrado.** |
-| 2 | `baseline-refresh` | docs | Este baseline, ADR 0006, roadmap único. |
-| 3 | `ci-windows-matrix` | feature | CI en `windows-latest` + `ubuntu-latest`. |
-| 4 | `console-encoding-windows` | bug | `UnicodeEncodeError` con emojis al redirigir la salida en Windows (cp1252). |
-| 5 | `odbc-driver-autodetect` | bug | Driver 17 fijo por defecto; elegir el driver de SQL Server instalado (18 o 17). |
-| 6 | `output-paths-and-filenames` | bug | `scripts-db` relativo al directorio de trabajo; nombres reservados de Windows y colisiones de nombre de archivo. |
-| 7 | `lazy-driver-imports` | bug | Carga diferida real de `pyodbc` (ADR 0002); eliminar `discovery/service.py`, `discovery/queries.py` y `connectors/` muertos; `pyodbc` solo como extra. |
-| 8 | `advanced-object-equality` | bug | Falsos positivos de PK/FK/índices en el motor. |
-| 9 | `object-identity-normalization` | feature | Emparejar sin distinguir mayúsculas; esquema MySQL/MariaDB ignorado; owner Oracle normalizado (ADR 0007). |
-| 10 | `cli-robustness` | bug | Errores bajo `SchemaComparatorError`; `--profiles` desconocido; `--yes` antes de conectar (ADR 0006); código de salida de `python -m schema_comparator`; `--exclude-routines` en la TUI. |
-| 11 | `driver-error-redaction` | bug | Mensajes de MySQL/MariaDB, Oracle y CLI de rutinas sin host ni usuario; pista de instalación `schema-comparator[<motor>]` en vez de `bdiff[<motor>]`. |
-| 12 | `oracle-query-terminator` | bug | Quitar `;` de la consulta Oracle. |
-| 13 | `sqlite-read-only-open` | bug | Abrir SQLite en solo lectura y fallar si la ruta no existe. |
-| 14 | `consolidation-sqlserver-only` | bug | Bloquear la consolidación con perfiles de otros motores, con mensaje claro. |
-| 15 | `sp-repair-master-script` | bug | Script maestro de reparación: crear la tabla temporal de resumen, `USE` por perfil, escapar nombres. |
-| 16 | `tui-markup-and-threads` | bug | Escapar markup Rich de identificadores; actualizar estado solo desde el hilo de la app; re-ejecución desde "sin diferencias". |
-| 17 | `tui-screens-refactor` | refactor | Extraer la lógica pura de `decision_screen.py` y `procedure_screen.py` a módulos testeables. |
+| # | Cambio IDD | Qué resolvió |
+|---|---|---|
+| 1 | `pin-ruff-config` | Lint estable con cualquier versión de ruff. |
+| 2 | `baseline-refresh` | Este baseline, ADR 0006, roadmap único. |
+| 3 | `ci-windows-matrix` | CI en Windows y Ubuntu. |
+| 4 | `console-encoding-windows` | Consola sin emojis y segura con cp1252. |
+| 5 | `odbc-driver-autodetect` | Driver ODBC 17/18 instalado elegido al conectar. |
+| 6 | `output-paths-and-filenames` | `scripts-db` en el directorio de trabajo; nombres válidos en Windows. |
+| 7 | `lazy-driver-imports` | pyodbc solo se carga con SQL Server; módulos heredados eliminados. |
+| 8 | `advanced-object-equality` | Sin falsos positivos de PK/FK/índices. |
+| 9 | `object-identity-normalization` | Identidad normalizada y variantes en reportes (ADR 0007). |
+| 10 | `cli-robustness` | `--yes` antes de conectar, `--profiles` estricto, errores limpios. |
+| 11 | `driver-error-redaction` | Mensajes sin texto libre del driver; pistas `schema-comparator[<motor>]`. |
+| 12 | `oracle-query-terminator` | Extracción Oracle operativa. |
+| 13 | `sqlite-read-only-open` | SQLite en solo lectura; ruta inexistente es error. |
+| 14 | `consolidation-sqlserver-only` | Consolidación limitada a SQL Server. |
+| 15 | `sp-repair-master-script` | Script maestro de reparación ejecutable y escapado. |
+| 16 | `tui-markup-escape` | Identificadores con corchetes mostrados literalmente. |
+| 17 | `tui-thread-safety` | Estado de la TUI coherente entre hilos y re-ejecuciones. |
+| 18 | `tui-screens-refactor` | Lógica de consolidación en módulo puro; bucle de rutinas único. |
 
 ## Siguiente — funcionalidad
 
@@ -55,6 +57,8 @@ deuda.
 | P1 | Extracción de PK, FK e índices (SQL Server primero, luego el resto) | Requiere el cambio 8. |
 | P1 | Reportes con todos los atributos que difieren y conteos homogéneos entre formatos | Hoy un mismatch de default/identity se ve idéntico. |
 | P1 | Confirmación y aviso para `DROP` en la consolidación | Hoy se generan sin modal ni aviso en el script. |
+| P1 | Destinos de una discrepancia de columna limitados a los perfiles que la tienen | Hoy se ofrecen todos los perfiles y el UPDATE generado no compila donde falta la columna. |
+| P2 | Exclusión de esquemas Oracle por `ORACLE_MAINTAINED` en lugar de una lista fija | Hoy faltan owners de sistema (DVSYS, ORDSYS…). |
 | P1 | Sincronizar `openspec/specs/` con el comportamiento real | Ver divergencias `spec-*` en `docs/architecture/component-map.yaml`. |
 | P2 | Flag de CLI para el modo semántico y política de motores mezclados con aviso (ADR 0003) | |
 | P2 | Tipos MySQL con `COLUMN_TYPE` (UNSIGNED, ENUM, precisión) | |

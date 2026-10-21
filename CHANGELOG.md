@@ -4,6 +4,33 @@ Todas las modificaciones destacables de este proyecto se documentarán en este a
 
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/), y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [Unreleased]
+
+### Añadido
+- Identidad normalizada de objetos entre bases (ADR 0007): tablas, columnas y rutinas se emparejan sin distinguir mayúsculas; el esquema que es la propia base (MySQL/MariaDB) o el de la sesión (Oracle) se normaliza; los reportes muestran todas las grafías.
+- CI en Windows además de Ubuntu; configuración de ruff fijada en `pyproject.toml`.
+- Baseline brownfield: knowledge-map, component-map, ADR 0006 (mantenimiento de metadatos con confirmación) y roadmap único.
+
+### Cambiado
+- El driver ODBC de SQL Server se elige al conectar (17 si está, si no 18) cuando la cadena no lo indica; un `Driver=` explícito no se cambia.
+- La consola usa `FALTA` y prefijos `[OK]`/`[ERROR]`/`[AVISO]` en lugar de emojis.
+- `scripts-db/` se crea en el directorio de trabajo, como `reportes/`.
+- `--profiles` no distingue mayúsculas y un nombre desconocido detiene la ejecución; `--refresh-modules` sin `--yes` sale con 2 antes de conectar.
+- La consolidación solo está disponible para perfiles SQL Server.
+- pyodbc solo se carga cuando hay perfiles SQL Server.
+
+### Corregido
+- Comparación de PK, FK e índices idénticos marcada como diferencia.
+- Extracción Oracle rota por el `;` final de la consulta.
+- SQLite creaba una base vacía con una ruta mal escrita; ahora abre en solo lectura.
+- Script maestro de reparación de rutinas sin `USE` ni tabla de resumen.
+- Mensajes de error que incluían host o usuario del driver.
+- TUI: identificadores con corchetes interpretados como markup, actualizaciones de UI desde hilos de trabajo y re-ejecución desde "sin diferencias".
+- `python -m schema_comparator` siempre salía con 0.
+
+### Eliminado
+- Paquetes heredados sin uso: `connectors/`, `discovery/service.py`, `discovery/queries.py`.
+
 ## [1.2.5] - 2026-07-23
 
 ### Mejorado
