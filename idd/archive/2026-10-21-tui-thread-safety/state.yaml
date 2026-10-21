@@ -1,0 +1,191 @@
+{
+  "schema": "idd-state/v1",
+  "change": "tui-thread-safety",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "Los workers de la TUI consultan widgets desde su hilo (app.py _do_run_comparison/_do_generate_reports) y la pantalla de rutinas asigna resultados fuera del hilo de la app; dos re-ejecuciones aplican resultados en orden de llegada; al re-ejecutar desde 'sin diferencias' solo cambia la cabecera; V durante R deja la recompilación mutante corriendo mientras la tabla muestra la validación",
+    "acceptance": "Los workers solo tocan la UI vía call_from_thread; un resultado de una ejecución superada se descarta; el cuerpo de la app refleja el último resultado (hallazgos o 'sin diferencias'); la pantalla de rutinas ejecuta una operación a la vez"
+  },
+  "facts": {
+    "basis": "Textual exige actualizar widgets desde el hilo de la app (call_from_thread ya se usa en app.py:285); la pantalla de rutinas ya pide confirmación modal antes de mutar, y bloquear operaciones concurrentes no cambia ningún resultado"
+  },
+  "plan": {
+    "paths": [
+      "src/schema_comparator/tui/app.py",
+      "src/schema_comparator/tui/procedure_screen.py",
+      "tests/unit/tui/test_tui_state.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "component presentation: ADR 0001, 0006 and quality scenario mutation-requires-confirmation, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "none",
+      "reason": "Solo cambia el manejo de hilos y estado de la TUI"
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "conforms",
+      "reason": "La recompilación sigue tras el modal de confirmación y ya no puede solaparse con una validación"
+    },
+    {
+      "kind": "scenario",
+      "id": "mutation-requires-confirmation",
+      "impact": "conforms",
+      "reason": "Una operación a la vez en la pantalla de rutinas"
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "none",
+      "reason": "Solo cambia el manejo de hilos y estado de la TUI"
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "none",
+      "reason": "Solo cambia el manejo de hilos y estado de la TUI"
+    }
+  ],
+  "attestations": [
+    {
+      "kind": "adr",
+      "id": "0006",
+      "evidence": "commit() solo en sp_validator.py:360; refresh solo vía _execute_module_refresh tras ConfirmRefreshModal",
+      "recorded_at": "2026-10-21T11:30:41.588Z"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T11:30:41.223Z",
+      "detail": {
+        "red": "run-1",
+        "green": "run-2"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T11:30:58.948Z",
+      "detail": {
+        "tree": "sha256:e3d4bb1edabce0c5024f74437888e5ce725851746d4203947b44746640a1714e",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T11:30:58.948Z",
+      "detail": {
+        "refs": [
+          "adr:0001 none",
+          "adr:0006 conforms",
+          "scenario:mutation-requires-confirmation conforms",
+          "scenario:secret-safety none",
+          "scenario:windows-first-run none"
+        ],
+        "records": []
+      }
+    }
+  ],
+  "base": "46b81c533ff2d5ed86cc0b96c5cc328690079b20",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/tui/test_tui_state.py",
+      "exit_code": 1,
+      "output_sha256": "sha256:0f25bcbf7aebb697d77030d502f8533993c141940c68cf8d930b832d8a048b1b",
+      "tree": "sha256:194a6a115a08173ab36ef04272ed61b6c5c23d19c5c3010459386b93cea18756",
+      "recorded_at": "2026-10-21T11:29:30.100Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/tui/test_tui_state.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:c98216cb00f6fb339aa317fd8aa55400d73ebfb8288c1c2acbbcc1eb1ec7d443",
+      "tree": "sha256:e7854f209af5f5afa7e6d0984ea7ebf07cf71cf8c49d5ac489471d5138901b98",
+      "recorded_at": "2026-10-21T11:30:41.223Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:d4d85cf425141022be69b775c9ab2d118cf7674b6ef3c8ad642731ef125da1ee",
+      "tree": "sha256:e3d4bb1edabce0c5024f74437888e5ce725851746d4203947b44746640a1714e",
+      "recorded_at": "2026-10-21T11:30:58.948Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:d0b46c272ac926261bce09a548a77a16f6b354e204765972d9cb234038f66341",
+      "tree": "sha256:e3d4bb1edabce0c5024f74437888e5ce725851746d4203947b44746640a1714e",
+      "recorded_at": "2026-10-21T11:30:58.948Z"
+    }
+  ],
+  "closed_at": "2026-10-21T11:30:59.003Z"
+}

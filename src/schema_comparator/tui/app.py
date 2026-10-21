@@ -203,22 +203,32 @@ class SchemaComparatorApp(App):
         self._profiles = profiles or []
         self._exclude_patterns = list(exclude_patterns or [])
         self._exclude_routines = list(exclude_routines or [])
+        # Identifies the latest re-run; results of superseded runs are dropped.
+        self._run_id = 0
+
+    def _body(self) -> Container:
+        """Findings browser, or the no-drift message when there is nothing."""
+        if not self._tree_data.groups:
+            return Container(
+                Static(_NO_DRIFT_MESSAGE, id="no-drift-message"),
+                id="no-drift-container",
+            )
+        return Container(
+            Vertical(
+                Input(
+                    placeholder="Filtrar por tabla, columna o tipo de diferencia… (Presiona /)",
+                    id="filter-input",
+                ),
+                FindingsTree(self._tree_data, id="findings-tree"),
+                id="left-container",
+            ),
+            Vertical(DetailPanel(id="detail-panel"), id="right-container"),
+            id="main-body",
+        )
 
     def compose(self) -> ComposeResult:
         yield SummaryHeader(Text(header_text(self._result)))
-        if not self._tree_data.groups:
-            with Container(id="no-drift-container"):
-                yield Static(_NO_DRIFT_MESSAGE, id="no-drift-message")
-        else:
-            with Container(id="main-body"):
-                with Vertical(id="left-container"):
-                    yield Input(
-                        placeholder="Filtrar por tabla, columna o tipo de diferencia… (Presiona /)",
-                        id="filter-input",
-                    )
-                    yield FindingsTree(self._tree_data, id="findings-tree")
-                with Vertical(id="right-container"):
-                    yield DetailPanel(id="detail-panel")
+        yield self._body()
         with Horizontal(id="bottom-container"):
             with Vertical(id="exclude-container"):
                 yield Label(
@@ -267,9 +277,20 @@ class SchemaComparatorApp(App):
             )
             return
         self.query_one(StatusLog).info("Ejecutando comparación…")
-        self.run_worker(self._do_run_comparison, exclusive=True, thread=True)
+        self._run_id += 1
+        run_id = self._run_id
+        self.run_worker(
+            lambda: self._do_run_comparison(run_id), exclusive=True, thread=True
+        )
 
-    def _do_run_comparison(self) -> None:
+    def _log_info(self, message: str) -> None:
+        self.query_one(StatusLog).info(message)
+
+    def _log_error(self, message: str) -> None:
+        self.query_one(StatusLog).error(message)
+
+    def _do_run_comparison(self, run_id: int) -> None:
+        # Worker thread: the UI is only touched through call_from_thread.
         try:
             new_result = run_comparison(
                 self._profiles,
@@ -280,20 +301,29 @@ class SchemaComparatorApp(App):
             )
         except Exception as exc:
             self.call_from_thread(
-                self.query_one(StatusLog).error,
-                f"Falló la comparación: {describe_error(exc)}",
+                self._log_error, f"Falló la comparación: {describe_error(exc)}"
             )
             return
-        self.call_from_thread(self._apply_new_result, new_result)
+        self.call_from_thread(self._apply_new_result, new_result, run_id)
 
-    def _apply_new_result(self, new_result: ComparisonResult) -> None:
+    def _apply_new_result(
+        self, new_result: ComparisonResult, run_id: int | None = None
+    ) -> None:
+        if run_id is not None and run_id != self._run_id:
+            return
+        had_findings = bool(self._tree_data.groups)
         self._result = new_result
         self._tree_data = build_tree_data(new_result)
-        trees = self.query(FindingsTree)
-        if trees:
-            trees.first().populate(self._tree_data)
+        if had_findings != bool(self._tree_data.groups):
+            self.query_one("#main-body, #no-drift-container").remove()
+            self.mount(self._body(), before="#bottom-container")
+            self.filter_text = ""
+        else:
+            trees = self.query(FindingsTree)
+            if trees:
+                trees.first().populate(self._tree_data)
         self.query_one(SummaryHeader).update(Text(header_text(new_result)))
-        self.query_one(StatusLog).info("Comparación actualizada.")
+        self._log_info("Comparación actualizada.")
 
     def action_generate_reports(self) -> None:
         self.query_one(StatusLog).info("Generando reportes…")
@@ -303,11 +333,10 @@ class SchemaComparatorApp(App):
         buffer = io.StringIO()
         try:
             generate_all_reports(self._result, out=buffer)
-            self.call_from_thread(self.query_one(StatusLog).info, buffer.getvalue())
+            self.call_from_thread(self._log_info, buffer.getvalue())
         except Exception as exc:
             self.call_from_thread(
-                self.query_one(StatusLog).error,
-                f"Falló la generación de reportes: {exc}",
+                self._log_error, f"Falló la generación de reportes: {exc}"
             )
 
     def action_open_decision_screen(self) -> None:

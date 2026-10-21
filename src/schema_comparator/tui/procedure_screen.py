@@ -149,6 +149,9 @@ class ProcedureVerificationScreen(Screen):
         self._exclude_patterns = [p.lower() for p in (exclude_patterns or [])]
         self._validation_results: dict[str, tuple[RoutineValidationResult, ...]] = {}
         self._refresh_results: dict[str, tuple[ModuleRefreshResult, ...]] = {}
+        # One validation or refresh at a time: results of a mutating refresh
+        # must never be overwritten by a validation started meanwhile.
+        self._busy = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -180,14 +183,31 @@ class ProcedureVerificationScreen(Screen):
         table.cursor_type = "row"
         self.action_validate_read_only()
 
-    def action_validate_read_only(self) -> None:
-        """Run read-only dependency validation across profiles without mutating DB."""
+    def _set_status(self, markup: str) -> None:
         status_labels = self.query("#sp-status")
         if status_labels:
-            status_labels.first().update(
-                "🔍 Ejecutando validación de dependencias (solo lectura)..."
+            status_labels.first().update(markup)
+
+    def _refuse_if_busy(self) -> bool:
+        if self._busy:
+            self._set_status(
+                "[bold yellow]⏳ Hay una operación en curso; espera a que termine.[/bold yellow]"
             )
-        self.run_worker(self._do_validate_read_only, exclusive=True, thread=True)
+        return self._busy
+
+    def _start(self, work, status: str) -> None:
+        if self._refuse_if_busy():
+            return
+        self._busy = True
+        self._set_status(status)
+        self.run_worker(work, exclusive=True, thread=True)
+
+    def action_validate_read_only(self) -> None:
+        """Run read-only dependency validation across profiles without mutating DB."""
+        self._start(
+            self._do_validate_read_only,
+            "🔍 Ejecutando validación de dependencias (solo lectura)...",
+        )
 
     def _do_validate_read_only(
         self,
@@ -222,9 +242,15 @@ class ProcedureVerificationScreen(Screen):
                             error_message=f"Error de conexión: {describe_failure(profile, exc)}",
                         ),
                     )
-        self._validation_results = results_map
-        self.app.call_from_thread(self._update_table_view_validation)
+        self.app.call_from_thread(self._apply_validation, results_map)
         return results_map, total_count
+
+    def _apply_validation(
+        self, results: dict[str, tuple[RoutineValidationResult, ...]]
+    ) -> None:
+        self._validation_results = results
+        self._busy = False
+        self._update_table_view_validation()
 
     def _update_table_view_validation(self) -> None:
         tables = self.query(DataTable)
@@ -271,6 +297,8 @@ class ProcedureVerificationScreen(Screen):
 
     def action_request_module_refresh(self) -> None:
         """Prompt confirmation modal before executing mutating sp_refreshsqlmodule."""
+        if self._refuse_if_busy():
+            return
         total_targets = sum(len(res) for res in self._validation_results.values())
         if total_targets == 0:
             status_labels = self.query("#sp-status")
@@ -287,12 +315,10 @@ class ProcedureVerificationScreen(Screen):
         self.app.push_screen(ConfirmRefreshModal(total_targets), _on_modal_result)
 
     def _execute_module_refresh(self) -> None:
-        status_labels = self.query("#sp-status")
-        if status_labels:
-            status_labels.first().update(
-                "🔄 Recompilando metadatos en bases de datos con confirmación..."
-            )
-        self.run_worker(self._do_refresh_modules, exclusive=True, thread=True)
+        self._start(
+            self._do_refresh_modules,
+            "🔄 Recompilando metadatos en bases de datos con confirmación...",
+        )
 
     def _do_refresh_modules(self) -> None:
         results_map: dict[str, tuple[ModuleRefreshResult, ...]] = {}
@@ -322,8 +348,14 @@ class ProcedureVerificationScreen(Screen):
                             signature_status=SignatureStatus.UNKNOWN,
                         ),
                     )
-        self._refresh_results = results_map
-        self.app.call_from_thread(self._update_table_view_refresh)
+        self.app.call_from_thread(self._apply_refresh, results_map)
+
+    def _apply_refresh(
+        self, results: dict[str, tuple[ModuleRefreshResult, ...]]
+    ) -> None:
+        self._refresh_results = results
+        self._busy = False
+        self._update_table_view_refresh()
 
     def _update_table_view_refresh(self) -> None:
         tables = self.query(DataTable)
@@ -366,6 +398,8 @@ class ProcedureVerificationScreen(Screen):
 
     def action_generate_script(self) -> None:
         """Generate repair T-SQL scripts in scripts-db/<folder>/repair_sps/ separated per database profile."""
+        if self._refuse_if_busy():
+            return
         status_labels = self.query("#sp-status")
 
         if not self._validation_results and not self._refresh_results:
