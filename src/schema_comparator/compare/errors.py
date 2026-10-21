@@ -1,7 +1,9 @@
 """Domain error hierarchy for comparison-engine precondition validation."""
 
+from schema_comparator.domain.errors import SchemaComparatorError
 
-class ComparisonError(Exception):
+
+class ComparisonError(SchemaComparatorError):
     """Base class for all comparison-engine failures."""
 
 

@@ -384,14 +384,6 @@
       ]
     },
     {
-      "id": "adr-0006-late-confirmation",
-      "summary": "--refresh-modules sin --yes se rechaza después de extraer, comparar y escribir reportes, no antes de abrir conexiones",
-      "documented": "docs/architecture/decisions/0006-mantenimiento-de-metadatos-con-confirmacion.md:36",
-      "evidence": [
-        "src/schema_comparator/cli.py:179"
-      ]
-    },
-    {
       "id": "baseline-secret-leak",
       "summary": "Los errores de MySQL/MariaDB y Oracle, y los del CLI de rutinas, interpolan el texto del driver, que puede incluir host y usuario",
       "documented": "docs/architecture/technical-baseline.md:19",

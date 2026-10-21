@@ -4,9 +4,10 @@ from typing import Callable
 
 from schema_comparator.application.ports.database_provider import DatabaseProvider
 from schema_comparator.discovery.errors import DriverUnavailableError
+from schema_comparator.domain.errors import SchemaComparatorError
 
 
-class ProviderNotFoundError(KeyError):
+class ProviderNotFoundError(SchemaComparatorError, LookupError):
     """Raised when a requested provider_id is not registered."""
 
     pass

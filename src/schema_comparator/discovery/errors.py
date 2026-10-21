@@ -7,8 +7,10 @@ pyodbc places first) — never `str(exc)` or `exc.args[1]` (the driver's
 free-text message, which can contain server/database fragments).
 """
 
+from schema_comparator.domain.errors import SchemaComparatorError
 
-class DiscoveryError(Exception):
+
+class DiscoveryError(SchemaComparatorError):
     """Base class for all schema-extraction failures."""
 
 

@@ -1,0 +1,278 @@
+{
+  "schema": "idd-state/v1",
+  "change": "cli-robustness",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "El CLI valida --yes después de extraer y escribir reportes (contra ADR 0006), ignora en silencio nombres desconocidos de --profiles, muestra errores de config/extracción/comparación como [ERROR INESPERADO], 'python -m schema_comparator' sale siempre con 0, y la TUI pierde --exclude-routines",
+    "acceptance": "La opción --refresh-modules sin --yes falla antes de cargar perfiles o conectar; nombres desconocidos en --profiles se reportan; menos de 2 perfiles se rechaza antes de extraer; errores conocidos salen con mensaje limpio; python -m schema_comparator propaga el código; la TUI conserva y aplica las exclusiones de rutinas"
+  },
+  "facts": {
+    "open": [
+      "Un nombre de --profiles que no existe en la config: ¿error que detiene la ejecución o aviso y se sigue?",
+      "¿--profiles empareja nombres sin distinguir mayúsculas?",
+      "Sin --yes junto a --refresh-modules: ¿código de salida 2 (uso incorrecto) en lugar del 1 actual?"
+    ]
+  },
+  "plan": {
+    "paths": [
+      "README.md",
+      "docs/architecture/component-map.yaml",
+      "src/schema_comparator/__main__.py",
+      "src/schema_comparator/application/use_cases/compare_profiles.py",
+      "src/schema_comparator/cli.py",
+      "src/schema_comparator/compare/errors.py",
+      "src/schema_comparator/config/errors.py",
+      "src/schema_comparator/discovery/errors.py",
+      "src/schema_comparator/infrastructure/providers/registry.py",
+      "src/schema_comparator/tui/app.py",
+      "src/schema_comparator/tui/decision_screen.py",
+      "tests/unit/test_cli.py",
+      "tests/unit/test_cli_console_encoding.py",
+      "tests/unit/test_cli_robustness.py",
+      "tests/unit/test_main_module.py",
+      "tests/unit/tui/test_app.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "components application, compare, config, legacy, presentation, providers: ADR 0001, 0002, 0003, 0004, 0005, 0006, 0007 and quality scenario mutation-requires-confirmation, no-false-drift, optional-drivers, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "conforms",
+      "reason": "Los errores de config, discovery y compare heredan de domain.errors.SchemaComparatorError (dependencia hacia dentro); la presentación solo los captura"
+    },
+    {
+      "kind": "adr",
+      "id": "0002",
+      "impact": "none",
+      "reason": "ProviderNotFoundError cambia de base, no el registro"
+    },
+    {
+      "kind": "adr",
+      "id": "0003",
+      "impact": "none",
+      "reason": "Sin cambios de comparación"
+    },
+    {
+      "kind": "adr",
+      "id": "0004",
+      "impact": "none",
+      "reason": "El formato de config no cambia; solo la selección de perfiles por --profiles"
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "none",
+      "reason": "Sin cambios en scripts"
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "conforms",
+      "reason": "La confirmación --yes se valida antes de cargar perfiles o conectar; test_refresh_without_yes_fails_before_loading_profiles es su fitness"
+    },
+    {
+      "kind": "adr",
+      "id": "0007",
+      "impact": "none",
+      "reason": "Sin cambios de identidad de objetos"
+    },
+    {
+      "kind": "scenario",
+      "id": "mutation-requires-confirmation",
+      "impact": "conforms",
+      "reason": "Sin --yes termina con 2 antes de abrir conexiones"
+    },
+    {
+      "kind": "scenario",
+      "id": "no-false-drift",
+      "impact": "none",
+      "reason": "Sin cambios en el motor"
+    },
+    {
+      "kind": "scenario",
+      "id": "optional-drivers",
+      "impact": "none",
+      "reason": "Sin cambios de imports de drivers"
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "conforms",
+      "reason": "Los errores conocidos se muestran con su mensaje saneado en lugar de [ERROR INESPERADO]"
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "none",
+      "reason": "Sin efecto en el arranque"
+    }
+  ],
+  "attestations": [
+    {
+      "kind": "adr",
+      "id": "0006",
+      "evidence": "commit() solo en sp_validator.py:360; tests/unit/test_cli_robustness.py::test_refresh_without_yes_fails_before_loading_profiles verifica salida 2 sin llamar a load_profiles",
+      "recorded_at": "2026-10-21T11:18:55.953Z"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "open-facts",
+      "status": "resolved",
+      "answer": "Nombre desconocido en --profiles: error y se detiene (salida 2, antes de conectar). --profiles no distingue mayúsculas. --refresh-modules sin --yes: salida 2.",
+      "source": "user"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T11:18:48.334Z",
+      "detail": {
+        "red": "run-1",
+        "green": "run-2"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T11:19:13.251Z",
+      "detail": {
+        "tree": "sha256:f7f74bcc7575315f140487eace4a802afbf46877b7317b3e4a3a742db578d405",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T11:19:13.251Z",
+      "detail": {
+        "refs": [
+          "adr:0001 conforms",
+          "adr:0002 none",
+          "adr:0003 none",
+          "adr:0004 none",
+          "adr:0005 none",
+          "adr:0006 conforms",
+          "adr:0007 none",
+          "scenario:mutation-requires-confirmation conforms",
+          "scenario:no-false-drift none",
+          "scenario:optional-drivers none",
+          "scenario:secret-safety conforms",
+          "scenario:windows-first-run none"
+        ],
+        "records": [],
+        "tree": "sha256:f7f74bcc7575315f140487eace4a802afbf46877b7317b3e4a3a742db578d405",
+        "fitness": [
+          "run-5"
+        ]
+      }
+    }
+  ],
+  "base": "1fb7efdebe15469fd0acde4c855eddacf05924c6",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/test_cli_robustness.py",
+      "exit_code": 1,
+      "output_sha256": "sha256:73f7ebc2f2dd756c7789ee343a91c72e5ca1faac6db091a38a49f16ba17a6cde",
+      "tree": "sha256:4e96be31646ccb5ef709c96cf40c549dfdb56535ede712aff08bc053385a94c9",
+      "recorded_at": "2026-10-21T11:17:13.286Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/test_cli_robustness.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:a14914756c778ccbc89808363fcd2d5ba8027db266eee366a311024d2abd9ab4",
+      "tree": "sha256:39251c70c409f05789dd20f191f03cb713d709916c86e67bb52a95faca9c1156",
+      "recorded_at": "2026-10-21T11:18:48.334Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:b512e962161bf08ba02f80fd28561a21e18fb7a99beb1d7e8232ff38a37fa5e4",
+      "tree": "sha256:f7f74bcc7575315f140487eace4a802afbf46877b7317b3e4a3a742db578d405",
+      "recorded_at": "2026-10-21T11:19:13.251Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:3761537aceaf847ad0dba17b399f834e3c94f3b51450350db8e03628e97a285e",
+      "tree": "sha256:f7f74bcc7575315f140487eace4a802afbf46877b7317b3e4a3a742db578d405",
+      "recorded_at": "2026-10-21T11:19:13.251Z"
+    },
+    {
+      "id": "run-5",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f9fd93d4bfe07fbc3f2ca83028355ce747308424b00ccac0298c99213e915731",
+      "tree": "sha256:f7f74bcc7575315f140487eace4a802afbf46877b7317b3e4a3a742db578d405",
+      "recorded_at": "2026-10-21T11:19:13.251Z"
+    }
+  ],
+  "closed_at": "2026-10-21T11:19:18.199Z"
+}

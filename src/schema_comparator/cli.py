@@ -6,7 +6,9 @@ import argparse
 import functools
 import sys
 
+from schema_comparator.config.errors import UnknownProfileError
 from schema_comparator.config.loader import load_profiles
+from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.domain.comparison.models import ComparisonFilters
 from schema_comparator.domain.errors import SchemaComparatorError
 from schema_comparator.report.write import write_reports
@@ -67,12 +69,16 @@ def _resolve_summary_renderer_and_generate_reports(
     use_tui: bool,
     profiles: list,
     exclude_patterns: list[str],
+    exclude_routines: list[str] | None = None,
 ) -> tuple:
     if not use_tui:
         return None, True
     if sys.stdout.isatty() and sys.stdin.isatty():
         bound_run_tui = functools.partial(
-            run_tui, profiles=profiles, exclude_patterns=exclude_patterns
+            run_tui,
+            profiles=profiles,
+            exclude_patterns=exclude_patterns,
+            exclude_routines=list(exclude_routines or []),
         )
         return bound_run_tui, False
     print(
@@ -143,6 +149,19 @@ def _run_routine_validation(
     return has_errors
 
 
+def _select_profiles(
+    profiles: list[ConnectionProfile], requested: list[str]
+) -> list[ConnectionProfile]:
+    """Profiles named in `requested`, ignoring case; any unknown name is an
+    error raised before connecting to anything."""
+    known = {p.name.casefold() for p in profiles}
+    unknown = [name for name in requested if name.casefold() not in known]
+    if unknown:
+        raise UnknownProfileError.for_names(unknown, [p.name for p in profiles])
+    wanted = {name.casefold() for name in requested}
+    return [p for p in profiles if p.name.casefold() in wanted]
+
+
 def _make_console_output_safe() -> None:
     """Replace characters the console code page cannot encode (cp1252 on a
     redirected Windows stdout, for instance) instead of aborting the run."""
@@ -156,9 +175,19 @@ def main(argv: list[str] | None = None) -> int:
     _make_console_output_safe()
     try:
         args = build_arg_parser().parse_args(argv)
+        wants_refresh = args.refresh_modules or args.verify_sps
+        if wants_refresh and not args.yes:
+            # ADR 0006: confirmation is checked before touching any database.
+            print(
+                "\n[AVISO] ATENCIÓN: --refresh-modules ejecuta sp_refreshsqlmodule para recompilar metadatos en la BD. "
+                "Para confirmar esta acción mutante, incluye la bandera --yes.",
+                file=sys.stderr,
+            )
+            return 2
+
         profiles = load_profiles(args.config)
         if args.profiles:
-            profiles = [p for p in profiles if p.name in args.profiles]
+            profiles = _select_profiles(profiles, args.profiles)
 
         exclude_tables = list(args.exclude_tables or [])
         exclude_routines = list(args.exclude_routines or [])
@@ -171,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
         result = run_comparison(profiles, filters)
 
         render_summary, do_generate = _resolve_summary_renderer_and_generate_reports(
-            args.tui, profiles, exclude_tables
+            args.tui, profiles, exclude_tables, exclude_routines
         )
         if render_summary is not None:
             write_reports(
@@ -186,14 +215,7 @@ def main(argv: list[str] | None = None) -> int:
                 profiles, exclude_routines=exclude_routines, read_only=True
             )
 
-        if args.refresh_modules or args.verify_sps:
-            if not args.yes:
-                print(
-                    "\n[AVISO] ATENCIÓN: --refresh-modules ejecuta sp_refreshsqlmodule para recompilar metadatos en la BD. "
-                    "Para confirmar esta acción mutante, incluye la bandera --yes.",
-                    file=sys.stderr,
-                )
-                return 1
+        if wants_refresh:
             v_fail = _run_routine_validation(
                 profiles, exclude_routines=exclude_routines, read_only=False
             )
@@ -204,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     except SchemaComparatorError as exc:
-        print(f"[ERROR DE INFRAESTRUCTURA] {exc}", file=sys.stderr)
+        print(f"[ERROR] {exc}", file=sys.stderr)
         return 2
     except Exception as exc:
         print(f"[ERROR INESPERADO] {exc}", file=sys.stderr)

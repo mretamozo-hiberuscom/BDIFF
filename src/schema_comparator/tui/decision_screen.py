@@ -347,7 +347,7 @@ class DecisionScreen(Screen):
     def action_open_sp_verification(self) -> None:
         from schema_comparator.tui.procedure_screen import ProcedureVerificationScreen
 
-        exclude_patterns = getattr(self.app, "_exclude_patterns", [])
+        exclude_patterns = getattr(self.app, "_exclude_routines", [])
         self.app.push_screen(
             ProcedureVerificationScreen(
                 profiles=self.profiles,

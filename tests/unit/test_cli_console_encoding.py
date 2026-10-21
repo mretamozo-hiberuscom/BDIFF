@@ -80,7 +80,7 @@ def test_refresh_without_yes_warning_is_cp1252_safe() -> None:
         code = main(["--config", "c.yaml", "--refresh-modules"])
 
     stderr.seek(0)
-    assert code == 1
+    assert code == 2
     assert "[AVISO] ATENCIÓN: --refresh-modules" in stderr.read()
 
 

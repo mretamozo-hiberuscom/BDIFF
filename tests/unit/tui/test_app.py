@@ -8,6 +8,7 @@ import pytest
 from report.conftest import comparison_result_empty, comparison_result_with_findings
 
 from schema_comparator.config.models import ConnectionProfile
+from schema_comparator.domain.comparison.models import ComparisonFilters
 from schema_comparator.tui.app import SchemaComparatorApp, run_tui
 from schema_comparator.tui.widgets import (
     DetailPanel,
@@ -225,7 +226,7 @@ async def test_submitting_exclude_editor_updates_patterns_and_triggers_run() -> 
             await app.workers.wait_for_complete()
 
     assert app._exclude_patterns == ["LOG", "QRTZ"]
-    assert calls == [["LOG", "QRTZ"]]
+    assert calls == [ComparisonFilters(excluded_tables=("LOG", "QRTZ"))]
 
 
 @pytest.mark.asyncio
@@ -254,7 +255,7 @@ async def test_pressing_r_triggers_run_comparison_without_changing_excludes() ->
             await pilot.pause()
             await app.workers.wait_for_complete()
 
-    assert calls == [(_profiles(), ["LOG"])]
+    assert calls == [(_profiles(), ComparisonFilters(excluded_tables=("LOG",)))]
     assert app._exclude_patterns == ["LOG"]
     assert app._result is new_result
 
@@ -345,19 +346,28 @@ def test_run_tui_forwards_profiles_and_exclude_patterns() -> None:
     captured = {}
 
     class _FakeApp:
-        def __init__(self, result, *, profiles=None, exclude_patterns=None) -> None:
+        def __init__(
+            self, result, *, profiles=None, exclude_patterns=None, exclude_routines=None
+        ) -> None:
             captured["result"] = result
             captured["profiles"] = profiles
             captured["exclude_patterns"] = exclude_patterns
+            captured["exclude_routines"] = exclude_routines
 
         def run(self) -> None:
             pass
 
     with patch("schema_comparator.tui.app.SchemaComparatorApp", _FakeApp):
-        run_tui(result, profiles=profiles, exclude_patterns=["LOG"])
+        run_tui(
+            result,
+            profiles=profiles,
+            exclude_patterns=["LOG"],
+            exclude_routines=["tmp"],
+        )
 
     assert captured["profiles"] == profiles
     assert captured["exclude_patterns"] == ["LOG"]
+    assert captured["exclude_routines"] == ["tmp"]
 
 
 @pytest.mark.asyncio

@@ -63,7 +63,7 @@ reportes y mensajes.
 | Opción | Efecto |
 |---|---|
 | `--config RUTA` | YAML de perfiles (obligatoria). |
-| `--profiles A B ...` | Compara solo esos perfiles (por defecto, todos). |
+| `--profiles A B ...` | Compara solo esos perfiles, sin distinguir mayúsculas (por defecto, todos). Un nombre desconocido detiene la ejecución. |
 | `--tui` | Navegador interactivo (requiere terminal interactiva). |
 | `--exclude-tables TXT ...` | Excluye tablas cuyo nombre contenga el texto. |
 | `--exclude-routines TXT ...` | Excluye rutinas cuyo nombre contenga el texto. |
@@ -71,7 +71,8 @@ reportes y mensajes.
 | `--refresh-modules --yes` | Recompila metadatos con `sp_refreshsqlmodule` (escribe en la BD). `--verify-sps` es un alias heredado. |
 
 Códigos de salida: `0` sin diferencias, `1` con diferencias o fallos de
-validación, `2` error.
+validación, `2` error o uso incorrecto (p. ej. `--refresh-modules` sin
+`--yes`, que se rechaza antes de conectar).
 
 ## Salidas
 

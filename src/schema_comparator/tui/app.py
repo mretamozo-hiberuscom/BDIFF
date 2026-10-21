@@ -12,6 +12,7 @@ from textual.widgets import Footer, Input, Label, Static, Tree
 
 from schema_comparator.compare.models import ComparisonResult
 from schema_comparator.config.models import ConnectionProfile
+from schema_comparator.domain.comparison.models import ComparisonFilters
 from schema_comparator.report.write import generate_all_reports
 from schema_comparator.tui.actions import run_comparison
 from schema_comparator.tui.formatting import build_tree_data, header_text
@@ -192,12 +193,14 @@ class SchemaComparatorApp(App):
         *,
         profiles: list[ConnectionProfile] | None = None,
         exclude_patterns: list[str] | None = None,
+        exclude_routines: list[str] | None = None,
     ) -> None:
         super().__init__()
         self._result = result
         self._tree_data = build_tree_data(result)
         self._profiles = profiles or []
         self._exclude_patterns = list(exclude_patterns or [])
+        self._exclude_routines = list(exclude_routines or [])
 
     def compose(self) -> ComposeResult:
         yield SummaryHeader(header_text(self._result))
@@ -266,7 +269,13 @@ class SchemaComparatorApp(App):
 
     def _do_run_comparison(self) -> None:
         try:
-            new_result = run_comparison(self._profiles, self._exclude_patterns)
+            new_result = run_comparison(
+                self._profiles,
+                ComparisonFilters(
+                    excluded_tables=tuple(self._exclude_patterns),
+                    excluded_routines=tuple(self._exclude_routines),
+                ),
+            )
         except Exception as exc:
             self.call_from_thread(
                 self.query_one(StatusLog).error,
@@ -371,7 +380,7 @@ class SchemaComparatorApp(App):
             ProcedureVerificationScreen(
                 profiles=tuple(profiles_to_pass),
                 repo_root=repo_root,
-                exclude_patterns=self._exclude_patterns,
+                exclude_patterns=self._exclude_routines,
             )
         )
 
@@ -381,12 +390,16 @@ def run_tui(
     *,
     profiles: list[ConnectionProfile] | None = None,
     exclude_patterns: list[str] | None = None,
+    exclude_routines: list[str] | None = None,
 ) -> None:
     """Launch the interactive TUI. Any exception raised while running is
     caught and reported to stderr rather than propagating as an unhandled
     exception (REQ-interactive-tui-008)."""
     app = SchemaComparatorApp(
-        result, profiles=profiles, exclude_patterns=exclude_patterns
+        result,
+        profiles=profiles,
+        exclude_patterns=exclude_patterns,
+        exclude_routines=exclude_routines,
     )
     try:
         app.run()
