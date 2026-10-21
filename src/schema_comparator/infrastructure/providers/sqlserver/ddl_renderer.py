@@ -72,13 +72,40 @@ def _type_sql(attrs: ColumnAttributes) -> str:
         if attrs.numeric_scale is not None:
             return f"{clean_type}({attrs.numeric_precision}, {attrs.numeric_scale})"
         return f"{clean_type}({attrs.numeric_precision})"
+    if attrs.datetime_precision is not None and data_type_lower in _FRACTIONAL_TYPES:
+        return f"{clean_type}({attrs.datetime_precision})"
     return clean_type
 
 
+def _column_parts(attrs: ColumnAttributes, *, identity: bool) -> str:
+    parts = [_type_sql(attrs)]
+    if attrs.collation:
+        parts.append(f"COLLATE {attrs.collation}")
+    if identity and attrs.is_identity:
+        # BDIFF does not extract seed and increment.
+        parts.append("IDENTITY(1, 1)")
+    parts.append("NULL" if attrs.is_nullable else "NOT NULL")
+    return " ".join(parts)
+
+
 def format_sql_column_definition(attrs: ColumnAttributes) -> str:
-    """Format column attributes to their corresponding SQL Server (T-SQL) definition."""
-    nullability = "NULL" if attrs.is_nullable else "NOT NULL"
-    return f"{_type_sql(attrs)} {nullability}"
+    """Type, explicit collation and nullability: the part of a column
+    definition ALTER COLUMN accepts (IDENTITY and DEFAULT are not)."""
+    return _column_parts(attrs, identity=False)
+
+
+def _default_name(table: str, column: str) -> str:
+    return f"DF_{table}_{column}"[:128]
+
+
+def _new_column_sql(table: str, column: str, attrs: ColumnAttributes) -> str:
+    """A column definition for CREATE TABLE or ADD: with IDENTITY and a
+    named DEFAULT."""
+    sql = _column_parts(attrs, identity=True)
+    if attrs.default_expression:
+        name = _escape_ident(_default_name(table, column))
+        sql += f" CONSTRAINT [{name}] DEFAULT {attrs.default_expression}"
+    return sql
 
 
 _STRING_TYPES = frozenset({"char", "varchar", "nchar", "nvarchar"})
@@ -101,6 +128,8 @@ _NUMERIC_TYPES = frozenset(
 _TEMPORAL_TYPES = frozenset(
     {"date", "datetime", "datetime2", "smalldatetime", "datetimeoffset", "time"}
 )
+# Types whose fractional-second digits are part of the definition.
+_FRACTIONAL_TYPES = frozenset({"datetime2", "time", "datetimeoffset"})
 _BINARY_TYPES = frozenset({"binary", "varbinary"})
 _FAMILIES = (_STRING_TYPES, _NUMERIC_TYPES, _TEMPORAL_TYPES, _BINARY_TYPES)
 # Changes that never lose a value, beyond same-type widening.
@@ -155,6 +184,17 @@ def column_change_may_lose_data(
             old_p, old_s = observed.numeric_precision or 18, observed.numeric_scale or 0
             new_p, new_s = target.numeric_precision or 18, target.numeric_scale or 0
             return new_s < old_s or new_p - new_s < old_p - old_s
+        if old in _FRACTIONAL_TYPES:
+            # Without a precision the type takes 7 digits.
+            old_digits = (
+                7
+                if observed.datetime_precision is None
+                else observed.datetime_precision
+            )
+            new_digits = (
+                7 if target.datetime_precision is None else target.datetime_precision
+            )
+            return new_digits < old_digits
         return False
     return (old, new) not in _SAFE_WIDENINGS
 
@@ -272,6 +312,24 @@ def _column_is(schema: str, table: str, column: str, attrs: ColumnAttributes) ->
     if data_type in ("decimal", "numeric") and attrs.numeric_precision is not None:
         conditions.append(f"NUMERIC_PRECISION = {int(attrs.numeric_precision)}")
         conditions.append(f"NUMERIC_SCALE = {int(attrs.numeric_scale or 0)}")
+    if data_type in _FRACTIONAL_TYPES and attrs.datetime_precision is not None:
+        conditions.append(f"DATETIME_PRECISION = {int(attrs.datetime_precision)}")
+    if data_type in _STRING_TYPES:
+        # No explicit collation means the database's, as the extraction reads it.
+        conditions.append(
+            f"COLLATION_NAME = N'{_escape_literal(attrs.collation)}'"
+            if attrs.collation
+            else "COLLATION_NAME = CONVERT(nvarchar(128), DATABASEPROPERTYEX(DB_NAME(), 'Collation'))"
+        )
+    conditions.append(
+        f"COLUMN_DEFAULT = N'{_escape_literal(attrs.default_expression)}'"
+        if attrs.default_expression
+        else "COLUMN_DEFAULT IS NULL"
+    )
+    conditions.append(
+        "COLUMNPROPERTY(OBJECT_ID(QUOTENAME(TABLE_SCHEMA) + N'.' + QUOTENAME(TABLE_NAME)),"
+        f" COLUMN_NAME, 'IsIdentity') = {1 if attrs.is_identity else 0}"
+    )
     return (
         "EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE "
         + " AND ".join(conditions)
@@ -294,7 +352,8 @@ def _create_table_step(tres, pos: _Position) -> _Step:
     table = _qualified(tres.schema_name, tres.table_name)
     label = pos.label(f"crear la tabla {table}")
     col_defs = ",\n".join(
-        f"    [{_escape_ident(c.name)}] {format_sql_column_definition(c.attributes)}"
+        f"    [{_escape_ident(c.name)}] "
+        f"{_new_column_sql(tres.table_name, c.name, c.attributes)}"
         for c in tres.columns
     )
     target = _table_is(tres.schema_name, tres.table_name, tres.columns)
@@ -515,12 +574,13 @@ def _add_column_step(res, pos: _Position) -> _Step:
     label = pos.label(f"agregar la columna {column}")
     col_esc = _escape_ident(res.column_name)
     attrs = res.target_attributes
-    col_def = format_sql_column_definition(attrs)
-    fill = _fill_expression(attrs, res.backfill_value)
+    new_def = _new_column_sql(res.table_name, res.column_name, attrs)
+    add = f"ALTER TABLE {table} ADD [{col_esc}] {new_def};\n"
     data: list[str] = []
-    if attrs.is_nullable:
-        apply = f"ALTER TABLE {table} ADD [{col_esc}] {col_def};\n"
-    elif fill is None:
+    if attrs.is_nullable or attrs.default_expression or attrs.is_identity:
+        # A NOT NULL column with a DEFAULT or IDENTITY fills existing rows.
+        apply = add
+    elif res.backfill_value is None:
         # Only an empty table can take a NOT NULL column with no value.
         data.append(
             _abort_if_rows(
@@ -531,21 +591,24 @@ def _add_column_step(res, pos: _Position) -> _Step:
                 " indica un valor de relleno en la TUI.",
             )
         )
-        apply = f"ALTER TABLE {table} ADD [{col_esc}] {col_def};\n"
+        apply = add
     else:
-        if res.backfill_value is not None:
-            data.append(
-                "-- Relleno de NULL con el valor indicado en la TUI.\n"
-                + _fill_value_check(label, attrs, res.backfill_value)
-            )
-        nullable_def = format_sql_column_definition(replace(attrs, is_nullable=True))
+        data.append(
+            "-- Relleno de NULL con el valor indicado en la TUI.\n"
+            + _fill_value_check(label, attrs, res.backfill_value)
+        )
+        fill = _fill_expression(attrs, res.backfill_value)
+        nullable_def = _new_column_sql(
+            res.table_name, res.column_name, replace(attrs, is_nullable=True)
+        )
         apply = (
             "\n".join(
                 _dynamic(sql)
                 for sql in (
                     f"ALTER TABLE {table} ADD [{col_esc}] {nullable_def};",
                     f"UPDATE {table} SET [{col_esc}] = {fill} WHERE [{col_esc}] IS NULL;",
-                    f"ALTER TABLE {table} ALTER COLUMN [{col_esc}] {col_def};",
+                    f"ALTER TABLE {table} ALTER COLUMN [{col_esc}] "
+                    f"{format_sql_column_definition(attrs)};",
                 )
             )
             + "\n"
@@ -587,8 +650,14 @@ def _only_widens_text(
         and _base_type(observed) == _base_type(target)
         and _base_type(target) in _STRING_TYPES
         and observed.is_nullable == target.is_nullable
+        and observed.collation == target.collation
         and not _shorter(observed, target)
     )
+
+
+def _definition(attrs: ColumnAttributes) -> ColumnAttributes:
+    """What ALTER COLUMN changes: everything but the DEFAULT and IDENTITY."""
+    return replace(attrs, default_expression=None, is_identity=False)
 
 
 def _list_sql(select: str) -> str:
@@ -699,7 +768,7 @@ def _run_each(cursor: str, var: str, select: str) -> str:
 _KIND_NONCLUSTERED, _KIND_CLUSTERED, _KIND_CONSTRAINT = 1, 2, 3
 
 
-def _collect_dependents(n: int, widen_only: bool) -> str:
+def _collect_dependents(n: int, widen_only: bool, keep_default: bool) -> str:
     """Fill `@deps_<n>` with the drop and recreate statements of the
     column's indexes, statistics, DEFAULT and CHECK, and `@bdiff_fk` with
     its foreign keys (recreated once every step has run)."""
@@ -755,12 +824,14 @@ def _collect_dependents(n: int, widen_only: bool) -> str:
         "  AND EXISTS (SELECT 1 FROM sys.stats_columns sc WHERE sc.object_id = s.object_id\n"
         f"      AND sc.stats_id = s.stats_id AND sc.column_id = {col});\n"
     )
-    constraint_sql = (
+    default_sql = (
         f"INSERT {deps} (kind, name, drop_sql, create_sql)\n"
         f"SELECT {_KIND_CONSTRAINT}, dc.name, N'ALTER TABLE ' + {tbl} + N' DROP CONSTRAINT ' + QUOTENAME(dc.name),\n"
         f"    N'ALTER TABLE ' + {tbl} + N' ADD CONSTRAINT ' + QUOTENAME(dc.name) + N' DEFAULT ' + dc.definition\n"
         f"    + N' FOR ' + QUOTENAME(COL_NAME({obj}, {col}))\n"
         f"FROM sys.default_constraints dc WHERE dc.parent_object_id = {obj} AND dc.parent_column_id = {col};\n"
+    )
+    check_sql = (
         f"INSERT {deps} (kind, name, drop_sql, create_sql)\n"
         f"SELECT {_KIND_CONSTRAINT}, cc.name, N'ALTER TABLE ' + {tbl} + N' DROP CONSTRAINT ' + QUOTENAME(cc.name),\n"
         f"    N'ALTER TABLE ' + {tbl} + CASE WHEN cc.is_not_trusted = 1 THEN N' WITH NOCHECK' ELSE N' WITH CHECK' END\n"
@@ -800,7 +871,10 @@ def _collect_dependents(n: int, widen_only: bool) -> str:
         f"DECLARE @dep_sql_{n} nvarchar(max);\n" + fk_sql
     )
     if not widen_only:
-        sql += index_sql + stats_sql + constraint_sql
+        sql += index_sql + stats_sql + check_sql
+        # A changing DEFAULT is dropped and added by the step itself.
+        if keep_default:
+            sql += default_sql
     return sql
 
 
@@ -846,6 +920,10 @@ def _modify_column_step(
     target = _column_is(res.schema_name, res.table_name, res.column_name, attrs)
     n = pos.number
     widen_only = _only_widens_text(observed, attrs)
+    alter = observed is None or _definition(observed) != _definition(attrs)
+    default_changes = (
+        observed is None or observed.default_expression != attrs.default_expression
+    )
     check = (
         f"DECLARE @obj_{n} int = OBJECT_ID(N'{table_lit}');\n"
         f"DECLARE @col_{n} int = COLUMNPROPERTY(@obj_{n}, N'{_escape_literal(res.column_name)}', 'ColumnId');\n"
@@ -867,9 +945,19 @@ def _modify_column_step(
             )
         )
 
-    data: list[str] = [_blockers_check(pos, label, widen_only)]
+    data: list[str] = [
+        f"IF COLUMNPROPERTY(@obj_{n}, N'{_escape_literal(res.column_name)}', 'IsIdentity')"
+        f" <> {1 if attrs.is_identity else 0}\n    "
+        + _throw(
+            50006,
+            f"{label}: cambiar IDENTITY exige reconstruir la tabla y BDIFF no lo hace;"
+            " aplicalo a mano.",
+        )
+    ]
+    if alter:
+        data.append(_blockers_check(pos, label, widen_only))
     fill = None
-    if not attrs.is_nullable and (observed is None or observed.is_nullable):
+    if alter and not attrs.is_nullable and (observed is None or observed.is_nullable):
         fill = _fill_expression(attrs, res.backfill_value)
         if fill is None:
             data.append(
@@ -888,7 +976,8 @@ def _modify_column_step(
                 + _fill_value_check(label, attrs, res.backfill_value)
             )
     if (
-        observed is not None
+        alter
+        and observed is not None
         and column_change_may_lose_data(observed, attrs)
         and _loss_is_checkable(observed, attrs)
     ):
@@ -917,24 +1006,51 @@ def _modify_column_step(
     # Indexes, statistics and constraints on the column block most ALTER
     # COLUMN changes: they are dropped and recreated around it, and the
     # foreign keys once every step has run.
-    apply = (
-        "-- Si la columna forma parte del indice clustered o de la PK, recrearlo\n"
-        "-- reconstruye la tabla completa.\n"
-        + _collect_dependents(n, widen_only)
-        + _drop_dependents(n, label)
-        + "\n"
-    )
-    if fill is not None:
-        update = f"UPDATE {table} SET [{col_esc}] = {fill} WHERE [{col_esc}] IS NULL;"
+    apply = ""
+    if alter:
         apply += (
-            f"{_dynamic(update)}\n"
-            f"PRINT N'Valores NULL en {table_lit}.[{col_print}] actualizados pre-ALTER.';\n"
+            "-- Si la columna forma parte del indice clustered o de la PK, recrearlo\n"
+            "-- reconstruye la tabla completa.\n"
+            + _collect_dependents(n, widen_only, keep_default=not default_changes)
+            + _drop_dependents(n, label)
+            + "\n"
         )
-    apply += (
-        f"ALTER TABLE {table} ALTER COLUMN [{col_esc}] {format_sql_column_definition(attrs)};\n"
-        f"{_recreate_dependents(n)}\n"
-        f"PRINT N'Columna [{col_print}] de {table_lit} modificada con exito.';"
-    )
+    if default_changes:
+        # The DEFAULT changes: drop the current one, add the target's under
+        # the same name (or DF_<table>_<column> when there was none).
+        apply += (
+            f"DECLARE @df_{n} sysname = (SELECT name FROM sys.default_constraints\n"
+            f"    WHERE parent_object_id = @obj_{n} AND parent_column_id = @col_{n});\n"
+            f"DECLARE @df_sql_{n} nvarchar(max);\n"
+            f"IF @df_{n} IS NOT NULL\n"
+            "BEGIN\n"
+            f"    SET @df_sql_{n} = N'ALTER TABLE ' + @tbl_{n} + N' DROP CONSTRAINT ' + QUOTENAME(@df_{n});\n"
+            f"    EXEC sys.sp_executesql @df_sql_{n};\n"
+            "END\n"
+        )
+    if alter:
+        if fill is not None:
+            update = (
+                f"UPDATE {table} SET [{col_esc}] = {fill} WHERE [{col_esc}] IS NULL;"
+            )
+            apply += (
+                f"{_dynamic(update)}\n"
+                f"PRINT N'Valores NULL en {table_lit}.[{col_print}] actualizados pre-ALTER.';\n"
+            )
+        apply += (
+            f"ALTER TABLE {table} ALTER COLUMN [{col_esc}] {format_sql_column_definition(attrs)};\n"
+            f"{_recreate_dependents(n)}\n"
+        )
+    if default_changes and attrs.default_expression:
+        fallback = _escape_literal(_default_name(res.table_name, res.column_name))
+        expression = _escape_literal(attrs.default_expression)
+        apply += (
+            f"SET @df_sql_{n} = N'ALTER TABLE ' + @tbl_{n} + N' ADD CONSTRAINT '"
+            f" + QUOTENAME(ISNULL(@df_{n}, N'{fallback}')) + N' DEFAULT {expression}'"
+            f" + N' FOR ' + QUOTENAME(N'{_escape_literal(res.column_name)}');\n"
+            f"EXEC sys.sp_executesql @df_sql_{n};\n"
+        )
+    apply += f"PRINT N'Columna [{col_print}] de {table_lit} modificada con exito.';"
     return _Step(
         label=label,
         check=check + _data_checks(data, pos.skip),

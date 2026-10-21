@@ -49,7 +49,16 @@ def format_attributes(attrs: ColumnAttributes) -> str:
     ):
         scale = f",{attrs.numeric_scale}" if attrs.numeric_scale is not None else ""
         size = f"({attrs.numeric_precision}{scale})"
+    elif attrs.datetime_precision is not None:
+        size = f"({attrs.datetime_precision})"
     else:
         size = ""
-    nullability = "NULL" if attrs.is_nullable else "NOT NULL"
-    return f"{clean_type}{size}, {nullability}"
+    parts = [f"{clean_type}{size}", "NULL" if attrs.is_nullable else "NOT NULL"]
+    # The rest only when set, so two variants never print the same.
+    if attrs.is_identity:
+        parts.append("IDENTITY")
+    if attrs.default_expression:
+        parts.append(f"DEFAULT {attrs.default_expression}")
+    if attrs.collation:
+        parts.append(f"COLLATE {attrs.collation}")
+    return ", ".join(parts)

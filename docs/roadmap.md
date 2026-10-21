@@ -12,7 +12,7 @@
 | Área | Estado |
 |---|---|
 | Config v1/v2, cadenas ODBC y ADO.NET; driver ODBC 17/18 elegido al conectar | Hecho |
-| Extracción SQL Server (tablas, columnas, procedimientos) | Hecho, sin default/identity/collation |
+| Extracción SQL Server (tablas, columnas, procedimientos) | Hecho, con default, identity, collation explícita y precisión de fecha/hora |
 | Proveedores PostgreSQL, MySQL, MariaDB, SQLite (solo lectura), Oracle | Funcionan; MySQL pierde parámetros de tipo |
 | Carga diferida de drivers (sin libodbc arranca para otros motores) | Hecho |
 | Comparación N-way con identidad normalizada (ADR 0007) | Hecho |
@@ -53,7 +53,6 @@ Cada cambio se cerró con evidencia de `ospec` y está archivado en
 
 | Prioridad | Cambio | Notas |
 |---|---|---|
-| P1 | Extracción SQL Server de default, identity, collation y precisión de fecha/hora | El motor ya compara esos atributos; hoy SQL Server no los extrae. |
 | P1 | Extracción de PK, FK e índices (SQL Server primero, luego el resto) | Requiere el cambio 8. |
 | P1 | Reportes con todos los atributos que difieren y conteos homogéneos entre formatos | Hoy un mismatch de default/identity se ve idéntico. |
 | P1 | Confirmación y aviso para `DROP` en la consolidación | Hoy se generan sin modal ni aviso en el script. |

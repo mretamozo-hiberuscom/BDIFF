@@ -37,7 +37,7 @@ BEGIN TRY
     -- Paso 1/1: agregar la columna [dbo].[users].[age]
     IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'users' AND COLUMN_NAME = N'age')
     BEGIN
-        IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'users' AND COLUMN_NAME = N'age' AND DATA_TYPE = N'int' AND IS_NULLABLE = 'YES')
+        IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'users' AND COLUMN_NAME = N'age' AND DATA_TYPE = N'int' AND IS_NULLABLE = 'YES' AND COLUMN_DEFAULT IS NULL AND COLUMNPROPERTY(OBJECT_ID(QUOTENAME(TABLE_SCHEMA) + N'.' + QUOTENAME(TABLE_NAME)), COLUMN_NAME, 'IsIdentity') = 0)
             SET @skip_1 = 1;
         ELSE
             THROW 50001, N'Paso 1/1: agregar la columna [dbo].[users].[age]: la columna ya existe con otra definicion; vuelve a comparar antes de aplicar.', 1;
@@ -56,7 +56,7 @@ BEGIN TRY
         PRINT N'Paso 1/1: agregar la columna [dbo].[users].[age] ya aplicado; se omite.';
 
     -- 3. Verificacion final antes de confirmar.
-    IF NOT (EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'users' AND COLUMN_NAME = N'age' AND DATA_TYPE = N'int' AND IS_NULLABLE = 'YES'))
+    IF NOT (EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'users' AND COLUMN_NAME = N'age' AND DATA_TYPE = N'int' AND IS_NULLABLE = 'YES' AND COLUMN_DEFAULT IS NULL AND COLUMNPROPERTY(OBJECT_ID(QUOTENAME(TABLE_SCHEMA) + N'.' + QUOTENAME(TABLE_NAME)), COLUMN_NAME, 'IsIdentity') = 0))
         THROW 50002, N'Paso 1/1: agregar la columna [dbo].[users].[age]: no quedo aplicado; se deshace todo.', 1;
 
     COMMIT TRANSACTION;

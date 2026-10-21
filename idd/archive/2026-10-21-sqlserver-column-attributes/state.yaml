@@ -1,0 +1,338 @@
+{
+  "schema": "idd-state/v1",
+  "change": "sqlserver-column-attributes",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "request": "queria hacer incapie en lo bueno que es el generador de scripts para solucionar los problemas, debe tener en cuenta las casuisticas más comunes y que en caso de error que no se apliquen a medias, que haya control de rollback, etc.. debe ser robusto y confiable",
+    "kind": "feature",
+    "summary": "SQL Server extrae DEFAULT, IDENTITY, collation y precisión de fecha/hora de cada columna; los reportes y la TUI muestran esos atributos, y el script de consolidación los aplica y los verifica",
+    "acceptance": "Dos bases que difieren solo en el DEFAULT, la collation, la precisión de datetime2/time/datetimeoffset o IDENTITY de una columna aparecen como discrepancia con el atributo visible; el script generado deja el DEFAULT, la collation y la precisión como el objetivo (verificado antes del COMMIT); un cambio de IDENTITY aborta con un mensaje claro; crear tabla o columna incluye esos atributos"
+  },
+  "facts": {
+    "coverage": [
+      {
+        "category": "inputs",
+        "question": "¿Cómo se compara la collation: siempre la real de cada columna (si dos bases tienen distinta collation por defecto, p. ej. SQL_Latin1_General_CP1_CI_AS frente a Modern_Spanish_CI_AS, todas sus columnas de texto salen como discrepancia), solo cuando la columna declara una distinta de la de su base, o no compararla?"
+      },
+      {
+        "category": "uniqueness",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/domain/comparison/models.py",
+          "line": 23
+        }
+      },
+      {
+        "category": "persistence",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/infrastructure/providers/sqlserver/introspector.py",
+          "line": 14
+        }
+      },
+      {
+        "category": "copy",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/report/attributes.py",
+          "line": 36
+        }
+      },
+      {
+        "category": "url-state",
+        "cite": {
+          "kind": "request",
+          "text": "debe ser robusto y confiable"
+        }
+      },
+      {
+        "category": "accessibility",
+        "cite": {
+          "kind": "request",
+          "text": "las casuisticas más comunes"
+        }
+      },
+      {
+        "category": "errors",
+        "question": "¿Qué hace el script si la corrección cambia IDENTITY (añadirlo o quitarlo exige reconstruir la tabla): abortar con un mensaje que lo explica, o generar la reconstrucción de la tabla copiando datos?"
+      }
+    ]
+  },
+  "plan": {
+    "paths": [
+      "docs/roadmap.md",
+      "src/schema_comparator/compare/engine.py",
+      "src/schema_comparator/domain/comparison/models.py",
+      "src/schema_comparator/domain/schema/models.py",
+      "src/schema_comparator/infrastructure/providers/sqlserver/ddl_renderer.py",
+      "src/schema_comparator/infrastructure/providers/sqlserver/introspector.py",
+      "src/schema_comparator/report/attributes.py",
+      "tests/fixtures/golden/sqlserver/expected_add_column.sql",
+      "tests/fixtures/golden/sqlserver/expected_create_table.sql",
+      "tests/integration/test_consolidation_scripts_live.py",
+      "tests/unit/compare/test_engine.py",
+      "tests/unit/infrastructure/test_sqlserver_provider.py",
+      "tests/unit/report/test_attributes.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "components compare, domain, providers, report: ADR 0001, 0002, 0003, 0005, 0006, 0007 and quality scenario no-false-drift, optional-drivers, secret-safety, windows-first-run",
+      "source": "declaration"
+    },
+    {
+      "id": "persistent-data",
+      "reason": "persistent data: touches tests/fixtures/golden/sqlserver/expected_add_column.sql and 1 more (matches **/*.sql)",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "none",
+      "reason": "El dominio gana un campo opcional; la extracción sigue en el adaptador SQL Server."
+    },
+    {
+      "kind": "adr",
+      "id": "0002",
+      "impact": "none",
+      "reason": "No toca el registro de proveedores."
+    },
+    {
+      "kind": "adr",
+      "id": "0003",
+      "impact": "conforms",
+      "reason": "native-strict sigue exigiendo coincidencia exacta de tipo y atributos; se añade la precisión de fecha/hora como atributo nativo y la collation se compara como la declara la columna (la que sigue a la de su base no es atributo propio), decisión del usuario para evitar falsos positivos."
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "conforms",
+      "reason": "Scripts escritos, nunca ejecutados; un cambio de IDENTITY se anota como error explícito."
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "none",
+      "reason": "No añade escrituras ejecutadas por BDIFF."
+    },
+    {
+      "kind": "adr",
+      "id": "0007",
+      "impact": "none",
+      "reason": "No cambia la identidad de objetos."
+    },
+    {
+      "kind": "scenario",
+      "id": "no-false-drift",
+      "impact": "conforms",
+      "reason": "Collation solo explícita: dos bases con distinta collation por defecto no marcan cada columna de texto como deriva (prueba en vivo)."
+    },
+    {
+      "kind": "scenario",
+      "id": "optional-drivers",
+      "impact": "none",
+      "reason": "No importa drivers."
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "none",
+      "reason": "Sin cadenas de conexión en mensajes."
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "none",
+      "reason": "Sin cambios de plataforma."
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-4"
+      ]
+    },
+    {
+      "id": "migration-compat-and-test",
+      "signal": "persistent-data",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "open-facts",
+      "status": "resolved",
+      "answer": "Collation: solo si es explícita (distinta de la de su base). IDENTITY: abortar y explicarlo.",
+      "source": "user"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T14:24:05.249Z",
+      "detail": {
+        "tree": "sha256:c5e9f16b0212a84ba4a3afd8658b6803983d0a9a03e3a43ff0b781f54e95338c",
+        "runs": [
+          "run-1",
+          "run-2"
+        ]
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "migration-test",
+      "obligation": "migration-compat-and-test",
+      "recorded_at": "2026-10-21T14:25:00.722Z",
+      "detail": {
+        "run": "run-4",
+        "tree": "sha256:46e0312a2f712ca09b93aa9f05e26d954369e04fc8d5960970604480fd07fdc4",
+        "plan": "Snapshot y ColumnAttributes ganan datetime_precision opcional (None por defecto): los otros proveedores y las filas de catálogo antiguas (9 columnas) siguen funcionando. Los scripts nuevos verifican DEFAULT, collation, IDENTITY y precisión antes del COMMIT y hacen ROLLBACK ante cualquier fallo (probado en SQL Server 2022)."
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T14:25:41.475Z",
+      "detail": {
+        "tree": "sha256:c5e9f16b0212a84ba4a3afd8658b6803983d0a9a03e3a43ff0b781f54e95338c",
+        "runs": [
+          "run-5",
+          "run-6"
+        ]
+      }
+    },
+    {
+      "id": "ev-4",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T14:25:41.475Z",
+      "detail": {
+        "refs": [
+          "adr:0001 none",
+          "adr:0002 none",
+          "adr:0003 conforms",
+          "adr:0005 conforms",
+          "adr:0006 none",
+          "adr:0007 none",
+          "scenario:no-false-drift conforms",
+          "scenario:optional-drivers none",
+          "scenario:secret-safety none",
+          "scenario:windows-first-run none"
+        ],
+        "records": [],
+        "tree": "sha256:c5e9f16b0212a84ba4a3afd8658b6803983d0a9a03e3a43ff0b781f54e95338c",
+        "fitness": [
+          "run-7"
+        ]
+      }
+    }
+  ],
+  "base": "00c61af2f4775663c327ed1dd256709c59a677d9",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:739079e94c4ad08bf05eeec8e2eb7426a095dabe0b4cee3d21915ff8759d30b6",
+      "tree": "sha256:c5e9f16b0212a84ba4a3afd8658b6803983d0a9a03e3a43ff0b781f54e95338c",
+      "recorded_at": "2026-10-21T14:24:05.249Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:74a0e5e3b1d650547f1e4b1055a0cbeb1a28d78665eb31f0de40ba3bc574bd4f",
+      "tree": "sha256:c5e9f16b0212a84ba4a3afd8658b6803983d0a9a03e3a43ff0b781f54e95338c",
+      "recorded_at": "2026-10-21T14:24:05.249Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f9fd93d4bfe07fbc3f2ca83028355ce747308424b00ccac0298c99213e915731",
+      "tree": "sha256:c5e9f16b0212a84ba4a3afd8658b6803983d0a9a03e3a43ff0b781f54e95338c",
+      "recorded_at": "2026-10-21T14:24:05.249Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "migration-test",
+      "command": "python -m pytest -q tests/integration/test_consolidation_scripts_live.py tests/unit/sqlserver/test_characterization.py tests/unit/infrastructure/test_sqlserver_provider.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:9f9f50fc3c48dd085bcda99854356421a134ddbf7a740cce0371638c3d075003",
+      "tree": "sha256:46e0312a2f712ca09b93aa9f05e26d954369e04fc8d5960970604480fd07fdc4",
+      "recorded_at": "2026-10-21T14:25:00.722Z"
+    },
+    {
+      "id": "run-5",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:9190f9d619ed148bcfa64e17ed69288839d416515766d1dcaecda5d03e8b29d3",
+      "tree": "sha256:c5e9f16b0212a84ba4a3afd8658b6803983d0a9a03e3a43ff0b781f54e95338c",
+      "recorded_at": "2026-10-21T14:25:41.475Z"
+    },
+    {
+      "id": "run-6",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:74a0e5e3b1d650547f1e4b1055a0cbeb1a28d78665eb31f0de40ba3bc574bd4f",
+      "tree": "sha256:c5e9f16b0212a84ba4a3afd8658b6803983d0a9a03e3a43ff0b781f54e95338c",
+      "recorded_at": "2026-10-21T14:25:41.475Z"
+    },
+    {
+      "id": "run-7",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:b51743e160b9f22955c186bf0bd4652cc6c9aa619f8f5fb06fae20a8db91e5b0",
+      "tree": "sha256:c5e9f16b0212a84ba4a3afd8658b6803983d0a9a03e3a43ff0b781f54e95338c",
+      "recorded_at": "2026-10-21T14:25:41.475Z"
+    }
+  ],
+  "assumptions": [
+    "Al crear una tabla o columna con IDENTITY se usa IDENTITY(1,1): BDIFF no extrae semilla ni incremento.",
+    "Un DEFAULT nuevo se llama como el que tenía la columna; si no tenía, DF_<tabla>_<columna> (recortado a 128 caracteres).",
+    "La precisión de fecha/hora se extrae y compara solo para datetime2, time y datetimeoffset (en el resto la fija el tipo); los demás proveedores la dejan sin valor.",
+    "El DEFAULT se compara por el texto que guarda SQL Server (normalizado, p. ej. ((0)))."
+  ],
+  "closed_at": "2026-10-21T14:25:57.058Z"
+}

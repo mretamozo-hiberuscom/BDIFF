@@ -185,6 +185,7 @@ def _evaluate_columns(
                         default_expression=attrs.default_expression,
                         is_identity=attrs.is_identity,
                         collation=attrs.collation,
+                        datetime_precision=attrs.datetime_precision,
                     )
 
                 distinct_attrs = set(_norm(a) for a in attrs_by_profile.values())

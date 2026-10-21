@@ -6,6 +6,7 @@ Skipped without Docker (see `conftest.py`).
 """
 
 import datetime
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -845,6 +846,7 @@ def test_changes_a_column_type_keeping_every_dependent_object(
         " INSERT dbo.articulos VALUES (1, 'pera', 'b1');",
     )
     before = _dependents(mssql_server, mssql_db, "articulos")
+    observed = _extract(mssql_server, mssql_db, "articulos")["codigo"]
     script = _script(
         tmp_path,
         mssql_db,
@@ -852,8 +854,8 @@ def test_changes_a_column_type_keeping_every_dependent_object(
             _change(
                 "articulos",
                 "codigo",
-                _attrs("nvarchar", length=20, nullable=False),
-                _attrs("varchar", length=10, nullable=False),
+                replace(observed, data_type="nvarchar", character_maximum_length=20),
+                observed,
             )
         ],
     )
@@ -984,3 +986,167 @@ def test_aborts_naming_dependents_it_cannot_recreate(
 
     _assert_aborted(result, "[dbo].[t].[c]", "no recrea", named)
     assert _columns(mssql_server, mssql_db, "t")["c"] == ("varchar", "10", "YES")
+
+
+def _extract(server, database: str, table: str):
+    """The table as BDIFF's SQL Server extraction reads it, run on the engine."""
+    from schema_comparator.infrastructure.providers.sqlserver import introspector
+
+    def value(text: str):
+        if text == "NULL":
+            return None
+        return int(text) if text.lstrip("-").isdigit() else text
+
+    rows = [
+        tuple(value(v) for v in row)
+        for row in server.query(introspector.CATALOG_QUERY_SQL, database=database)
+    ]
+    snapshot = introspector.build_snapshot("p", rows)
+    (found,) = [t for t in snapshot.tables if t.table_name == table]
+    return {c.name: ColumnAttributes.from_snapshot(c) for c in found.columns}
+
+
+def test_extraction_reads_default_identity_explicit_collation_and_precision(
+    mssql_server, mssql_db
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.t (id int IDENTITY(1,1) NOT NULL,"
+        " alta datetime2(3) NOT NULL CONSTRAINT DF_t_alta DEFAULT getdate(),"
+        " codigo varchar(10) COLLATE Latin1_General_CS_AS NULL,"
+        " nombre varchar(10) NULL, hora time(0) NULL);",
+    )
+
+    columns = _extract(mssql_server, mssql_db, "t")
+
+    assert columns["id"].is_identity is True
+    assert columns["alta"].default_expression == "(getdate())"
+    assert columns["alta"].datetime_precision == 3
+    assert columns["hora"].datetime_precision == 0
+    assert columns["codigo"].collation == "Latin1_General_CS_AS"
+    # Following the database's collation is not an explicit one.
+    assert columns["nombre"].collation is None
+
+
+def test_applies_default_collation_and_precision_and_verifies_them(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.t (n int NOT NULL CONSTRAINT DF_t_n_propio DEFAULT 0,"
+        " c varchar(10) COLLATE Latin1_General_CS_AS NULL, d datetime2(7) NULL);"
+        " INSERT dbo.t (n, d) VALUES (1, '2026-01-01 10:00:00.120');",
+    )
+    observed = _extract(mssql_server, mssql_db, "t")
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _change(
+                "t",
+                "n",
+                replace(observed["n"], default_expression="((1))"),
+                observed["n"],
+            ),
+            _change("t", "c", replace(observed["c"], collation=None), observed["c"]),
+            _change(
+                "t", "d", replace(observed["d"], datetime_precision=3), observed["d"]
+            ),
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    after = _extract(mssql_server, mssql_db, "t")
+    assert after["n"].default_expression == "((1))"
+    assert after["c"].collation is None
+    assert after["d"].datetime_precision == 3
+    assert mssql_server.query(
+        "SELECT name FROM sys.default_constraints", database=mssql_db
+    ) == [("DF_t_n_propio",)]
+
+
+def test_aborts_when_a_precision_cut_would_round_values(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.t (d datetime2(7) NULL);"
+        " INSERT dbo.t VALUES ('2026-01-01 10:00:00.1234567');",
+    )
+    observed = _extract(mssql_server, mssql_db, "t")["d"]
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[_change("t", "d", replace(observed, datetime_precision=2), observed)],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[t].[d]", "1 fila(s) perderian datos")
+
+
+def test_aborts_explaining_that_identity_cannot_be_changed(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(mssql_server, mssql_db, "CREATE TABLE dbo.t (id int NOT NULL);")
+    observed = _extract(mssql_server, mssql_db, "t")["id"]
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[_change("t", "id", replace(observed, is_identity=True), observed)],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[t].[id]", "IDENTITY")
+
+
+def test_creates_tables_and_columns_with_every_attribute(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.molde (id int IDENTITY(1,1) NOT NULL,"
+        " alta datetime2(3) NOT NULL DEFAULT getdate(),"
+        " codigo varchar(10) COLLATE Latin1_General_CS_AS NULL);"
+        " CREATE TABLE dbo.pedidos (id int NOT NULL); INSERT dbo.pedidos VALUES (1);",
+    )
+    molde = _extract(mssql_server, mssql_db, "molde")
+    script = _script(
+        tmp_path,
+        mssql_db,
+        table_resolutions=[
+            TableResolution(
+                schema_name="dbo",
+                table_name="copia",
+                columns=tuple(NamedColumnAttributes(n, a) for n, a in molde.items()),
+                profiles_to_update=(_PROFILE,),
+            )
+        ],
+        columns=[
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="pedidos",
+                column_name="estado",
+                target_attributes=_attrs("int", nullable=False, default="((7))"),
+                profiles_to_update=(_PROFILE,),
+                is_missing_column=True,
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    assert _extract(mssql_server, mssql_db, "copia") == molde
+    assert (
+        _extract(mssql_server, mssql_db, "pedidos")["estado"].default_expression
+        == "((7))"
+    )
+    assert mssql_server.query("SELECT estado FROM dbo.pedidos", database=mssql_db) == [
+        ("7",)
+    ]
