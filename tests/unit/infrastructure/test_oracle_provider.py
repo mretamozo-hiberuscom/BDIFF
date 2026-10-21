@@ -202,3 +202,13 @@ def test_introspect_declares_session_schema_as_default_schema(monkeypatch):
     executed = [call.args[0] for call in cursor.execute.call_args_list]
     assert executed[-1].startswith("SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')")
     assert not executed[-1].rstrip().endswith(";")
+
+
+def test_oracle_queries_have_no_trailing_semicolon():
+    from schema_comparator.infrastructure.providers.oracle import introspector
+
+    for sql in (
+        introspector.ORACLE_CATALOG_QUERY_SQL,
+        introspector.ORACLE_CURRENT_SCHEMA_SQL,
+    ):
+        assert not sql.rstrip().endswith(";")

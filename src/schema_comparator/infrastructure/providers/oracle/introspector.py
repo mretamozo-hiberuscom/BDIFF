@@ -30,7 +30,7 @@ WHERE c.OWNER NOT IN (
     'OLAPSYS', 'EXFSYS', 'FLOWS_FILES', 'APEX_040200', 'APEX_050000', 'APEX_180100'
 )
   AND c.USER_GENERATED = 'YES'
-ORDER BY c.OWNER, c.TABLE_NAME, c.COLUMN_ID;
+ORDER BY c.OWNER, c.TABLE_NAME, c.COLUMN_ID
 """.strip()
 
 # python-oracledb rejects a trailing semicolon in a single statement.
