@@ -1,0 +1,120 @@
+{
+  "schema": "idd-state/v1",
+  "change": "optional-drivers-test-encoding",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "En Windows, tests/integration/test_optional_drivers.py decodifica como UTF-8 la salida del CLI hijo, que escribe en la página de códigos de la consola (cp1252) al estar redirigida; los acentos rompen la decodificación y stdout llega como None (CI windows-latest, 2 fallos)",
+    "acceptance": "Los tests de drivers opcionales pasan aunque la codificación por defecto del proceso sea cp1252"
+  },
+  "facts": {
+    "basis": "El CLI escribe en la codificación de la consola con errors='replace' por diseño (cambio console-encoding-windows); el test debe fijar la codificación del hijo, no el producto"
+  },
+  "plan": {
+    "paths": [
+      "tests/integration/test_optional_drivers.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T12:10:55.098Z",
+      "detail": {
+        "red": "run-1",
+        "green": "run-2"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T12:11:12.660Z",
+      "detail": {
+        "tree": "sha256:8b4bc940a5728ae9c5d80ea2203bd906b29e623ad44543cd8d23c9045932da0f",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    }
+  ],
+  "base": "524103c363df9ba0e5376de5781d23a98d8f455f",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": "PYTHONIOENCODING=cp1252 python -m pytest -q tests/integration/test_optional_drivers.py",
+      "exit_code": 1,
+      "output_sha256": "sha256:453392de8e3f98c338313a1c3354f846d493228255f79ad37f40450730ff869b",
+      "tree": "sha256:7f534e257a807d972251654977a96c9f0edf8a4b06712a2ed291a3cac94463e3",
+      "recorded_at": "2026-10-21T12:10:46.511Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": "PYTHONIOENCODING=cp1252 python -m pytest -q tests/integration/test_optional_drivers.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:bab81e885dddeb6695765997dfbca91fa96f00bde5c5de0cc6a315c0a1572617",
+      "tree": "sha256:f329936a87cb0089e3c791683239100122535207671ce6d216b30dbe695900bf",
+      "recorded_at": "2026-10-21T12:10:55.098Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:a723469cee863d63f2050e7cb5555b57837e1582f7f36e0f055c496769c294ef",
+      "tree": "sha256:8b4bc940a5728ae9c5d80ea2203bd906b29e623ad44543cd8d23c9045932da0f",
+      "recorded_at": "2026-10-21T12:11:12.660Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:07a2e0ea53bd64f2c30282526992c95b6439032dad341b1a40acfe1885062656",
+      "tree": "sha256:8b4bc940a5728ae9c5d80ea2203bd906b29e623ad44543cd8d23c9045932da0f",
+      "recorded_at": "2026-10-21T12:11:12.660Z"
+    }
+  ],
+  "closed_at": "2026-10-21T12:11:17.438Z"
+}

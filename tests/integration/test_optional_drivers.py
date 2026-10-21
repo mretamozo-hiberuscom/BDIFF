@@ -1,6 +1,7 @@
 """Without pyodbc (Linux/macOS without unixODBC) the CLI still runs every
 other provider; only a SQL Server profile needs the driver (ADR 0002)."""
 
+import os
 import sqlite3
 import subprocess
 import sys
@@ -31,6 +32,9 @@ def _run_cli(tmp_path: Path, config: str) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
         encoding="utf-8",
+        # The CLI writes in the console code page (cp1252 on Windows when
+        # redirected); pin the child's encoding so the output decodes.
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         timeout=120,
     )
 
