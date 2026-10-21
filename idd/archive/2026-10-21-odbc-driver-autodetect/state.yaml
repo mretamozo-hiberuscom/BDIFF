@@ -1,0 +1,250 @@
+{
+  "schema": "idd-state/v1",
+  "change": "odbc-driver-autodetect",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "Sin Driver= en la cadena, BDIFF fija 'ODBC Driver 17 for SQL Server' (sqlserver/profile_parser.py:31); en un Windows con solo el Driver 18 la conexión falla",
+    "acceptance": "Una cadena sin Driver= conecta usando un driver de SQL Server instalado (17 o 18); si no hay ninguno, el error lo dice sin exponer la cadena"
+  },
+  "facts": {
+    "open": [
+      "Con 17 y 18 instalados, ¿cuál se usa por defecto? (18 cifra por defecto y puede romper conexiones a servidores con certificado autofirmado)",
+      "Si solo hay Driver 18 y la cadena no fija Encrypt/TrustServerCertificate, ¿BDIFF añade algo o respeta la cadena tal cual?",
+      "Si la cadena fija Driver={...17...} y solo está instalado el 18, ¿se respeta (error) o se sustituye?"
+    ]
+  },
+  "plan": {
+    "paths": [
+      "README.md",
+      "config.example.yaml",
+      "src/schema_comparator/discovery/errors.py",
+      "src/schema_comparator/infrastructure/providers/sqlserver/connection.py",
+      "src/schema_comparator/infrastructure/providers/sqlserver/errors.py",
+      "src/schema_comparator/infrastructure/providers/sqlserver/profile_parser.py",
+      "src/schema_comparator/infrastructure/providers/sqlserver/provider.py",
+      "tests/unit/config/test_connection_string.py",
+      "tests/unit/config/test_loader.py",
+      "tests/unit/infrastructure/test_sqlserver_driver_selection.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "components config, legacy, providers: ADR 0001, 0002, 0004, 0005, 0006 and quality scenario optional-drivers, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "none",
+      "reason": "Cambios dentro del adaptador SQL Server y del módulo de errores existente; sin nuevas dependencias entre capas"
+    },
+    {
+      "kind": "adr",
+      "id": "0002",
+      "impact": "none",
+      "reason": "connection.py ya importaba pyodbc; no cambia la carga diferida del registro"
+    },
+    {
+      "kind": "adr",
+      "id": "0004",
+      "impact": "conforms",
+      "reason": "La traducción ADO.NET→ODBC sigue en la carga; solo deja de fijar el driver, que se resuelve al conectar"
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "none",
+      "reason": "No toca generación de scripts"
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "none",
+      "reason": "No toca la recompilación de metadatos"
+    },
+    {
+      "kind": "scenario",
+      "id": "optional-drivers",
+      "impact": "none",
+      "reason": "Sin cambios en dependencias"
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "conforms",
+      "reason": "Los mensajes nuevos solo nombran drivers instalados y una opción; tests verifican que no aparecen usuario, contraseña ni texto del driver"
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "conforms",
+      "reason": "Un Windows con solo ODBC Driver 18 conecta sin editar la cadena"
+    }
+  ],
+  "attestations": [
+    {
+      "kind": "adr",
+      "id": "0006",
+      "evidence": "grep '.commit()' en src/: solo sp_validator.py:360; este cambio no toca rutas mutantes; la validación tardía de --yes sigue pendiente en cli-robustness",
+      "recorded_at": "2026-10-21T10:36:56.108Z"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "open-facts",
+      "status": "resolved",
+      "answer": "17 si existe, si no 18; respetar la cadena (no añadir TrustServerCertificate; si falla por certificado, el error sugiere añadirlo); Driver explícito se respeta y el error indica qué drivers de SQL Server hay instalados",
+      "source": "user"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T10:36:30.588Z",
+      "detail": {
+        "red": "run-1",
+        "green": "run-2"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T10:37:10.934Z",
+      "detail": {
+        "tree": "sha256:360844ebbb2357908b0b4013154babaa31e378e9a4a353100770928b8829e64a",
+        "runs": [
+          "run-5",
+          "run-6"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T10:37:10.934Z",
+      "detail": {
+        "refs": [
+          "adr:0001 none",
+          "adr:0002 none",
+          "adr:0004 conforms",
+          "adr:0005 none",
+          "adr:0006 none",
+          "scenario:optional-drivers none",
+          "scenario:secret-safety conforms",
+          "scenario:windows-first-run conforms"
+        ],
+        "records": []
+      }
+    }
+  ],
+  "base": "26c96792eeb49a28f6a99f03195be1a3f8ed7034",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/infrastructure/test_sqlserver_driver_selection.py tests/unit/config/test_connection_string.py",
+      "exit_code": 1,
+      "output_sha256": "sha256:815d7907b823e18693b22bc8d813ec43c2088e92ff471ff3952adadd076b5829",
+      "tree": "sha256:4da33fe87461da0c9e11903541071b21aebdeb924cb5ce8259b86efd89870ef3",
+      "recorded_at": "2026-10-21T10:35:39.403Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/infrastructure/test_sqlserver_driver_selection.py tests/unit/config/test_connection_string.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:5abe0599b5b931bcf3d5c4c3dee99b47faad31d224d96764d17ff839be0e1bf0",
+      "tree": "sha256:222f9077866b97b8a5f2071a11d8f1c662a34a645f85d8d3ac4247b73f985870",
+      "recorded_at": "2026-10-21T10:36:30.588Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 1,
+      "output_sha256": "sha256:63feef8e6363fed5f7057721e4f6e009120cae242a77187e520cc89e0997fc13",
+      "tree": "sha256:aaa90f9e5dd4141e45a9cca314f8709c8f59c0315b36d07565e0c7334c6561a1",
+      "recorded_at": "2026-10-21T10:36:45.485Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:7569b876c16c8556be070d109a9e1acff399fa5a22894e77489eda91ce5e79a6",
+      "tree": "sha256:aaa90f9e5dd4141e45a9cca314f8709c8f59c0315b36d07565e0c7334c6561a1",
+      "recorded_at": "2026-10-21T10:36:45.485Z"
+    },
+    {
+      "id": "run-5",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:2ac616f25d911eada522230fe12a4c006e34fd4521a87988e6b49d83a93b9c33",
+      "tree": "sha256:360844ebbb2357908b0b4013154babaa31e378e9a4a353100770928b8829e64a",
+      "recorded_at": "2026-10-21T10:37:10.934Z"
+    },
+    {
+      "id": "run-6",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:7569b876c16c8556be070d109a9e1acff399fa5a22894e77489eda91ce5e79a6",
+      "tree": "sha256:360844ebbb2357908b0b4013154babaa31e378e9a4a353100770928b8829e64a",
+      "recorded_at": "2026-10-21T10:37:10.934Z"
+    }
+  ],
+  "closed_at": "2026-10-21T10:37:15.477Z"
+}

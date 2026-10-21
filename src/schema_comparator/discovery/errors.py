@@ -16,12 +16,14 @@ class DriverUnavailableError(DiscoveryError):
     """Raised when the required ODBC driver is not available."""
 
     @classmethod
-    def for_profile(cls, profile_name: str) -> "DriverUnavailableError":
+    def for_profile(
+        cls, profile_name: str, detail: str = ""
+    ) -> "DriverUnavailableError":
         return cls(
             f"La extracción de esquema para '{profile_name}' falló: el "
             "driver ODBC requerido no está disponible. Verificá que "
             "Microsoft ODBC Driver 17 o 18 para SQL Server esté instalado "
-            "en esta máquina."
+            f"en esta máquina.{f' {detail}' if detail else ''}"
         )
 
 
@@ -30,12 +32,14 @@ class ConnectionFailedError(DiscoveryError):
     including connection/query timeout expiry."""
 
     @classmethod
-    def for_profile(cls, profile_name: str) -> "ConnectionFailedError":
+    def for_profile(
+        cls, profile_name: str, detail: str = ""
+    ) -> "ConnectionFailedError":
         return cls(
             f"La extracción de esquema para '{profile_name}' falló: no se "
             "pudo establecer o mantener la conexión dentro del tiempo "
             "límite. Verificá la conectividad de red y que el servidor sea "
-            "accesible."
+            f"accesible.{f' {detail}' if detail else ''}"
         )
 
 

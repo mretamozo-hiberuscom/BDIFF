@@ -28,8 +28,6 @@ _BOOLEAN_VALUE_KEYS = {"encrypt", "trustservercertificate"}
 _BOOLEAN_TRUE_VALUES = {"true"}
 _BOOLEAN_FALSE_VALUES = {"false"}
 
-_DEFAULT_DRIVER_TOKEN = "Driver={ODBC Driver 17 for SQL Server}"
-
 
 def _tokenize(raw: str, *, name: str) -> list[str]:
     segments: list[str] = []
@@ -70,12 +68,22 @@ def _split_token(token: str) -> tuple[str, str] | None:
     return key.strip(), value.strip()
 
 
+def has_driver_keyword(raw: str, *, name: str) -> bool:
+    """Whether the connection string names an ODBC driver (any casing)."""
+    for token in _tokenize(raw, name=name):
+        split = _split_token(token)
+        if split is not None and split[0].casefold() == "driver":
+            return True
+    return False
+
+
 def translate(raw: str, *, name: str) -> str:
-    """Translate an ADO.NET/ODBC-mixed connection string into pure ODBC form for SQL Server."""
+    """Translate an ADO.NET/ODBC-mixed connection string into pure ODBC form
+    for SQL Server. A missing `Driver=` stays missing: the connection picks an
+    installed driver when it connects."""
     tokens = _tokenize(raw, name=name)
 
     recognized_any = False
-    has_driver = False
     output: dict[str, str] = {}
 
     for token in tokens:
@@ -100,8 +108,6 @@ def translate(raw: str, *, name: str) -> str:
             output.pop(key, None)
             output[key] = value
             recognized_any = True
-            if folded_key == "driver":
-                has_driver = True
         elif folded_key == _INTEGRATED_SECURITY_KEY:
             recognized_any = True
             folded_value = value.casefold()
@@ -123,8 +129,5 @@ def translate(raw: str, *, name: str) -> str:
     result = ";".join(f"{k}={v}" for k, v in output.items())
     if result and not result.endswith(";"):
         result += ";"
-
-    if not has_driver:
-        result = f"{_DEFAULT_DRIVER_TOKEN};{result}"
 
     return result

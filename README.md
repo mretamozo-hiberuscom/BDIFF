@@ -52,7 +52,10 @@ profiles:
 
 El formato v1 (`databases:` nombre → cadena SQL Server) sigue aceptándose.
 Para SQL Server se admiten cadenas ODBC y ADO.NET (copiadas de
-`appsettings.json`). El nombre del perfil es lo único que aparece en
+`appsettings.json`). Si la cadena no indica `Driver=`, BDIFF usa el ODBC
+Driver 17 instalado, o el 18 si el 17 no está; el 18 cifra por defecto, así
+que con certificados autofirmados añade `TrustServerCertificate=yes`. Un
+`Driver=` explícito nunca se cambia. El nombre del perfil es lo único que aparece en
 reportes y mensajes.
 
 ## Opciones del CLI

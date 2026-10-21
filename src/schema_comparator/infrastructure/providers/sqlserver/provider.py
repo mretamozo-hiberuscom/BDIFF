@@ -65,6 +65,11 @@ class SqlServerProvider:
                 finally:
                     cursor.close()
         except pyodbc.Error as exc:
-            raise translate_connect_error(profile.name, exc) from exc
+            raise translate_connect_error(
+                profile.name,
+                exc,
+                connection_string=profile.connection_string,
+                installed_drivers=connection.installed_sqlserver_drivers(),
+            ) from exc
 
         return introspector.build_snapshot(profile.name, rows, proc_rows=proc_rows)
