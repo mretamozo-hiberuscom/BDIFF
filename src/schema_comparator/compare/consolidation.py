@@ -60,6 +60,10 @@ class ColumnResolution:
     target_attributes: ColumnAttributes
     profiles_to_update: tuple[str, ...]
     is_missing_column: bool
+    # What each destination had when compared; its script aborts if the
+    # column differs from it. A destination left out is checked only for
+    # existence.
+    observed_by_profile: tuple[tuple[str, ColumnAttributes], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

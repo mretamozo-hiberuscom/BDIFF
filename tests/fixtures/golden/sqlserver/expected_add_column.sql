@@ -1,8 +1,10 @@
 -- Script de corrección para la base de datos del perfil: profileA
 -- Generado por BDIFF el 2026-07-14 12:00:00
 --
--- Todos los cambios van en una única transacción: ante cualquier error
--- se deshacen completos y la base queda como estaba.
+-- Todos los cambios van en una única transacción: primero se comprueba
+-- que cada objeto sigue como se comparó, después se aplican los cambios
+-- y se verifican antes de confirmar. Ante cualquier error se deshacen
+-- completos y la base queda como estaba.
 -- Ejecución:
 --   sqlcmd -S <servidor> -E -b -i "<este archivo>.sql"
 --     (-b detiene sqlcmd en el primer error y devuelve código de salida <> 0)
@@ -28,17 +30,34 @@ GO
 
 BEGIN TRY
     BEGIN TRANSACTION;
-    IF NOT EXISTS (
-        SELECT 1 
-        FROM sys.columns c
-        JOIN sys.objects o ON c.object_id = o.object_id
-        JOIN sys.schemas s ON o.schema_id = s.schema_id
-        WHERE s.name = N'dbo' AND o.name = N'users' AND c.name = N'age'
-    )
+
+    DECLARE @skip_1 bit = 0;
+
+    -- 1. Comprobaciones previas: todavia no se ha cambiado nada.
+    -- Paso 1/1: agregar la columna [dbo].[users].[age]
+    IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'users' AND COLUMN_NAME = N'age')
     BEGIN
+        IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'users' AND COLUMN_NAME = N'age' AND DATA_TYPE = N'int' AND IS_NULLABLE = 'YES')
+            SET @skip_1 = 1;
+        ELSE
+            THROW 50001, N'Paso 1/1: agregar la columna [dbo].[users].[age]: la columna ya existe con otra definicion; vuelve a comparar antes de aplicar.', 1;
+    END
+    ELSE IF NOT (OBJECT_ID(N'[dbo].[users]', N'U') IS NOT NULL)
+        THROW 50001, N'Paso 1/1: agregar la columna [dbo].[users].[age]: la tabla [dbo].[users] no existe.', 1;
+
+    -- 2. Cambios.
+    IF @skip_1 = 0
+    BEGIN
+        PRINT N'Paso 1/1: agregar la columna [dbo].[users].[age]';
         ALTER TABLE [dbo].[users] ADD [age] int NULL;
         PRINT N'Columna [age] agregada con exito a [dbo].[users].';
     END
+    ELSE
+        PRINT N'Paso 1/1: agregar la columna [dbo].[users].[age] ya aplicado; se omite.';
+
+    -- 3. Verificacion final antes de confirmar.
+    IF NOT (EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'users' AND COLUMN_NAME = N'age' AND DATA_TYPE = N'int' AND IS_NULLABLE = 'YES'))
+        THROW 50002, N'Paso 1/1: agregar la columna [dbo].[users].[age]: no quedo aplicado; se deshace todo.', 1;
 
     COMMIT TRANSACTION;
     PRINT N'Transaccion confirmada con exito.';

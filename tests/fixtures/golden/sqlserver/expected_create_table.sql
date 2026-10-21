@@ -1,8 +1,10 @@
 -- Script de corrección para la base de datos del perfil: profileB
 -- Generado por BDIFF el 2026-07-14 12:00:00
 --
--- Todos los cambios van en una única transacción: ante cualquier error
--- se deshacen completos y la base queda como estaba.
+-- Todos los cambios van en una única transacción: primero se comprueba
+-- que cada objeto sigue como se comparó, después se aplican los cambios
+-- y se verifican antes de confirmar. Ante cualquier error se deshacen
+-- completos y la base queda como estaba.
 -- Ejecución:
 --   sqlcmd -S <servidor> -E -b -i "<este archivo>.sql"
 --     (-b detiene sqlcmd en el primer error y devuelve código de salida <> 0)
@@ -28,19 +30,41 @@ GO
 
 BEGIN TRY
     BEGIN TRANSACTION;
-    IF NOT EXISTS (
-        SELECT 1
-        FROM sys.objects o
-        JOIN sys.schemas s ON o.schema_id = s.schema_id
-        WHERE s.name = N'dbo' AND o.name = N'products' AND o.type = 'U'
-    )
+
+    DECLARE @skip_1 bit = 0;
+
+    -- 1. Comprobaciones previas: todavia no se ha cambiado nada.
+    -- Paso 1/1: crear la tabla [dbo].[products]
+    IF OBJECT_ID(N'[dbo].[products]', N'U') IS NOT NULL
     BEGIN
+        IF OBJECT_ID(N'[dbo].[products]', N'U') IS NOT NULL
+        AND (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'products') = 2
+        AND EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'products' AND COLUMN_NAME = N'id' AND DATA_TYPE = N'int' AND IS_NULLABLE = 'NO')
+        AND EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'products' AND COLUMN_NAME = N'name' AND DATA_TYPE = N'varchar' AND IS_NULLABLE = 'YES' AND CHARACTER_MAXIMUM_LENGTH = 150)
+            SET @skip_1 = 1;
+        ELSE
+            THROW 50001, N'Paso 1/1: crear la tabla [dbo].[products]: la tabla ya existe con otra definicion; vuelve a comparar antes de aplicar.', 1;
+    END
+
+    -- 2. Cambios.
+    IF @skip_1 = 0
+    BEGIN
+        PRINT N'Paso 1/1: crear la tabla [dbo].[products]';
         CREATE TABLE [dbo].[products] (
-        [id] int NOT NULL,
-        [name] varchar(150) NULL
+            [id] int NOT NULL,
+            [name] varchar(150) NULL
         );
         PRINT N'Tabla [dbo].[products] creada con exito.';
     END
+    ELSE
+        PRINT N'Paso 1/1: crear la tabla [dbo].[products] ya aplicado; se omite.';
+
+    -- 3. Verificacion final antes de confirmar.
+    IF NOT (OBJECT_ID(N'[dbo].[products]', N'U') IS NOT NULL
+        AND (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'products') = 2
+        AND EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'products' AND COLUMN_NAME = N'id' AND DATA_TYPE = N'int' AND IS_NULLABLE = 'NO')
+        AND EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'products' AND COLUMN_NAME = N'name' AND DATA_TYPE = N'varchar' AND IS_NULLABLE = 'YES' AND CHARACTER_MAXIMUM_LENGTH = 150))
+        THROW 50002, N'Paso 1/1: crear la tabla [dbo].[products]: no quedo aplicado; se deshace todo.', 1;
 
     COMMIT TRANSACTION;
     PRINT N'Transaccion confirmada con exito.';

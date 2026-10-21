@@ -1,0 +1,329 @@
+{
+  "schema": "idd-state/v1",
+  "change": "script-preflight-state",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "El script de consolidación comprueba antes de cambiar nada que cada objeto está como se comparó (o ya en el estado objetivo, y entonces lo omite), y antes del COMMIT verifica que cada cambio quedó aplicado; si no, aborta y deshace todo",
+    "acceptance": "Si una columna a modificar no existe, una tabla a crear ya existe con otra definición o una columna difiere de lo comparado, el script aborta antes de cambiar nada con un mensaje que nombra el paso y el objeto; si el objeto ya está en el estado objetivo, ese paso se omite con un aviso; si tras aplicar un paso el objeto no quedó como se pedía, se deshace todo; hoy esos casos se saltan en silencio y se confirma la transacción"
+  },
+  "facts": {
+    "basis": "Plan aprobado por el usuario en esta sesión (pregunta Orden: 'Robustez primero'): 'si el estado no es el observado en la comparación, aborta; si ya está en el estado objetivo, lo salta y lo imprime; al final verifica el resultado antes del COMMIT'. Los atributos comparados son los de ColumnAttributes leídos de INFORMATION_SCHEMA.COLUMNS (sqlserver/introspector.py:14)."
+  },
+  "plan": {
+    "paths": [
+      "src/schema_comparator/compare/consolidation.py",
+      "src/schema_comparator/infrastructure/providers/sqlserver/ddl_renderer.py",
+      "src/schema_comparator/tui/decision_model.py",
+      "tests/fixtures/golden/sqlserver/expected_add_column.sql",
+      "tests/fixtures/golden/sqlserver/expected_create_table.sql",
+      "tests/integration/test_consolidation_scripts_live.py",
+      "tests/unit/compare/test_consolidation.py",
+      "tests/unit/tui/test_decision_model.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    },
+    {
+      "id": "persistent-data",
+      "reason": "persistent data: touches tests/fixtures/golden/sqlserver/expected_add_column.sql and 1 more (matches **/*.sql)",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "components compare, presentation, providers: ADR 0001, 0002, 0003, 0005, 0006, 0007 and quality scenario mutation-requires-confirmation, no-false-drift, optional-drivers, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "none",
+      "reason": "Sin dependencias nuevas entre capas; la TUI ya construía ColumnResolution."
+    },
+    {
+      "kind": "adr",
+      "id": "0002",
+      "impact": "none",
+      "reason": "No toca el registro de proveedores."
+    },
+    {
+      "kind": "adr",
+      "id": "0003",
+      "impact": "none",
+      "reason": "No cambia tipos canónicos; las comprobaciones leen INFORMATION_SCHEMA como la extracción."
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "conforms",
+      "reason": "Scripts escritos y nunca ejecutados por BDIFF; cada operación queda anotada como paso con comprobación previa y verificación."
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "none",
+      "reason": "No añade escrituras ejecutadas por BDIFF."
+    },
+    {
+      "kind": "adr",
+      "id": "0007",
+      "impact": "none",
+      "reason": "No cambia identidad; un nombre que no exista en el destino ahora aborta en lugar de saltarse."
+    },
+    {
+      "kind": "scenario",
+      "id": "mutation-requires-confirmation",
+      "impact": "none",
+      "reason": "BDIFF no ejecuta los scripts."
+    },
+    {
+      "kind": "scenario",
+      "id": "no-false-drift",
+      "impact": "none",
+      "reason": "No cambia la comparación."
+    },
+    {
+      "kind": "scenario",
+      "id": "optional-drivers",
+      "impact": "none",
+      "reason": "No importa drivers."
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "none",
+      "reason": "Los mensajes nombran objetos, nunca cadenas de conexión."
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "conforms",
+      "reason": "Mensajes del script en ASCII para consolas cp850/cp1252."
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-4"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "migration-compat-and-test",
+      "signal": "persistent-data",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-5"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T13:31:33.135Z",
+      "detail": {
+        "red": "run-2",
+        "green": "run-3"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T13:32:02.589Z",
+      "detail": {
+        "tree": "sha256:de04412c2bc0f48c2880ec04f07dbcb78e0efe7f1c10587cca41965ce28ec16b",
+        "runs": [
+          "run-4",
+          "run-5"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "migration-test",
+      "obligation": "migration-compat-and-test",
+      "recorded_at": "2026-10-21T13:32:28.588Z",
+      "detail": {
+        "run": "run-7",
+        "tree": "sha256:2a64eab8cfbd468070e7aff5b81afca9d67c5abf90b1cc3849689cdd166bc665",
+        "plan": "Los .sql cambiados son golden files de caracterización, no migraciones de BDIFF. Los scripts nuevos comprueban el estado antes de cambiar y verifican al final; cualquier fallo hace ROLLBACK de toda la transacción (probado en SQL Server 2022). ColumnResolution gana un campo opcional con valor por defecto: los llamadores existentes siguen funcionando."
+      }
+    },
+    {
+      "id": "ev-4",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T13:32:57.492Z",
+      "detail": {
+        "tree": "sha256:de04412c2bc0f48c2880ec04f07dbcb78e0efe7f1c10587cca41965ce28ec16b",
+        "runs": [
+          "run-8",
+          "run-9"
+        ]
+      }
+    },
+    {
+      "id": "ev-5",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T13:32:57.492Z",
+      "detail": {
+        "refs": [
+          "adr:0001 none",
+          "adr:0002 none",
+          "adr:0003 none",
+          "adr:0005 conforms",
+          "adr:0006 none",
+          "adr:0007 none",
+          "scenario:mutation-requires-confirmation none",
+          "scenario:no-false-drift none",
+          "scenario:optional-drivers none",
+          "scenario:secret-safety none",
+          "scenario:windows-first-run conforms"
+        ],
+        "records": [],
+        "tree": "sha256:de04412c2bc0f48c2880ec04f07dbcb78e0efe7f1c10587cca41965ce28ec16b",
+        "fitness": [
+          "run-10"
+        ]
+      }
+    }
+  ],
+  "base": "359911689aaafcbe83ce0f9210320992c67c26da",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/tui/test_decision_model.py tests/integration/test_consolidation_scripts_live.py",
+      "exit_code": 1,
+      "output_sha256": "sha256:7fc9eafb2ceef34eb6165fd72266c18c4383e1fb47f10c5acefb7e2a7a5ca278",
+      "tree": "sha256:cbffdc3c485221e8f7d253c451075b71cdb1471704c98b3aee643bc87d4968bd",
+      "recorded_at": "2026-10-21T13:25:22.660Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/tui/test_decision_model.py tests/integration/test_consolidation_scripts_live.py",
+      "exit_code": 1,
+      "output_sha256": "sha256:131cef1ada95591ad272abb871c41c2e1e3690c0cb390cb641de256b47b6e202",
+      "tree": "sha256:8a7f3d2b271e5a35034dac320955edaa1deb21aba86e88c5b5d04a13bb88539e",
+      "recorded_at": "2026-10-21T13:25:46.391Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/tui/test_decision_model.py tests/integration/test_consolidation_scripts_live.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:fb1633b2d0770ff4f41d4d10472e1086912f19ab0959d766aa5e1c447adfb0b4",
+      "tree": "sha256:2a64eab8cfbd468070e7aff5b81afca9d67c5abf90b1cc3849689cdd166bc665",
+      "recorded_at": "2026-10-21T13:31:33.135Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:2712bfe82f5d2fb34f910e5d77723c1bb5675aeeb48d67bd08767f0548d2d66d",
+      "tree": "sha256:de04412c2bc0f48c2880ec04f07dbcb78e0efe7f1c10587cca41965ce28ec16b",
+      "recorded_at": "2026-10-21T13:32:02.589Z"
+    },
+    {
+      "id": "run-5",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:74a0e5e3b1d650547f1e4b1055a0cbeb1a28d78665eb31f0de40ba3bc574bd4f",
+      "tree": "sha256:de04412c2bc0f48c2880ec04f07dbcb78e0efe7f1c10587cca41965ce28ec16b",
+      "recorded_at": "2026-10-21T13:32:02.589Z"
+    },
+    {
+      "id": "run-6",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f9fd93d4bfe07fbc3f2ca83028355ce747308424b00ccac0298c99213e915731",
+      "tree": "sha256:de04412c2bc0f48c2880ec04f07dbcb78e0efe7f1c10587cca41965ce28ec16b",
+      "recorded_at": "2026-10-21T13:32:02.589Z"
+    },
+    {
+      "id": "run-7",
+      "purpose": "migration-test",
+      "command": "python -m pytest -q tests/integration/test_consolidation_scripts_live.py tests/unit/sqlserver/test_characterization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:2a302a1a4d30131ee2350bbec069d4612a957a643e05dfac31c79bfc92359683",
+      "tree": "sha256:2a64eab8cfbd468070e7aff5b81afca9d67c5abf90b1cc3849689cdd166bc665",
+      "recorded_at": "2026-10-21T13:32:28.588Z"
+    },
+    {
+      "id": "run-8",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:767e697b8dda72be07ea5b1eaf81da8e949348bee4fbf6b8157fe491387f5adf",
+      "tree": "sha256:de04412c2bc0f48c2880ec04f07dbcb78e0efe7f1c10587cca41965ce28ec16b",
+      "recorded_at": "2026-10-21T13:32:57.492Z"
+    },
+    {
+      "id": "run-9",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:74a0e5e3b1d650547f1e4b1055a0cbeb1a28d78665eb31f0de40ba3bc574bd4f",
+      "tree": "sha256:de04412c2bc0f48c2880ec04f07dbcb78e0efe7f1c10587cca41965ce28ec16b",
+      "recorded_at": "2026-10-21T13:32:57.492Z"
+    },
+    {
+      "id": "run-10",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f9fd93d4bfe07fbc3f2ca83028355ce747308424b00ccac0298c99213e915731",
+      "tree": "sha256:de04412c2bc0f48c2880ec04f07dbcb78e0efe7f1c10587cca41965ce28ec16b",
+      "recorded_at": "2026-10-21T13:32:57.492Z"
+    }
+  ],
+  "closed_at": "2026-10-21T13:33:05.965Z"
+}

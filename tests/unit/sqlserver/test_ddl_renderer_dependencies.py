@@ -40,7 +40,7 @@ def test_generate_ddl_table_deletion_cleans_foreign_keys() -> None:
 
     assert "sys.foreign_keys" in ddl
     assert "DROP TABLE [dbo].[Orders];" in ddl
-    assert "@fk_sql_t_0" in ddl
+    assert "@fk_sql_1" in ddl
     assert "referenced_object_id = OBJECT_ID(N'[dbo].[Orders]')" in ddl
 
 
@@ -67,10 +67,10 @@ def test_generate_ddl_column_deletion_cleans_fks_and_default_constraints() -> No
     assert "sys.check_constraints" in ddl
     assert "sys.sql_expression_dependencies" in ddl
     assert "ALTER TABLE [dbo].[Customers] DROP COLUMN [StatusId];" in ddl
-    assert "@col_fk_sql_c_0" in ddl
-    assert "@idx_sql_c_0" in ddl
-    assert "@chk_sql_c_0" in ddl
-    assert "@def_sql_c_0" in ddl
+    assert "@col_fk_sql_1" in ddl
+    assert "@idx_sql_1" in ddl
+    assert "@chk_sql_1" in ddl
+    assert "@def_sql_1" in ddl
 
 
 def test_generate_ddl_escapes_single_quotes_in_print_statements() -> None:

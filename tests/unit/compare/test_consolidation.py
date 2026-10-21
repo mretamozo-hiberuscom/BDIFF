@@ -126,7 +126,10 @@ def test_generate_ddl_for_profile_missing_column() -> None:
 
     assert "USE [real_db_a];" in ddl_a
     assert "BEGIN TRANSACTION;" in ddl_a
-    assert "IF NOT EXISTS (" in ddl_a
+    assert (
+        "IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'users' AND COLUMN_NAME = N'age')"
+        in ddl_a
+    )
     assert "ALTER TABLE [dbo].[users] ADD [age] int NULL;" in ddl_a
     assert "COMMIT TRANSACTION;" in ddl_a
     assert "-- Generado por BDIFF el 2026-07-14 12:00:00" in ddl_a
@@ -162,7 +165,7 @@ def test_generate_ddl_for_profile_column_mismatch() -> None:
     ddl_b = generate_ddl_for_profile([res], profile_b, timestamp=ts)
 
     assert "USE [real_db_b];" in ddl_b
-    assert "IF EXISTS (" in ddl_b
+    assert "ELSE IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS" in ddl_b
     assert (
         "ALTER TABLE [dbo].[users] ALTER COLUMN [email] varchar(255) NOT NULL;" in ddl_b
     )
@@ -281,7 +284,7 @@ def test_generate_ddl_for_profile_missing_table() -> None:
     )
 
     assert "USE [real_db_b];" in ddl_b
-    assert "IF NOT EXISTS (" in ddl_b
+    assert "IF OBJECT_ID(N'[dbo].[products]', N'U') IS NOT NULL" in ddl_b
     assert "CREATE TABLE [dbo].[products] (" in ddl_b
     assert "[id] int NOT NULL" in ddl_b
     assert "[name] varchar(150) NULL" in ddl_b
@@ -304,7 +307,7 @@ def test_generate_ddl_for_profile_table_deletion() -> None:
         [], profile_b, timestamp=ts, table_deletions=[deletion]
     )
 
-    assert "IF EXISTS (" in ddl_b
+    assert "IF NOT (OBJECT_ID(N'[dbo].[legacy_products]', N'U') IS NOT NULL)" in ddl_b
     assert "DROP TABLE [dbo].[legacy_products];" in ddl_b
     assert "Tabla [dbo].[legacy_products] eliminada con exito." in ddl_b
     assert "COMMIT TRANSACTION;" in ddl_b
@@ -326,8 +329,11 @@ def test_generate_ddl_for_profile_column_deletion() -> None:
         [], profile_b, timestamp=ts, column_deletions=[deletion]
     )
 
-    assert "FROM sys.columns c" in ddl_b
-    assert "JOIN sys.objects o ON c.object_id = o.object_id" in ddl_b
+    assert (
+        "IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'legacy_products' AND COLUMN_NAME = N'obsolete_code')"
+        in ddl_b
+    )
+
     assert "JOIN sys.schemas s ON o.schema_id = s.schema_id" in ddl_b
     assert "DROP COLUMN [obsolete_code];" in ddl_b
     assert (
@@ -514,3 +520,17 @@ def test_write_sql_scripts_writes_utf8_with_bom(tmp_path) -> None:
     raw = script.read_bytes()
     assert raw.startswith(b"\xef\xbb\xbf")
     assert "[Año]" in raw.decode("utf-8-sig")
+
+
+def test_script_verifies_every_step_before_committing() -> None:
+    script = _envelope_script()
+
+    check = script.index("-- 1. Comprobaciones previas")
+    change = script.index("ALTER TABLE [dbo].[users] ADD [age] int NULL;")
+    verify = script.index("-- 3. Verificacion final")
+    commit = script.index("COMMIT TRANSACTION;")
+    assert check < change < verify < commit
+    assert (
+        "THROW 50002, N'Paso 1/1: agregar la columna [dbo].[users].[age]: "
+        "no quedo aplicado; se deshace todo.', 1;" in script[verify:commit]
+    )

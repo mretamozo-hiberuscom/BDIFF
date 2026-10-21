@@ -468,3 +468,139 @@ def test_drops_a_referenced_table_whose_name_has_a_bracket(
     _apply(mssql_server, script)
 
     assert _tables(mssql_server, mssql_db) == {"ciudades"}
+
+
+def _modify(table: str, column: str, target: ColumnAttributes, observed=None):
+    return ColumnResolution(
+        schema_name="dbo",
+        table_name=table,
+        column_name=column,
+        target_attributes=target,
+        profiles_to_update=(_PROFILE,),
+        is_missing_column=False,
+        observed_by_profile=((_PROFILE, observed),) if observed else (),
+    )
+
+
+def _new_table(table: str) -> TableResolution:
+    return TableResolution(
+        schema_name="dbo",
+        table_name=table,
+        columns=(NamedColumnAttributes("id", _attrs("int", nullable=False)),),
+        profiles_to_update=(_PROFILE,),
+    )
+
+
+def _assert_aborted(result, *fragments: str) -> None:
+    assert result.returncode != 0, result.stdout
+    for fragment in fragments:
+        assert fragment in result.stdout, result.stdout
+
+
+def test_aborts_before_any_change_when_a_column_to_modify_is_missing(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(mssql_server, mssql_db, "CREATE TABLE dbo.clientes (id int NOT NULL);")
+    script = _script(
+        tmp_path,
+        mssql_db,
+        table_resolutions=[_new_table("auditoria")],
+        columns=[_modify("clientes", "email", _attrs("varchar", length=200))],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[clientes].[email]", "no existe")
+    assert _tables(mssql_server, mssql_db) == {"clientes"}
+
+
+def test_aborts_when_a_table_to_create_exists_with_another_definition(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(mssql_server, mssql_db, "CREATE TABLE dbo.auditoria (id bigint NULL);")
+    script = _script(tmp_path, mssql_db, table_resolutions=[_new_table("auditoria")])
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[auditoria]", "otra definicion")
+    assert _columns(mssql_server, mssql_db, "auditoria") == {
+        "id": ("bigint", "", "YES")
+    }
+
+
+def test_aborts_when_a_column_changed_since_the_comparison(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    # Compared as varchar(10); someone widened it to varchar(15) since.
+    _setup(
+        mssql_server, mssql_db, "CREATE TABLE dbo.productos (codigo varchar(15) NULL);"
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _modify(
+                "productos",
+                "codigo",
+                _attrs("varchar", length=40),
+                observed=_attrs("varchar", length=10),
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[productos].[codigo]", "difiere de lo comparado")
+    assert _columns(mssql_server, mssql_db, "productos") == {
+        "codigo": ("varchar", "15", "YES")
+    }
+
+
+def test_aborts_when_a_column_to_add_exists_with_another_definition(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(mssql_server, mssql_db, "CREATE TABLE dbo.pedidos (nota varchar(5) NULL);")
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="pedidos",
+                column_name="nota",
+                target_attributes=_attrs("varchar", length=50),
+                profiles_to_update=(_PROFILE,),
+                is_missing_column=True,
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[pedidos].[nota]", "otra definicion")
+
+
+def test_skips_a_step_already_in_the_target_state(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server, mssql_db, "CREATE TABLE dbo.productos (codigo varchar(40) NULL);"
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _modify(
+                "productos",
+                "codigo",
+                _attrs("varchar", length=40),
+                observed=_attrs("varchar", length=10),
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    assert result.returncode == 0, result.stdout
+    assert "ya aplicado; se omite" in result.stdout
+    assert "modificada con exito" not in result.stdout

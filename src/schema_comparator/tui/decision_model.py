@@ -211,6 +211,15 @@ def build_resolutions(
                 )
             )
         else:
+            observed = (
+                tuple(
+                    (profile, attrs)
+                    for profile, attrs in entry.values_by_profile
+                    if profile in dests
+                )
+                if isinstance(entry, ColumnMismatch)
+                else ()
+            )
             result.columns.append(
                 ColumnResolution(
                     schema_name=schema,
@@ -219,6 +228,7 @@ def build_resolutions(
                     target_attributes=target,
                     profiles_to_update=dests,
                     is_missing_column=isinstance(entry, MergedMissingColumn),
+                    observed_by_profile=observed,
                 )
             )
     return result
