@@ -7,7 +7,7 @@
 > historial de git). Estado verificado contra el código v1.2.5; cada
 > cambio se ejecuta con IDD y se cierra solo con evidencia de `ospec`.
 
-## Estado real (rama `refactor/baseline-hardening`, 2026-10-21)
+## Estado real (`main`, 2026-10-21)
 
 | Área | Estado |
 |---|---|
@@ -21,9 +21,9 @@
 | Reportes consola (segura en Windows), HTML, PDF, Excel | Hecho |
 | TUI: hallazgos, consolidación T-SQL (solo SQL Server), rutinas | Hecho |
 | Errores sin datos de conexión | Hecho |
-| CI Windows + Ubuntu, lint estable | Hecho (pendiente de la primera ejecución en GitHub) |
+| CI Windows + Ubuntu, lint estable | Hecho |
 
-## Tanda de endurecimiento — cerrada (rama `refactor/baseline-hardening`)
+## Tanda de endurecimiento — cerrada (PR #21)
 
 Cada cambio se cerró con evidencia de `ospec` y está archivado en
 `idd/archive/2026-10-21-<cambio>/`.
@@ -49,7 +49,7 @@ Cada cambio se cerró con evidencia de `ospec` y está archivado en
 | 17 | `tui-thread-safety` | Estado de la TUI coherente entre hilos y re-ejecuciones. |
 | 18 | `tui-screens-refactor` | Lógica de consolidación en módulo puro; bucle de rutinas único. |
 
-## Tanda del generador de scripts — cerrada (rama `feat/script-generator-hardening`)
+## Tanda del generador de scripts — cerrada (PR #22)
 
 Objetivo: que los scripts de consolidación cubran los casos comunes, nunca
 se apliquen a medias y tengan control de rollback. Cada cambio se probó
@@ -66,14 +66,21 @@ contra SQL Server 2022 real (fixture Docker en `tests/integration/conftest.py`).
 | 7 | `drop-backups` | Respaldo en `bdiff_respaldo` antes de cada `DROP` y diario de dependencias eliminadas. |
 | 8 | `undo-scripts` | `<perfil>.deshacer.sql` que revierte cada paso con datos, índices y restricciones. |
 
+## Próximas propuestas — por este orden
+
+Las tres que se retoman en la siguiente sesión.
+
+| # | Cambio | Por qué en este orden |
+|---|---|---|
+| 1 | Confirmación en la TUI para `DROP` en la consolidación | El script ya respalda los datos y genera su deshacer; falta el modal que pida confirmación antes de generar un script con `DROP`. Es el cambio más pequeño y cierra la tanda del generador. |
+| 2 | Destinos de una discrepancia de columna limitados a los perfiles que la tienen | Hoy se ofrecen todos los perfiles, también los que ya están bien o no tienen la columna; el script aborta con un mensaje claro, pero la TUI no debería ofrecerlo. |
+| 3 | Extracción de PK, FK e índices (SQL Server primero, luego el resto) | Es lo que más amplía la comparación, y la que más trabajo lleva. La comparación ya es correcta (`advanced-object-equality`); falta extraerlos. |
+
 ## Siguiente — funcionalidad
 
 | Prioridad | Cambio | Notas |
 |---|---|---|
-| P1 | Extracción de PK, FK e índices (SQL Server primero, luego el resto) | Requiere el cambio 8. |
 | P1 | Conteos homogéneos entre formatos de reporte | Los atributos (DEFAULT, IDENTITY, collation, precisión) ya se muestran; falta igualar conteos. |
-| P1 | Confirmación en la TUI para `DROP` en la consolidación | El script ya respalda los datos y genera su deshacer; falta el modal de confirmación. |
-| P1 | Destinos de una discrepancia de columna limitados a los perfiles que la tienen | Hoy se ofrecen todos; el script ya aborta con un mensaje claro donde falta la columna. |
 | P2 | Exclusión de esquemas Oracle por `ORACLE_MAINTAINED` en lugar de una lista fija | Hoy faltan owners de sistema (DVSYS, ORDSYS…). |
 | P1 | Sincronizar `openspec/specs/` con el comportamiento real | Ver divergencias `spec-*` en `docs/architecture/component-map.yaml`. |
 | P2 | Flag de CLI para el modo semántico y política de motores mezclados con aviso (ADR 0003) | |
