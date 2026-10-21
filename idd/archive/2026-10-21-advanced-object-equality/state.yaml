@@ -1,0 +1,184 @@
+{
+  "schema": "idd-state/v1",
+  "change": "advanced-object-equality",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "La comparación de PK, FK e índices cuenta set((perfil, valor)), que siempre tiene más de un elemento, así que objetos idénticos producen PrimaryKeyMismatch/ForeignKeyMismatch/IndexMismatch (compare/engine.py:225,258,290)",
+    "acceptance": "Dos tablas con PK, FK e índices estructuralmente iguales no producen hallazgos; una diferencia real o un objeto ausente en un perfil sí"
+  },
+  "facts": {
+    "open": [
+      "¿Los nombres de PK, FK e índices forman parte de la igualdad o se comparan solo por estructura (columnas, tabla referenciada, unicidad), dado que suelen ser autogenerados?"
+    ]
+  },
+  "plan": {
+    "paths": [
+      "src/schema_comparator/compare/engine.py",
+      "tests/unit/domain/test_advanced_schema_objects.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "component compare: ADR 0001, 0003, 0005 and quality scenario no-false-drift",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "none",
+      "reason": "Corrección local en el motor; sin cambios de dependencias"
+    },
+    {
+      "kind": "adr",
+      "id": "0003",
+      "impact": "conforms",
+      "reason": "native-strict exige coincidencia exacta: el nombre forma parte de la igualdad, como decidió el usuario"
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "none",
+      "reason": "No toca scripts"
+    },
+    {
+      "kind": "scenario",
+      "id": "no-false-drift",
+      "impact": "conforms",
+      "reason": "PK, FK e índices idénticos ya no producen hallazgos (test nuevo)"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "open-facts",
+      "status": "resolved",
+      "answer": "Estructura y nombre: un nombre distinto también es diferencia",
+      "source": "user"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T10:53:34.982Z",
+      "detail": {
+        "red": "run-1",
+        "green": "run-2"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T10:53:56.487Z",
+      "detail": {
+        "tree": "sha256:600ba0a57a70c7665237fcf8314b13ff6a7203ebccdd07c5c6785f4379561031",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T10:53:56.487Z",
+      "detail": {
+        "refs": [
+          "adr:0001 none",
+          "adr:0003 conforms",
+          "adr:0005 none",
+          "scenario:no-false-drift conforms"
+        ],
+        "records": []
+      }
+    }
+  ],
+  "base": "19642d8ec6e214a23048fba64d6e8d888d065705",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/domain/test_advanced_schema_objects.py",
+      "exit_code": 1,
+      "output_sha256": "sha256:8f1c64f727d6e0461faaf43d36fa91fb11330d679f3a9ae3a27e12281ab6e0e5",
+      "tree": "sha256:c81345cc9abaa089cb6027b529285a0ad625c4415773ac95590438755a1cb0f8",
+      "recorded_at": "2026-10-21T10:53:29.084Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/domain/test_advanced_schema_objects.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:ee09f6debd9f81709cd5af75a47e8b1c6ed9a94b8e82a9b34c00f597199e9c17",
+      "tree": "sha256:ce7179d89928112f7df8330471765972e68133b96f9e55b14b9c993d8c7997a3",
+      "recorded_at": "2026-10-21T10:53:34.982Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:a5212c776e777fca3a637f28dec0dc09f5e77fb7a3287142e9dc737035e7b089",
+      "tree": "sha256:600ba0a57a70c7665237fcf8314b13ff6a7203ebccdd07c5c6785f4379561031",
+      "recorded_at": "2026-10-21T10:53:56.487Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:a0966fb1dc37c3f971b6536cf03fe45eddddca0f66640233ec1d51afaa1ac06a",
+      "tree": "sha256:600ba0a57a70c7665237fcf8314b13ff6a7203ebccdd07c5c6785f4379561031",
+      "recorded_at": "2026-10-21T10:53:56.487Z"
+    }
+  ],
+  "closed_at": "2026-10-21T10:53:56.543Z"
+}

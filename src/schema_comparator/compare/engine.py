@@ -222,7 +222,7 @@ def _evaluate_advanced_objects(
             (p, table_index[p][identity].primary_key) for p in profiles_with_table
         )
         pks = [pk for _, pk in pk_by_profile if pk is not None]
-        if pks and len(set(pk_by_profile)) > 1:
+        if pks and len({pk for _, pk in pk_by_profile}) > 1:
             entries.append(
                 PrimaryKeyMismatch(
                     schema_name=schema_name,
@@ -255,7 +255,7 @@ def _evaluate_advanced_objects(
                 )
                 for p in profiles_with_table
             )
-            if len(set(fk_by_profile)) > 1:
+            if len({fk for _, fk in fk_by_profile}) > 1:
                 entries.append(
                     ForeignKeyMismatch(
                         schema_name=schema_name,
@@ -287,7 +287,7 @@ def _evaluate_advanced_objects(
                 )
                 for p in profiles_with_table
             )
-            if len(set(idx_by_profile)) > 1:
+            if len({idx for _, idx in idx_by_profile}) > 1:
                 entries.append(
                     IndexMismatch(
                         schema_name=schema_name,
