@@ -1,0 +1,79 @@
+{
+  "schema": "idd-state/v1",
+  "change": "roadmap-next-proposals",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "docs",
+    "summary": "Marcar en el roadmap las tres siguientes propuestas (modal de DROP, destinos limitados, extracción de PK/FK/índices) y poner al día el estado tras PR #22",
+    "acceptance": "docs/roadmap.md tiene una sección de próximas propuestas con las tres, en orden y con su motivo, y el estado ya no dice que el CI está pendiente ni nombra ramas fusionadas como actuales"
+  },
+  "facts": {
+    "basis": "El usuario pidió dejar marcadas como siguientes propuestas las tres que se le propusieron; el texto de cada una ya está en el roadmap"
+  },
+  "plan": {
+    "paths": [
+      "docs/roadmap.md"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T21:41:07.695Z",
+      "detail": {
+        "tree": "sha256:9739dcd8a48c94c4138b897bfbba6096a641b18730ef4b3657c28bb830ffba11",
+        "runs": [
+          "run-1",
+          "run-2"
+        ]
+      }
+    }
+  ],
+  "base": "77f29a63b6635533ca9e42f68461a4d5352ac558",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:c6bbd3fc37fdaa3a46232772ee6e94f3af3a6851a3d5e7b4f66dde97c225d1b0",
+      "tree": "sha256:9739dcd8a48c94c4138b897bfbba6096a641b18730ef4b3657c28bb830ffba11",
+      "recorded_at": "2026-10-21T21:41:07.695Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:74a0e5e3b1d650547f1e4b1055a0cbeb1a28d78665eb31f0de40ba3bc574bd4f",
+      "tree": "sha256:9739dcd8a48c94c4138b897bfbba6096a641b18730ef4b3657c28bb830ffba11",
+      "recorded_at": "2026-10-21T21:41:07.695Z"
+    }
+  ],
+  "closed_at": "2026-10-21T21:41:13.367Z"
+}
