@@ -1,0 +1,294 @@
+{
+  "schema": "ospec-knowledge-map/v1",
+  "profile": "internal-tool",
+  "slots": [
+    {
+      "id": "business.problem",
+      "dimension": "business",
+      "state": "confirmed",
+      "source": {
+        "kind": "document",
+        "ref": "docs/product/brief.md"
+      },
+      "decisions": [
+        "system-boundaries"
+      ]
+    },
+    {
+      "id": "business.goals",
+      "dimension": "business",
+      "state": "assumed",
+      "source": {
+        "kind": "document",
+        "ref": "docs/product/brief.md (objetivos G1-G4, sin medidas)"
+      },
+      "review_trigger": "El autor define medidas de éxito (p. ej. tiempo de ejecución o bases por ejecución)",
+      "decisions": [
+        "test-strategy"
+      ]
+    },
+    {
+      "id": "business.constraints",
+      "dimension": "business",
+      "state": "confirmed",
+      "source": {
+        "kind": "user",
+        "ref": "Windows como plataforma principal, 2026-10-21; resto en docs/product/brief.md"
+      },
+      "decisions": [
+        "trust-boundaries",
+        "technology-choice"
+      ]
+    },
+    {
+      "id": "functional.actors",
+      "dimension": "functional",
+      "state": "confirmed",
+      "source": {
+        "kind": "document",
+        "ref": "docs/product/functional-scope.md"
+      },
+      "decisions": [
+        "system-boundaries"
+      ]
+    },
+    {
+      "id": "functional.capabilities",
+      "dimension": "functional",
+      "state": "confirmed",
+      "source": {
+        "kind": "repository",
+        "ref": "src/schema_comparator/cli.py:17 y docs/product/functional-scope.md"
+      },
+      "decisions": [
+        "system-boundaries"
+      ]
+    },
+    {
+      "id": "functional.exclusions",
+      "dimension": "functional",
+      "state": "confirmed",
+      "source": {
+        "kind": "user",
+        "ref": "Consolidación solo SQL Server y mutación limitada a metadatos, 2026-10-21"
+      },
+      "decisions": [
+        "system-boundaries"
+      ]
+    },
+    {
+      "id": "team.shape",
+      "dimension": "team",
+      "state": "confirmed",
+      "source": {
+        "kind": "user",
+        "ref": "Solo el autor más agentes de IA, 2026-10-21"
+      },
+      "decisions": [
+        "deployment-topology",
+        "technology-choice"
+      ]
+    },
+    {
+      "id": "team.production-owner",
+      "dimension": "team",
+      "state": "confirmed",
+      "source": {
+        "kind": "user",
+        "ref": "El autor distribuye, da soporte y decide versiones, 2026-10-21"
+      },
+      "decisions": [
+        "operability"
+      ]
+    },
+    {
+      "id": "quality.drivers",
+      "dimension": "quality",
+      "state": "assumed",
+      "source": {
+        "kind": "repository",
+        "ref": "docs/architecture/technical-baseline.md (escenarios de calidad derivados del código y de las decisiones del usuario)"
+      },
+      "review_trigger": "El autor prioriza otros atributos o aporta medidas",
+      "decisions": [
+        "system-boundaries",
+        "deployment-topology"
+      ]
+    },
+    {
+      "id": "architecture.boundaries",
+      "dimension": "architecture",
+      "state": "confirmed",
+      "source": {
+        "kind": "document",
+        "ref": "docs/architecture/decisions/0001-hexagonal-architecture-and-dependency-rules.md"
+      },
+      "decisions": [
+        "system-boundaries",
+        "integration-style"
+      ]
+    },
+    {
+      "id": "architecture.data",
+      "dimension": "architecture",
+      "state": "confirmed",
+      "source": {
+        "kind": "document",
+        "ref": "docs/architecture/technical-baseline.md (componentes y datos)"
+      },
+      "decisions": [
+        "data-ownership"
+      ]
+    },
+    {
+      "id": "architecture.integration",
+      "dimension": "architecture",
+      "state": "confirmed",
+      "source": {
+        "kind": "document",
+        "ref": "docs/architecture/decisions/0002-internal-provider-registry.md"
+      },
+      "decisions": [
+        "integration-style",
+        "contract-evolution"
+      ]
+    },
+    {
+      "id": "architecture.deployment",
+      "dimension": "architecture",
+      "state": "n/a",
+      "reason": "Herramienta local de un solo proceso sin despliegue; se distribuye como repositorio y se ejecuta con run.py",
+      "decisions": [
+        "deployment-topology"
+      ]
+    },
+    {
+      "id": "architecture.trust",
+      "dimension": "architecture",
+      "state": "confirmed",
+      "source": {
+        "kind": "document",
+        "ref": "docs/architecture/decisions/0006-mantenimiento-de-metadatos-con-confirmacion.md y brief (credenciales locales)"
+      },
+      "decisions": [
+        "trust-boundaries"
+      ]
+    },
+    {
+      "id": "technology.stack",
+      "dimension": "technology",
+      "state": "confirmed",
+      "source": {
+        "kind": "repository",
+        "ref": "pyproject.toml:1"
+      },
+      "decisions": [
+        "technology-choice"
+      ]
+    },
+    {
+      "id": "technology.licenses",
+      "dimension": "technology",
+      "state": "assumed",
+      "source": {
+        "kind": "repository",
+        "ref": "pyproject.toml:11 (MIT); dependencias con licencias permisivas sin auditar"
+      },
+      "review_trigger": "Distribución fuera del equipo o auditoría de licencias",
+      "decisions": [
+        "technology-choice"
+      ]
+    },
+    {
+      "id": "operation.observability",
+      "dimension": "operation",
+      "state": "assumed",
+      "source": {
+        "kind": "repository",
+        "ref": "src/schema_comparator/cli.py:146 (salida por consola y códigos 0/1/2, sin logging)"
+      },
+      "review_trigger": "Necesidad de diagnosticar ejecuciones de otros usuarios",
+      "decisions": [
+        "operability"
+      ]
+    },
+    {
+      "id": "operation.backup",
+      "dimension": "operation",
+      "state": "n/a",
+      "reason": "BDIFF no posee datos persistentes; los reportes y scripts se regeneran en cada ejecución",
+      "decisions": [
+        "data-ownership",
+        "operability"
+      ]
+    },
+    {
+      "id": "delivery.environments",
+      "dimension": "delivery",
+      "state": "confirmed",
+      "source": {
+        "kind": "user",
+        "ref": "Windows principal y CI en Windows + Ubuntu, 2026-10-21"
+      },
+      "decisions": [
+        "delivery-target",
+        "deployment-topology"
+      ]
+    },
+    {
+      "id": "delivery.versioning",
+      "dimension": "delivery",
+      "state": "confirmed",
+      "source": {
+        "kind": "repository",
+        "ref": "CHANGELOG.md y pyproject.toml:7 (SemVer, releases por PR)"
+      },
+      "decisions": [
+        "contract-evolution",
+        "delivery-target"
+      ]
+    }
+  ],
+  "quality_scenarios": [
+    {
+      "id": "windows-first-run",
+      "origin": "Desarrollador del equipo",
+      "stimulus": "Ejecuta python run.py --config config.local.yaml por primera vez",
+      "environment": "Windows con Python 3.11+ y driver ODBC 17 o 18, sin otras herramientas",
+      "artifact": "run.py y CLI",
+      "response": "Provisiona .venv, conecta y genera reportes sin errores de codificación de consola"
+    },
+    {
+      "id": "no-false-drift",
+      "origin": "Desarrollador del equipo",
+      "stimulus": "Compara dos bases con estructura idéntica",
+      "environment": "Ejecución normal, mismo motor",
+      "artifact": "Motor de comparación",
+      "response": "No reporta ningún hallazgo"
+    },
+    {
+      "id": "secret-safety",
+      "origin": "Driver de base de datos",
+      "stimulus": "Falla la conexión o una consulta de catálogo",
+      "environment": "Cualquier proveedor",
+      "artifact": "Traducción de errores, CLI y TUI",
+      "response": "El mensaje nombra el perfil y la causa sin cadena, host, usuario ni contraseña"
+    },
+    {
+      "id": "mutation-requires-confirmation",
+      "origin": "Desarrollador del equipo",
+      "stimulus": "Pide recompilar rutinas sin confirmación explícita",
+      "environment": "CLI o TUI",
+      "artifact": "Validación de rutinas",
+      "response": "Termina con error antes de abrir ninguna conexión"
+    },
+    {
+      "id": "optional-drivers",
+      "origin": "Desarrollador que usa un solo motor",
+      "stimulus": "Ejecuta BDIFF sin los drivers de los demás motores instalados",
+      "environment": "Instalación con solo el extra de su motor",
+      "artifact": "Registro de proveedores e imports",
+      "response": "El CLI arranca y compara; solo se exige el driver del motor usado"
+    }
+  ]
+}

@@ -1,0 +1,251 @@
+{
+  "schema": "idd-state/v1",
+  "change": "baseline-refresh",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "docs",
+    "summary": "Baseline brownfield estilo foundation: la documentación describe un producto antiguo (solo SQL Server, sin escritura en BD, TUI de gestión de conexiones) y hay 4 roadmaps contradictorios",
+    "acceptance": "brief, alcance, glosario y baseline técnico reflejan el producto real (6 motores, Windows como plataforma principal, CLI+TUI, scripts T-SQL); existen knowledge-map.yaml y component-map.yaml válidos con divergencias citadas; ADR 0006 documenta la mutación de metadatos con confirmación; un único docs/roadmap.md con backlog priorizado sustituye a los roadmaps antiguos; README, decisions/README y openspec/config.yaml son coherentes"
+  },
+  "facts": {
+    "basis": "Decisiones del usuario en esta sesión: Windows principal; mantener sp_refreshsqlmodule con ADR 0006 que amplía la 0005; consolidación solo SQL Server; identidad normalizada; equipo solo + agentes, owner el autor; unificar y borrar roadmaps antiguos; specs openspec marcados desfasados + roadmap"
+  },
+  "plan": {
+    "paths": [
+      "README.md",
+      "docs/architecture/analisis-roadmap-multitarget.md",
+      "docs/architecture/component-map.yaml",
+      "docs/architecture/decisions/0006-mantenimiento-de-metadatos-con-confirmacion.md",
+      "docs/architecture/decisions/README.md",
+      "docs/architecture/decisions/pending-refactorings-issues.md",
+      "docs/architecture/knowledge-map.yaml",
+      "docs/architecture/roadmap-multitarget-changes.md",
+      "docs/architecture/technical-baseline.md",
+      "docs/product/brief.md",
+      "docs/product/functional-scope.md",
+      "docs/product/glossary.md",
+      "docs/roadmap.md",
+      "docs/roadmap_v2.md",
+      "openspec/config.yaml"
+    ],
+    "work_units": 1,
+    "decision": true,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "multi-unit-or-decision",
+      "reason": "declared a non-obvious decision",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "declared ADR 0005",
+      "source": "declaration"
+    },
+    {
+      "id": "public-contract",
+      "reason": "public contract: docs/roadmap.md adds selector",
+      "source": "diff"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "amends",
+      "reason": "ADR 0006 amplía la 0005: además de generar scripts sin ejecutarlos, permite solo mantenimiento de metadatos (sp_refreshsqlmodule) con confirmación explícita; la ejecución de DDL sigue prohibida",
+      "record": "docs/architecture/decisions/0006-mantenimiento-de-metadatos-con-confirmacion.md"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-4"
+      ]
+    },
+    {
+      "id": "living-doc",
+      "signal": "multi-unit-or-decision",
+      "status": "satisfied",
+      "evidence": [
+        "ev-6"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "contract-spec-and-test",
+      "signal": "public-contract",
+      "status": "satisfied",
+      "evidence": [
+        "ev-5"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "adr-amend-or-contradict",
+      "status": "resolved",
+      "reason": "ADR 0005 amends: ADR 0006 amplía la 0005: además de generar scripts sin ejecutarlos, permite solo mantenimiento de metadatos (sp_refreshsqlmodule) con confirmación explícita; la ejecución de DDL sigue prohibida",
+      "answer": "Mantener y documentar (Recommended): Nueva ADR 0006 que amplía la 0005: solo se permite mantenimiento de metadatos (sp_refreshsqlmodule) con confirmación explícita (--yes / modal); nunca DDL. Se actualiza el brief.",
+      "source": "user"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T10:26:02.656Z",
+      "detail": {
+        "tree": "sha256:6fc636b80a5ad155c1ff01ed30a72c72379e4213ea0a8eedd5a2aef57af99d12",
+        "runs": [
+          "run-1",
+          "run-2"
+        ]
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T10:26:02.656Z",
+      "detail": {
+        "refs": [
+          "adr:0005 amends"
+        ],
+        "records": [
+          "docs/architecture/decisions/0006-mantenimiento-de-metadatos-con-confirmacion.md"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T10:26:55.510Z",
+      "detail": {
+        "tree": "sha256:02c19b89bbaf44632fd1f125bbd5d5419d72c9b58434568c7796d0ddbcf37fc4",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    },
+    {
+      "id": "ev-4",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T10:29:40.754Z",
+      "detail": {
+        "tree": "sha256:a75742fe4d693e8c3f5f19b622a05571403603dfffa28c235df9092d4c9d6c7f",
+        "runs": [
+          "run-5",
+          "run-6"
+        ]
+      }
+    },
+    {
+      "id": "ev-5",
+      "kind": "contract-spec-and-test",
+      "obligation": "contract-spec-and-test",
+      "recorded_at": "2026-10-21T10:29:40.754Z",
+      "detail": {
+        "tree": "sha256:a75742fe4d693e8c3f5f19b622a05571403603dfffa28c235df9092d4c9d6c7f",
+        "check": "ev-4",
+        "documents": [
+          "README.md"
+        ],
+        "tests": [
+          "tests/unit/test_readme_cli_contract.py"
+        ]
+      }
+    },
+    {
+      "id": "ev-6",
+      "kind": "living-doc-current",
+      "obligation": "living-doc",
+      "recorded_at": "2026-10-21T10:29:45.348Z"
+    }
+  ],
+  "base": "1b707bd00d0d5291f33c151b2d138f3006d1bed8",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:a69c41848998026aaf518202a30ccdca1da5d9bfa7f66bd25f6f01afa4ae4f85",
+      "tree": "sha256:6fc636b80a5ad155c1ff01ed30a72c72379e4213ea0a8eedd5a2aef57af99d12",
+      "recorded_at": "2026-10-21T10:26:02.656Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:3761537aceaf847ad0dba17b399f834e3c94f3b51450350db8e03628e97a285e",
+      "tree": "sha256:6fc636b80a5ad155c1ff01ed30a72c72379e4213ea0a8eedd5a2aef57af99d12",
+      "recorded_at": "2026-10-21T10:26:02.656Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:12b4896171e7aa40159429ede95d298c923066d888257ae387ada87ee444f279",
+      "tree": "sha256:02c19b89bbaf44632fd1f125bbd5d5419d72c9b58434568c7796d0ddbcf37fc4",
+      "recorded_at": "2026-10-21T10:26:55.510Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:3761537aceaf847ad0dba17b399f834e3c94f3b51450350db8e03628e97a285e",
+      "tree": "sha256:02c19b89bbaf44632fd1f125bbd5d5419d72c9b58434568c7796d0ddbcf37fc4",
+      "recorded_at": "2026-10-21T10:26:55.510Z"
+    },
+    {
+      "id": "run-5",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:739c16a1f8d3b498d75c5997928edf6d475ea772851c82c9f468ef98403d05b5",
+      "tree": "sha256:a75742fe4d693e8c3f5f19b622a05571403603dfffa28c235df9092d4c9d6c7f",
+      "recorded_at": "2026-10-21T10:29:40.754Z"
+    },
+    {
+      "id": "run-6",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:4a163a5d90faa7d60d6392f52dc32056519ac4cf71a71a1f53c7bfe1369f6eeb",
+      "tree": "sha256:a75742fe4d693e8c3f5f19b622a05571403603dfffa28c235df9092d4c9d6c7f",
+      "recorded_at": "2026-10-21T10:29:40.754Z"
+    }
+  ],
+  "closed_at": "2026-10-21T10:29:45.348Z"
+}

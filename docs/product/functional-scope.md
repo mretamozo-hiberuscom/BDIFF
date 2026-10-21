@@ -1,64 +1,73 @@
-# Functional Scope — SQL Server Schema Comparator
+# Alcance funcional — BDIFF
 
-## Decision
+> Estado verificado contra el código v1.2.5 el 2026-10-21. "Parcial" y
+> "Roto" remiten al backlog de `docs/roadmap.md`.
 
-First usable slice (v1) covers: a TUI where the developer adds and persists
-SQL Server connection strings, sees them listed by database name, checks
-which ones to include, extracts table/column metadata via live connection
-for the checked set, compares across all checked databases, and produces a
-drift report in HTML (primary) with a PDF export option, plus a console/TUI
-summary. PK/FK/index comparison are next-slice extensions; Excel/CSV export
-moves to v2, not blocking v1.
+## Actores
 
-## Capabilities
+| Actor | Qué hace |
+|---|---|
+| Desarrollador (operador) | Mantiene `config.local.yaml`, ejecuta el CLI o la TUI, decide la consolidación y ejecuta los scripts por su cuenta. |
+| Lector de reportes | Abre HTML, PDF o Excel generados; no ejecuta BDIFF. |
+| Bases comparadas | Sistemas externos de solo lectura salvo la recompilación confirmada (ADR 0006). |
 
-| # | Capability | Priority | Notes |
-|---|---|---|---|
-| 1 | TUI shell | Must (v1) | Textual-based terminal app: connections list screen + run/report screens. Entry point for all other capabilities below. |
-| 2 | Saved-connection management | Must (v1) | Add/edit/delete a named SQL Server connection string from within the TUI; persisted locally (YAML, git-ignored) so it's available on the next run without re-entering it. No credentials hardcoded in source. |
-| 3 | Connection list view with selection | Must (v1) | TUI screen listing all saved connections by name (and resolved database name once connected), with a checkbox per row to mark which ones are included in the current comparison run. |
-| 4 | Schema extraction (tables/columns) | Must (v1) | Table name, column name, data type, size/precision/scale, nullable, ordinal position, via live connection to `INFORMATION_SCHEMA`/`sys.*` catalog views, for each checked connection. |
-| 5 | N-way schema comparison | Must (v1) | Compares all checked databases against each other simultaneously (not just pairwise), using a normalized "union of all known objects" baseline. |
-| 6 | Missing-table detection | Must (v1) | Report tables present in some databases but absent in others. |
-| 7 | Missing-column detection | Must (v1) | Report columns present in some databases but absent in others, for tables that exist in more than one database. |
-| 8 | Type/size/nullability mismatch detection | Must (v1) | For columns with the same name across databases, flag differing data type, length/precision/scale, or nullability. |
-| 9 | Likely-rename detection | Should (v1) | Heuristic match (e.g. same type/shape, high name similarity, or same ordinal position) to flag columns that probably represent the same field under different names across databases. |
-| 10 | Report generation — HTML | Must (v1) | HTML report (primary/source-of-truth, shareable/scannable, grouped by table, color-coded by diff type) + in-TUI/console summary (quick overview after a run completes). |
-| 11 | Report generation — PDF export | Must (v1) | Export the same HTML report to PDF via `xhtml2pdf`, for sharing/archiving as a static file. |
-| 12 | Report generation — Excel/CSV export | Should (v2) | Additional export formats for further analysis/filtering in spreadsheet tools. Moved from v1.1 to v2 per explicit decision to prioritize PDF first. |
-| 13 | Primary key / foreign key / index comparison | Could (v1.1+) | Best-effort, secondary to tables/columns per user's stated priority. |
-| 14 | DDL-export-based discovery (offline mode) | Could (later) | Fallback discovery source when live DB connection isn't available; v1 focuses on live connection only. |
+## Recorridos
 
-## Out of Scope (see brief.md Non-Goals)
+**Detectar deriva (CLI)**
 
-- Schema migration/write operations.
-- Continuous/scheduled execution or server component.
-- Data-level (row content) comparison.
-- Automatic schema reconciliation.
+- Dado un `config.local.yaml` con dos o más perfiles,
+- cuando el desarrollador ejecuta `python run.py --config config.local.yaml [--profiles a b] [--exclude-tables X] [--exclude-routines Y]`,
+- entonces BDIFF extrae cada esquema, compara, imprime el resumen y escribe
+  HTML, PDF y Excel en `reportes/<timestamp>/`. Sale con 0 sin deriva, 1
+  con deriva o fallos de validación y 2 ante errores.
 
-## Primary Use Case (Given/When/Then, informal)
+**Explorar y consolidar (TUI)**
 
-**Detect schema drift across microservices**
+- Con `--tui` en una terminal interactiva, el desarrollador navega los
+  hallazgos, filtra, re-ejecuta (`r`), genera reportes (`g`), decide la
+  consolidación (`d`) y obtiene scripts T-SQL e `impact_report.md` en
+  `scripts-db/<timestamp>/`.
 
-- Given a set of SQL Server connection strings already saved in the TUI
-  from previous sessions,
-- When the developer opens the TUI, checks the databases to include in
-  this run, and triggers the comparison,
-- Then the tool connects to each checked database, extracts table/column
-  metadata, compares all checked schemas, and produces an HTML report
-  (plus an in-TUI/console summary) showing missing tables, missing
-  columns, likely renames, and type/size/nullability mismatches, grouped
-  so the developer can quickly spot which database is the outlier.
+**Validar y reparar rutinas (SQL Server)**
 
-**Add a new connection**
+- `--validate-routines` (solo lectura) o la pantalla `v` de la TUI listan
+  rutinas con dependencias rotas y generan scripts de reparación.
+- `--refresh-modules --yes` o la confirmación modal de la TUI recompilan
+  metadatos con `sp_refreshsqlmodule` (ADR 0006).
 
-- Given the developer has a SQL Server connection string for a
-  microservice not yet tracked,
-- When they add it by name through the TUI,
-- Then it is persisted locally (git-ignored) and appears in the connection
-  list on this and future runs, available to check for comparison.
+## Capacidades
 
-Formal Given/When/Then scenarios with RFC 2119 keywords belong in
-`openspec/specs/**/spec.md`, written during the first `sdd-spec` phase for
-the first capability change — not here. This document captures scope and
-priority only.
+| # | Capacidad | Estado |
+|---|---|---|
+| 1 | Config YAML v2 (`profiles:` con `provider`, `connection_string`, `options`) y v1 (`databases:`) | Hecho |
+| 2 | Cadenas ODBC y ADO.NET para SQL Server | Hecho |
+| 3 | Extracción de tablas y columnas — SQL Server | Parcial: sin default, identity, collation ni precisión de fecha |
+| 4 | Extracción — PostgreSQL, MySQL, MariaDB, SQLite | Parcial: MySQL pierde parámetros de tipo; SQLite crea la BD si la ruta no existe |
+| 5 | Extracción — Oracle | Roto: la consulta termina en `;` |
+| 6 | Extracción de procedimientos (SQL Server) | Hecho |
+| 7 | Comparación N-way de tablas, columnas y procedimientos | Hecho para un mismo motor |
+| 8 | Comparación de PK, FK e índices | Roto: falsos positivos; ningún proveedor los extrae |
+| 9 | Emparejamiento por identidad normalizada (esquema MySQL/Oracle, mayúsculas) | Pendiente (decidido 2026-10-21) |
+| 10 | Comparación semántica entre motores | Parcial: existe en el motor, sin acceso desde CLI ni TUI |
+| 11 | Reportes consola, HTML, PDF, Excel | Hecho, con conteos no homogéneos entre formatos |
+| 12 | TUI de hallazgos, consolidación y rutinas | Hecho, con fallos de concurrencia y de markup |
+| 13 | Scripts T-SQL de consolidación | Hecho solo para SQL Server; se restringe a ese motor (decisión 2026-10-21) |
+| 14 | Validación y recompilación de rutinas | Hecho; el script maestro de reparación está roto |
+| 15 | Detección de renombres | No implementado |
+| 16 | Export CSV | No implementado |
+| 17 | Descubrimiento desde DDL exportado (offline) | No implementado |
+
+## Exclusiones
+
+- Ejecutar DDL generado (ADR 0005).
+- Gestión de conexiones dentro de la TUI.
+- Comparación de datos.
+- Scripts de consolidación para motores distintos de SQL Server hasta que
+  sus renderers estén corregidos.
+
+## Especificaciones
+
+Los specs de `openspec/specs/` describen el producto de julio de 2026 y
+están desfasados (ver divergencias en
+`docs/architecture/component-map.yaml`). Hasta que se sincronicen, la
+referencia es este documento, el baseline técnico y los tests.
