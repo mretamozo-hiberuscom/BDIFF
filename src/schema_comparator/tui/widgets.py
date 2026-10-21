@@ -4,6 +4,7 @@ Each widget calls into `formatting.py` to build its content but owns no
 comparison-specific business logic itself.
 """
 
+from rich.markup import escape
 from rich.text import Text
 from textual.widgets import Input, RichLog, Static, Tree
 
@@ -45,39 +46,39 @@ class DetailPanel(Static):
         if isinstance(entry, ColumnMismatch):
             markup = [
                 "[bold cyan]🔍 Detalle de Discrepancia de Atributos[/]",
-                f"[bold]Tabla:[/bold] {object_label(entry)}",
-                f"[bold]Columna:[/bold] [yellow]{column_label(entry)}[/]",
+                f"[bold]Tabla:[/bold] {escape(object_label(entry))}",
+                f"[bold]Columna:[/bold] [yellow]{escape(column_label(entry))}[/]",
                 "",
                 "[bold underline]Definición por Perfil de Conexión:[/bold underline]",
             ]
             for profile, attrs in entry.values_by_profile:
                 markup.append(
-                    f"  • [bold]{profile}:[/bold] [green]{format_attributes(attrs)}[/]"
+                    f"  • [bold]{escape(profile)}:[/bold] [green]{escape(format_attributes(attrs))}[/]"
                 )
             self.update("\n".join(markup))
 
         elif isinstance(entry, MissingColumn):
             markup = [
                 "[bold orange3]➖ Detalle de Columna Faltante[/]",
-                f"[bold]Tabla:[/bold] {object_label(entry)}",
-                f"[bold]Columna:[/bold] [orange3]{column_label(entry)}[/]",
+                f"[bold]Tabla:[/bold] {escape(object_label(entry))}",
+                f"[bold]Columna:[/bold] [orange3]{escape(column_label(entry))}[/]",
                 "",
-                f"⚠️ [bold red]Faltante en el perfil:[/bold red] [bold underline]{entry.missing_from_profile}[/]",
+                f"⚠️ [bold red]Faltante en el perfil:[/bold red] [bold underline]{escape(entry.missing_from_profile)}[/]",
                 "",
                 "[bold underline]Definición en perfiles presentes:[/bold underline]",
             ]
             for profile, attrs in entry.present_attributes:
                 markup.append(
-                    f"  • [bold]{profile}:[/bold] [green]{format_attributes(attrs)}[/]"
+                    f"  • [bold]{escape(profile)}:[/bold] [green]{escape(format_attributes(attrs))}[/]"
                 )
             self.update("\n".join(markup))
 
         elif isinstance(entry, MissingTable):
             markup = [
                 "[bold red]✖ Detalle de Tabla Faltante[/]",
-                f"[bold]Tabla:[/bold] [red]{object_label(entry)}[/]",
+                f"[bold]Tabla:[/bold] [red]{escape(object_label(entry))}[/]",
                 "",
-                f"⚠️ [bold red]Faltante en el perfil:[/bold red] [bold underline]{entry.missing_from_profile}[/]",
+                f"⚠️ [bold red]Faltante en el perfil:[/bold red] [bold underline]{escape(entry.missing_from_profile)}[/]",
             ]
             self.update("\n".join(markup))
         else:
@@ -105,16 +106,16 @@ class FindingsTree(Tree):
         """Build a visually rich, colored label for tree leaf nodes."""
         if isinstance(entry, MissingTable):
             return Text.from_markup(
-                f"[bold red]✖[/] [red]tabla faltante[/] (de [bold]{entry.missing_from_profile}[/bold])"
+                f"[bold red]✖[/] [red]tabla faltante[/] (de [bold]{escape(entry.missing_from_profile)}[/bold])"
             )
         if isinstance(entry, MissingColumn):
             return Text.from_markup(
-                f"[bold orange3]➖[/] [bold orange3]{column_label(entry)}[/]: [orange3]columna faltante[/] (de [bold]{entry.missing_from_profile}[/bold])"
+                f"[bold orange3]➖[/] [bold orange3]{escape(column_label(entry))}[/]: [orange3]columna faltante[/] (de [bold]{escape(entry.missing_from_profile)}[/bold])"
             )
         if isinstance(entry, ColumnMismatch):
             profiles = ", ".join(p for p, _ in entry.values_by_profile)
             return Text.from_markup(
-                f"[bold yellow]≠[/] [bold yellow]{column_label(entry)}[/]: [yellow]discrepancia de atributos[/] entre [bold]{profiles}[/bold]"
+                f"[bold yellow]≠[/] [bold yellow]{escape(column_label(entry))}[/]: [yellow]discrepancia de atributos[/] entre [bold]{escape(profiles)}[/bold]"
             )
         return Text(leaf_label(entry))
 
@@ -125,7 +126,7 @@ class FindingsTree(Tree):
         self._tree_data = tree_data
         self.root.remove_children()
         for group in tree_data.groups:
-            group_node = self.root.add(group.qualified_label, expand=True)
+            group_node = self.root.add(Text(group.qualified_label), expand=True)
             for entry in group.entries:
                 group_node.add_leaf(self._styled_leaf_label(entry), data=entry)
 
@@ -140,7 +141,7 @@ class FindingsTree(Tree):
         )
         self.root.remove_children()
         for group in filtered_groups:
-            group_node = self.root.add(group.qualified_label, expand=True)
+            group_node = self.root.add(Text(group.qualified_label), expand=True)
             for entry in group.entries:
                 if entry_matches(entry, filter_text):
                     group_node.add_leaf(self._styled_leaf_label(entry), data=entry)
@@ -152,10 +153,10 @@ class StatusLog(RichLog):
     explicit messages `app.py`'s worker methods write to it."""
 
     def info(self, message: str) -> None:
-        self.write(message)
+        self.write(Text(message))
 
     def error(self, message: str) -> None:
-        self.write(f"[red]{message}[/red]")
+        self.write(Text(message, style="red"))
 
 
 class ExcludeEditor(Input):

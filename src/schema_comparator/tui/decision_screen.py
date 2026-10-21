@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from rich.markup import escape
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
@@ -299,7 +300,7 @@ class DecisionScreen(Screen):
             entries = self.display_groups[tbl_key]
             title = f" 📋 {tbl_key} ({len(entries)} hallazgo{'s' if len(entries) > 1 else ''})"
             item_id = f"table-item-{i}"
-            item = ListItem(Label(title), id=item_id)
+            item = ListItem(Label(escape(title)), id=item_id)
             list_view.append(item)
             self.table_by_id[item_id] = tbl_key
 
@@ -323,7 +324,7 @@ class DecisionScreen(Screen):
         # Header title for selected table
         right_panel.mount(
             Label(
-                f"[bold underline]Consolidación de Tabla:[/bold underline] [cyan]{tbl_key}[/cyan]",
+                f"[bold underline]Consolidación de Tabla:[/bold underline] [cyan]{escape(tbl_key)}[/cyan]",
                 classes="table-header-title",
             )
         )
@@ -585,14 +586,14 @@ class ColumnResolutionWidget(Container):
             if isinstance(self.entry, MergedMissingTable):
                 absent_str = ", ".join(self.entry.missing_from_profiles)
                 yield Label(
-                    f"Tabla: [bold]{self.entry.schema_name}.{self.entry.table_name}[/bold]"
-                    f" (Tabla Faltante en [bold]{absent_str}[/bold])",
+                    f"Tabla: [bold]{escape(f'{self.entry.schema_name}.{self.entry.table_name}')}[/bold]"
+                    f" (Tabla Faltante en [bold]{escape(absent_str)}[/bold])",
                     classes="column-title",
                 )
             else:
                 yield Label(
-                    f"Tabla: [bold]{self.entry.schema_name}.{self.entry.table_name}[/bold]"
-                    f" (Tabla Faltante en [bold]{self.entry.missing_from_profile}[/bold])",
+                    f"Tabla: [bold]{escape(f'{self.entry.schema_name}.{self.entry.table_name}')}[/bold]"
+                    f" (Tabla Faltante en [bold]{escape(self.entry.missing_from_profile)}[/bold])",
                     classes="column-title",
                 )
 
@@ -608,7 +609,7 @@ class ColumnResolutionWidget(Container):
             yield Label("[bold]Seleccionar perfil fuente para la definición:[/bold]")
             radio_set = RadioSet(
                 *[
-                    RadioButton(label, value=(i == active_index))
+                    RadioButton(escape(label), value=(i == active_index))
                     for i, (_, label) in enumerate(self.options)
                 ]
             )
@@ -619,7 +620,7 @@ class ColumnResolutionWidget(Container):
                 for prof, cols in self.entry.present_columns:
                     if prof == target:
                         col_preview = ", ".join(
-                            f"[cyan]{c.name}[/cyan]" for c in cols[:10]
+                            f"[cyan]{escape(c.name)}[/cyan]" for c in cols[:10]
                         )
                         if len(cols) > 10:
                             col_preview += f" ... (+{len(cols) - 10} más)"
@@ -650,7 +651,7 @@ class ColumnResolutionWidget(Container):
             for profile_name in destination_profiles:
                 selection_list.add_option(
                     (
-                        profile_name,
+                        escape(profile_name),
                         profile_name,
                         profile_name in selected_profiles,
                     )
@@ -662,7 +663,7 @@ class ColumnResolutionWidget(Container):
         if isinstance(self.entry, MergedMissingColumn):
             absent_str = ", ".join(self.entry.missing_from_profiles)
             yield Label(
-                f"Columna: [bold]{self.entry.column_name}[/bold] (Columna Faltante en [bold]{absent_str}[/bold])",
+                f"Columna: [bold]{escape(self.entry.column_name)}[/bold] (Columna Faltante en [bold]{escape(absent_str)}[/bold])",
                 classes="column-title",
             )
         else:
@@ -672,7 +673,7 @@ class ColumnResolutionWidget(Container):
                 else "Columna Faltante"
             )
             yield Label(
-                f"Columna: [bold]{self.entry.column_name}[/bold] ({diff_type})",
+                f"Columna: [bold]{escape(self.entry.column_name)}[/bold] ({diff_type})",
                 classes="column-title",
             )
 
@@ -689,7 +690,7 @@ class ColumnResolutionWidget(Container):
         yield Label("[bold]Seleccionar definición correcta:[/bold]")
         radio_set = RadioSet(
             *[
-                RadioButton(label, value=(i == active_index))
+                RadioButton(escape(label), value=(i == active_index))
                 for i, (_, label) in enumerate(self.options)
             ]
         )
@@ -722,7 +723,7 @@ class ColumnResolutionWidget(Container):
 
         selection_list = SelectionList(classes="profile-selection-list")
         for p in dest_profiles:
-            selection_list.add_option((p, p, p in selected_profiles))
+            selection_list.add_option((escape(p), p, p in selected_profiles))
 
         selection_list.disabled = target_attrs is None
         yield selection_list

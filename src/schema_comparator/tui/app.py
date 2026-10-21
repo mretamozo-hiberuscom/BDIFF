@@ -4,6 +4,7 @@ filter state, and widget wiring for the interactive findings browser."""
 import io
 import sys
 
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
@@ -204,7 +205,7 @@ class SchemaComparatorApp(App):
         self._exclude_routines = list(exclude_routines or [])
 
     def compose(self) -> ComposeResult:
-        yield SummaryHeader(header_text(self._result))
+        yield SummaryHeader(Text(header_text(self._result)))
         if not self._tree_data.groups:
             with Container(id="no-drift-container"):
                 yield Static(_NO_DRIFT_MESSAGE, id="no-drift-message")
@@ -291,7 +292,7 @@ class SchemaComparatorApp(App):
         trees = self.query(FindingsTree)
         if trees:
             trees.first().populate(self._tree_data)
-        self.query_one(SummaryHeader).update(header_text(new_result))
+        self.query_one(SummaryHeader).update(Text(header_text(new_result)))
         self.query_one(StatusLog).info("Comparación actualizada.")
 
     def action_generate_reports(self) -> None:
