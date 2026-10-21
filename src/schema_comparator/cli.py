@@ -93,62 +93,43 @@ def _run_routine_validation(
     exclude_routines: list[str] | None = None,
     read_only: bool = True,
 ) -> bool:
-    from schema_comparator.infrastructure.providers.sqlserver import connection
-    from schema_comparator.infrastructure.providers.sqlserver.errors import (
-        describe_failure,
+    from schema_comparator.infrastructure.providers.sqlserver.routine_runner import (
+        run_routines,
     )
     from schema_comparator.infrastructure.providers.sqlserver.sp_validator import (
-        enumerate_routines,
         refresh_modules_mutating,
         validate_routines_read_only,
     )
 
-    patterns = [p.lower() for p in (exclude_routines or [])]
     mode_str = (
         "solo lectura" if read_only else "recompilación mutante (sp_refreshsqlmodule)"
     )
     print(f"\nEjecutando validación de rutinas [{mode_str}]...")
+    operation = validate_routines_read_only if read_only else refresh_modules_mutating
     has_errors = False
 
-    for profile in profiles:
-        provider_name = str(getattr(profile, "provider", "sqlserver")).lower()
-        if provider_name == "sqlserver":
-            try:
-                with connection.connect(profile) as conn:
-                    targets = enumerate_routines(conn)
-                    if patterns:
-                        targets = tuple(
-                            t
-                            for t in targets
-                            if not any(pat in t.object_name.lower() for pat in patterns)
-                        )
-                    if read_only:
-                        results = validate_routines_read_only(conn, targets)
-                    else:
-                        results = refresh_modules_mutating(conn, targets)
-
-                    failures = [r for r in results if not r.is_success]
-                    if failures:
-                        has_errors = True
-                        print(
-                            f"[ERROR] Perfil '{profile.name}': {len(failures)} objeto(s) con fallos:"
-                        )
-                        for f in failures:
-                            proc_name = getattr(f, "routine", f).object_name
-                            err_msg = getattr(f, "error_message", "Error")
-                            print(
-                                f"   - [{getattr(f, 'routine', f).schema_name}].[{proc_name}]: {err_msg}"
-                            )
-                    else:
-                        print(
-                            f"[OK] Perfil '{profile.name}': todas las rutinas evaluadas están correctas ({len(results)} verificadas)."
-                        )
-            except Exception as exc:
-                has_errors = True
-                print(
-                    f"[AVISO] Perfil '{profile.name}': error al conectar o validar rutinas: "
-                    f"{describe_failure(profile, exc)}"
-                )
+    for profile_name, run in run_routines(
+        profiles, exclude_routines or [], operation
+    ).items():
+        if run.error is not None:
+            has_errors = True
+            print(
+                f"[AVISO] Perfil '{profile_name}': error al conectar o validar rutinas: "
+                f"{run.error}"
+            )
+            continue
+        failures = [r for r in run.results if not r.is_success]
+        if failures:
+            has_errors = True
+            print(
+                f"[ERROR] Perfil '{profile_name}': {len(failures)} objeto(s) con fallos:"
+            )
+            for f in failures:
+                print(f"   - {f.routine.qualified_name}: {f.error_message or 'Error'}")
+        else:
+            print(
+                f"[OK] Perfil '{profile_name}': todas las rutinas evaluadas están correctas ({len(run.results)} verificadas)."
+            )
 
     return has_errors
 

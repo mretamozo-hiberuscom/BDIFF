@@ -12,11 +12,12 @@ from textual.widgets import Button, DataTable, Footer, Header, Label, Static
 
 from schema_comparator.compare.consolidation import assign_script_filenames
 from schema_comparator.config.models import ConnectionProfile
-from schema_comparator.infrastructure.providers.sqlserver import connection
 from schema_comparator.infrastructure.providers.sqlserver.ddl_renderer import (
     extract_database_name,
 )
-from schema_comparator.infrastructure.providers.sqlserver.errors import describe_failure
+from schema_comparator.infrastructure.providers.sqlserver.routine_runner import (
+    run_routines,
+)
 from schema_comparator.infrastructure.providers.sqlserver.repair_script import (
     CONNECTION_FAILURE_ROUTINE,
     render_repair_scripts,
@@ -26,7 +27,6 @@ from schema_comparator.infrastructure.providers.sqlserver.sp_validator import (
     RoutineValidationResult,
     RoutineValidationStatus,
     SignatureStatus,
-    enumerate_routines,
     refresh_modules_mutating,
     validate_routines_read_only,
 )
@@ -209,41 +209,25 @@ class ProcedureVerificationScreen(Screen):
             "🔍 Ejecutando validación de dependencias (solo lectura)...",
         )
 
-    def _do_validate_read_only(
-        self,
-    ) -> tuple[dict[str, tuple[RoutineValidationResult, ...]], int]:
+    def _do_validate_read_only(self) -> None:
         results_map: dict[str, tuple[RoutineValidationResult, ...]] = {}
-        total_count = 0
-        for profile in self._profiles:
-            provider_name = str(getattr(profile, "provider", "sqlserver")).lower()
-            if provider_name == "sqlserver":
-                try:
-                    with connection.connect(profile) as conn:
-                        targets = enumerate_routines(conn)
-                        if self._exclude_patterns:
-                            targets = tuple(
-                                t
-                                for t in targets
-                                if not any(
-                                    pat in t.object_name.lower()
-                                    for pat in self._exclude_patterns
-                                )
-                            )
-                        total_count += len(targets)
-                        res = validate_routines_read_only(conn, targets)
-                        results_map[profile.name] = res
-                except Exception as exc:
-                    dummy = CONNECTION_FAILURE_ROUTINE
-                    results_map[profile.name] = (
-                        RoutineValidationResult(
-                            routine=dummy,
-                            status=RoutineValidationStatus.UNVERIFIABLE,
-                            signature_status=SignatureStatus.UNKNOWN,
-                            error_message=f"Error de conexión: {describe_failure(profile, exc)}",
-                        ),
-                    )
+        runs = run_routines(
+            self._profiles, self._exclude_patterns, validate_routines_read_only
+        )
+        for profile_name, run in runs.items():
+            results_map[profile_name] = (
+                run.results
+                if run.error is None
+                else (
+                    RoutineValidationResult(
+                        routine=CONNECTION_FAILURE_ROUTINE,
+                        status=RoutineValidationStatus.UNVERIFIABLE,
+                        signature_status=SignatureStatus.UNKNOWN,
+                        error_message=f"Error de conexión: {run.error}",
+                    ),
+                )
+            )
         self.app.call_from_thread(self._apply_validation, results_map)
-        return results_map, total_count
 
     def _apply_validation(
         self, results: dict[str, tuple[RoutineValidationResult, ...]]
@@ -322,32 +306,21 @@ class ProcedureVerificationScreen(Screen):
 
     def _do_refresh_modules(self) -> None:
         results_map: dict[str, tuple[ModuleRefreshResult, ...]] = {}
-        for profile in self._profiles:
-            provider_name = str(getattr(profile, "provider", "sqlserver")).lower()
-            if provider_name == "sqlserver":
-                try:
-                    with connection.connect(profile) as conn:
-                        targets = enumerate_routines(conn)
-                        if self._exclude_patterns:
-                            targets = tuple(
-                                t
-                                for t in targets
-                                if not any(
-                                    pat in t.object_name.lower()
-                                    for pat in self._exclude_patterns
-                                )
-                            )
-                        res = refresh_modules_mutating(conn, targets)
-                        results_map[profile.name] = res
-                except Exception as exc:
-                    dummy = CONNECTION_FAILURE_ROUTINE
-                    results_map[profile.name] = (
-                        ModuleRefreshResult.failure(
-                            dummy,
-                            error_message=f"Error de conexión: {describe_failure(profile, exc)}",
-                            signature_status=SignatureStatus.UNKNOWN,
-                        ),
-                    )
+        runs = run_routines(
+            self._profiles, self._exclude_patterns, refresh_modules_mutating
+        )
+        for profile_name, run in runs.items():
+            results_map[profile_name] = (
+                run.results
+                if run.error is None
+                else (
+                    ModuleRefreshResult.failure(
+                        CONNECTION_FAILURE_ROUTINE,
+                        error_message=f"Error de conexión: {run.error}",
+                        signature_status=SignatureStatus.UNKNOWN,
+                    ),
+                )
+            )
         self.app.call_from_thread(self._apply_refresh, results_map)
 
     def _apply_refresh(

@@ -1,7 +1,10 @@
-"""TUI view for consolidating schema mismatches and missing columns (fase de decisiones)."""
+"""TUI view for consolidating schema mismatches and missing columns (fase de decisiones).
 
-from dataclasses import dataclass
+The decision logic lives in `decision_model`; this module only renders it.
+"""
+
 from pathlib import Path
+
 from rich.markup import escape
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -17,64 +20,37 @@ from textual.widgets import (
     SelectionList,
 )
 
-from schema_comparator.compare.models import (
-    ColumnAttributes,
-    ColumnMismatch,
-    DiffEntry,
-    MissingColumn,
-    MissingTable,
-    NamedColumnAttributes,
-)
-from schema_comparator.report.attributes import format_attributes
-from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.compare.consolidation import ColumnAction, TableAction
+from schema_comparator.compare.models import ColumnMismatch
+from schema_comparator.config.models import ConnectionProfile
+from schema_comparator.compare.models import DiffEntry
+from schema_comparator.report.attributes import format_attributes
+from schema_comparator.tui.decision_model import (
+    DecisionEntry,
+    MergedMissingColumn,
+    MergedMissingTable,
+    build_resolutions,
+    default_destinations,
+    destination_choices,
+    group_findings,
+)
+
+__all__ = [
+    "ColumnResolutionWidget",
+    "DecisionScreen",
+    "MergedMissingColumn",
+    "MergedMissingTable",
+]
 
 
-@dataclass(frozen=True)
-class MergedMissingTable:
-    """Aggregated view of multiple MissingTable entries sharing the same table identity.
-
-    Used exclusively in DecisionScreen to present a single coherent decision when a
-    table is absent from more than one profile. The engine still emits one MissingTable
-    per absent profile; this class merges them at the display layer only.
-
-    ``missing_from_profiles`` lists every profile where the table is ABSENT (sorted).
-    ``present_columns`` lists every profile where it IS present, with its full column
-    definition — same structure as ``MissingTable.present_columns``.
-    """
-
-    schema_name: str
-    table_name: str
-    missing_from_profiles: tuple[str, ...]
-    present_columns: tuple[tuple[str, tuple[NamedColumnAttributes, ...]], ...]
-
-    @property
-    def qualified_name(self) -> tuple[str, str]:
-        return (self.schema_name, self.table_name)
-
-
-@dataclass(frozen=True)
-class MergedMissingColumn:
-    """Aggregated view of multiple MissingColumn entries sharing the same column identity.
-
-    Used exclusively in DecisionScreen to present a single coherent decision when a
-    column is absent from more than one profile in a matched table. The engine emits
-    one MissingColumn per absent profile; this class merges them at the display layer only.
-
-    ``missing_from_profiles`` lists every profile where the column is ABSENT (sorted).
-    ``present_attributes`` lists every profile where it IS present, with its attributes —
-    same structure as ``MissingColumn.present_attributes``.
-    """
-
-    schema_name: str
-    table_name: str
-    column_name: str
-    missing_from_profiles: tuple[str, ...]
-    present_attributes: tuple[tuple[str, ColumnAttributes], ...]
-
-    @property
-    def qualified_name(self) -> tuple[str, str]:
-        return (self.schema_name, self.table_name)
+def _fill_destinations(
+    selection_list: SelectionList, choices: tuple[str, ...], selected: tuple[str, ...]
+) -> None:
+    selection_list.clear_options()
+    for profile_name in choices:
+        selection_list.add_option(
+            (escape(profile_name), profile_name, profile_name in selected)
+        )
 
 
 class DecisionScreen(Screen):
@@ -163,8 +139,9 @@ class DecisionScreen(Screen):
     """
 
     BINDINGS = [
-        Binding("escape,q,Q", "back", "Volver"),
+        Binding("escape", "back", "Cancelar"),
         Binding("g,G", "generate_sql", "Generar SQL"),
+        Binding("v,V", "open_sp_verification", "Verificar SPs"),
     ]
 
     def __init__(
@@ -179,86 +156,15 @@ class DecisionScreen(Screen):
         self.profiles = profiles
         self.repo_root = repo_root
         self.profile_names = tuple(p.name for p in self.profiles)
-
-        # State: maps entry -> (target_attributes, tuple_of_dest_profiles)
-        # Keys are DiffEntry for non-merged entries, MergedMissingTable/MergedMissingColumn for merged groups.
-        self.decisions: dict = {}
         self.table_by_id: dict[str, str] = {}
 
-        # Populate initial decisions for entries that won't be merged below.
-        for entry in self.entries:
-            if not isinstance(entry, (MissingTable, MissingColumn)):
-                self.decisions[entry] = self.get_default_decision(entry)
-
-        # Group raw entries by unique table key
-        self.table_groups: dict[str, list[DiffEntry]] = {}
-        for entry in self.entries:
-            schema, table = entry.qualified_name
-            tbl_key = f"{schema}.{table}"
-            self.table_groups.setdefault(tbl_key, []).append(entry)
-        self.table_keys = sorted(self.table_groups.keys())
-
-        # Build display groups: collapse all MissingTable/MissingColumn siblings for the same identity
-        # into MergedMissingTable / MergedMissingColumn so the UI shows one decision card per finding.
-        self.display_groups: dict[str, list] = {}
-        for tbl_key, grp_entries in self.table_groups.items():
-            missing_tbl_entries = [
-                e for e in grp_entries if isinstance(e, MissingTable)
-            ]
-            non_tbl_entries = [
-                e for e in grp_entries if not isinstance(e, MissingTable)
-            ]
-
-            display: list = []
-            if missing_tbl_entries:
-                first = missing_tbl_entries[0]
-                merged_tbl = MergedMissingTable(
-                    schema_name=first.schema_name,
-                    table_name=first.table_name,
-                    missing_from_profiles=tuple(
-                        sorted(e.missing_from_profile for e in missing_tbl_entries)
-                    ),
-                    present_columns=first.present_columns,
-                )
-                display.append(merged_tbl)
-                self.decisions[merged_tbl] = self.get_default_decision(merged_tbl)
-
-            # Process non-table entries while preserving order and merging MissingColumn siblings
-            seen_merged_cols: set[str] = set()
-            for entry in non_tbl_entries:
-                if isinstance(entry, MissingColumn):
-                    col_name = entry.column_name
-                    if col_name not in seen_merged_cols:
-                        seen_merged_cols.add(col_name)
-                        siblings = [
-                            e
-                            for e in non_tbl_entries
-                            if isinstance(e, MissingColumn)
-                            and e.column_name == col_name
-                        ]
-                        merged_col = MergedMissingColumn(
-                            schema_name=entry.schema_name,
-                            table_name=entry.table_name,
-                            column_name=entry.column_name,
-                            missing_from_profiles=tuple(
-                                sorted(e.missing_from_profile for e in siblings)
-                            ),
-                            present_attributes=entry.present_attributes,
-                        )
-                        display.append(merged_col)
-                        self.decisions[merged_col] = self.get_default_decision(
-                            merged_col
-                        )
-                else:
-                    display.append(entry)
-
-            self.display_groups[tbl_key] = display
-
-    BINDINGS = [
-        Binding("escape", "back", "Cancelar"),
-        Binding("g,G", "generate_sql", "Generar SQL"),
-        Binding("v,V", "open_sp_verification", "Verificar SPs"),
-    ]
+        # One decision card per merged finding; every decision starts as
+        # (None, ()) — "do nothing" — until the user picks a target.
+        self.display_groups = group_findings(entries)
+        self.table_keys = sorted(self.display_groups)
+        self.decisions: dict[DecisionEntry, tuple[object, tuple[str, ...]]] = {
+            card: (None, ()) for cards in self.display_groups.values() for card in cards
+        }
 
     def compose(self) -> ComposeResult:
         with Container(id="decision-container"):
@@ -309,14 +215,6 @@ class DecisionScreen(Screen):
             tbl_key = self.table_by_id[event.item.id]
             self.show_resolution_form(tbl_key)
 
-    def get_default_decision(self, entry) -> tuple:
-        """Default decision is (None, ()) ('No hacer nada' / 'Ignorar').
-
-        This ensures the user starts with a clean slate and only actively selects
-        the items they explicitly want to modify, create, or delete.
-        """
-        return None, ()
-
     def show_resolution_form(self, tbl_key: str) -> None:
         right_panel = self.query_one("#right-panel")
         right_panel.remove_children()
@@ -358,116 +256,10 @@ class DecisionScreen(Screen):
         )
 
     def action_generate_sql(self) -> None:
-        from schema_comparator.compare.consolidation import (
-            ColumnDeletionResolution,
-            ColumnResolution,
-            TableDeletionResolution,
-            TableResolution,
-            write_sql_scripts,
-        )
+        from schema_comparator.compare.consolidation import write_sql_scripts
 
-        resolutions = []
-        table_resolutions = []
-        table_deletions = []
-        column_deletions = []
-        for entry, (target, dests) in self.decisions.items():
-            if target is not None and dests:
-                schema, table = entry.qualified_name
-                if isinstance(entry, (MissingTable, MergedMissingTable)):
-                    if target is TableAction.DROP:
-                        # Only drop from profiles where the table actually exists.
-                        # For MergedMissingTable this guards against absent profiles
-                        # accidentally appearing in dests.
-                        if isinstance(entry, MergedMissingTable):
-                            present_profiles = {
-                                prof for prof, _ in entry.present_columns
-                            }
-                            actual_dests = tuple(
-                                d for d in dests if d in present_profiles
-                            )
-                        else:
-                            actual_dests = tuple(dests)
-                        if actual_dests:
-                            table_deletions.append(
-                                TableDeletionResolution(
-                                    schema_name=schema,
-                                    table_name=table,
-                                    profiles_to_update=actual_dests,
-                                )
-                            )
-                    else:
-                        source_prof = target
-                        # For MergedMissingTable, only create in profiles where table is absent.
-                        if isinstance(entry, MergedMissingTable):
-                            absent_profiles = set(entry.missing_from_profiles)
-                            actual_dests = tuple(
-                                d for d in dests if d in absent_profiles
-                            )
-                        else:
-                            actual_dests = tuple(dests)
-                        columns = None
-                        for prof, cols in entry.present_columns:
-                            if prof == source_prof:
-                                columns = cols
-                                break
-                        if columns and actual_dests:
-                            table_resolutions.append(
-                                TableResolution(
-                                    schema_name=schema,
-                                    table_name=table,
-                                    columns=columns,
-                                    profiles_to_update=actual_dests,
-                                )
-                            )
-                else:
-                    is_missing = isinstance(entry, (MissingColumn, MergedMissingColumn))
-                    if target is ColumnAction.DROP:
-                        present_profiles = {
-                            profile_name
-                            for profile_name, _ in (
-                                entry.present_attributes
-                                if isinstance(
-                                    entry, (MissingColumn, MergedMissingColumn)
-                                )
-                                else entry.values_by_profile
-                            )
-                        }
-                        actual_dests = tuple(d for d in dests if d in present_profiles)
-                        if actual_dests:
-                            column_deletions.append(
-                                ColumnDeletionResolution(
-                                    schema_name=schema,
-                                    table_name=table,
-                                    column_name=entry.column_name,
-                                    profiles_to_update=actual_dests,
-                                )
-                            )
-                    else:
-                        if isinstance(entry, MergedMissingColumn):
-                            absent_profiles = set(entry.missing_from_profiles)
-                            actual_dests = tuple(
-                                d for d in dests if d in absent_profiles
-                            )
-                        else:
-                            actual_dests = tuple(dests)
-                        if actual_dests:
-                            resolutions.append(
-                                ColumnResolution(
-                                    schema_name=schema,
-                                    table_name=table,
-                                    column_name=entry.column_name,
-                                    target_attributes=target,
-                                    profiles_to_update=actual_dests,
-                                    is_missing_column=is_missing,
-                                )
-                            )
-
-        if (
-            not resolutions
-            and not table_resolutions
-            and not table_deletions
-            and not column_deletions
-        ):
+        resolutions = build_resolutions(self.decisions)
+        if resolutions.is_empty():
             self.app.notify(
                 "No se seleccionó ninguna corrección para generar SQL.",
                 severity="warning",
@@ -476,38 +268,16 @@ class DecisionScreen(Screen):
 
         try:
             generated_files = write_sql_scripts(
-                resolutions,
+                resolutions.columns,
                 self.repo_root,
                 list(self.profiles),
-                table_resolutions=table_resolutions,
-                table_deletions=table_deletions,
-                column_deletions=column_deletions,
+                table_resolutions=resolutions.tables,
+                table_deletions=resolutions.table_deletions,
+                column_deletions=resolutions.column_deletions,
             )
             self.dismiss(generated_files)
         except Exception as exc:
             self.app.notify(f"Error al generar scripts: {exc}", severity="error")
-
-    def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
-        """Delegate RadioSet change event to the corresponding ColumnResolutionWidget."""
-        for widget in self.query(ColumnResolutionWidget):
-            try:
-                if widget.query_one(RadioSet) == event.radio_set:
-                    widget.handle_radio_change(event.index)
-                    break
-            except Exception:
-                pass
-
-    def on_selection_list_selected_changed(
-        self, event: SelectionList.SelectedChanged
-    ) -> None:
-        """Delegate SelectionList change event to the corresponding ColumnResolutionWidget."""
-        for widget in self.query(ColumnResolutionWidget):
-            try:
-                if widget.query_one(SelectionList) == event.selection_list:
-                    widget.handle_selection_change(event.selection_list.selected)
-                    break
-            except Exception:
-                pass
 
 
 class ColumnResolutionWidget(Container):
@@ -533,7 +303,7 @@ class ColumnResolutionWidget(Container):
     """
 
     def __init__(
-        self, entry: DiffEntry, decision_screen: DecisionScreen, **kwargs
+        self, entry: DecisionEntry, decision_screen: DecisionScreen, **kwargs
     ) -> None:
         super().__init__(**kwargs)
         self.entry = entry
@@ -555,7 +325,7 @@ class ColumnResolutionWidget(Container):
             )
             options.append((None, "Ignorar discrepancia (no generar cambios)"))
 
-        elif isinstance(self.entry, (MissingColumn, MergedMissingColumn)):
+        elif isinstance(self.entry, MergedMissingColumn):
             attr_to_profiles = {}
             for prof, attrs in self.entry.present_attributes:
                 attr_to_profiles.setdefault(attrs, []).append(prof)
@@ -568,7 +338,7 @@ class ColumnResolutionWidget(Container):
             )
             options.append((None, "No agregar (Ignorar)"))
 
-        elif isinstance(self.entry, (MissingTable, MergedMissingTable)):
+        else:
             for prof, cols in self.entry.present_columns:
                 col_count = len(cols)
                 label = f"Crear con definición de '{prof}' ({col_count} columnas)"
@@ -580,84 +350,64 @@ class ColumnResolutionWidget(Container):
 
         return options
 
+    def _radio_set(self, target: object) -> RadioSet:
+        active_index = len(self.options) - 1
+        for i, (value, _) in enumerate(self.options):
+            if value == target:
+                active_index = i
+                break
+        return RadioSet(
+            *[
+                RadioButton(escape(label), value=(i == active_index))
+                for i, (_, label) in enumerate(self.options)
+            ]
+        )
+
+    def _selection_list(
+        self, target: object, selected_profiles: tuple[str, ...]
+    ) -> SelectionList:
+        selection_list = SelectionList(classes="profile-selection-list")
+        _fill_destinations(
+            selection_list,
+            destination_choices(self.entry, target, self.decision_screen.profile_names),
+            selected_profiles,
+        )
+        selection_list.disabled = target is None
+        return selection_list
+
     def compose(self) -> ComposeResult:
-        if isinstance(self.entry, (MissingTable, MergedMissingTable)):
-            # Build the title label depending on single vs merged
-            if isinstance(self.entry, MergedMissingTable):
-                absent_str = ", ".join(self.entry.missing_from_profiles)
-                yield Label(
-                    f"Tabla: [bold]{escape(f'{self.entry.schema_name}.{self.entry.table_name}')}[/bold]"
-                    f" (Tabla Faltante en [bold]{escape(absent_str)}[/bold])",
-                    classes="column-title",
-                )
-            else:
-                yield Label(
-                    f"Tabla: [bold]{escape(f'{self.entry.schema_name}.{self.entry.table_name}')}[/bold]"
-                    f" (Tabla Faltante en [bold]{escape(self.entry.missing_from_profile)}[/bold])",
-                    classes="column-title",
-                )
+        target, selected_profiles = self.decision_screen.decisions.get(
+            self.entry, (None, ())
+        )
 
-            decision = self.decision_screen.decisions.get(self.entry)
-            target, selected_profiles = decision
-
-            active_index = len(self.options) - 1
-            for i, (val, _) in enumerate(self.options):
-                if val == target:
-                    active_index = i
-                    break
-
-            yield Label("[bold]Seleccionar perfil fuente para la definición:[/bold]")
-            radio_set = RadioSet(
-                *[
-                    RadioButton(escape(label), value=(i == active_index))
-                    for i, (_, label) in enumerate(self.options)
-                ]
+        if isinstance(self.entry, MergedMissingTable):
+            absent_str = ", ".join(self.entry.missing_from_profiles)
+            yield Label(
+                f"Tabla: [bold]{escape(f'{self.entry.schema_name}.{self.entry.table_name}')}[/bold]"
+                f" (Tabla Faltante en [bold]{escape(absent_str)}[/bold])",
+                classes="column-title",
             )
-            yield radio_set
+            yield Label("[bold]Seleccionar perfil fuente para la definición:[/bold]")
+            yield self._radio_set(target)
 
             # Show column preview of the currently selected source
             if target is not None and target is not TableAction.DROP:
-                for prof, cols in self.entry.present_columns:
-                    if prof == target:
-                        col_preview = ", ".join(
-                            f"[cyan]{escape(c.name)}[/cyan]" for c in cols[:10]
-                        )
-                        if len(cols) > 10:
-                            col_preview += f" ... (+{len(cols) - 10} más)"
-                        yield Label(f"[dim]Columnas: {col_preview}[/dim]")
-                        break
+                cols = dict(self.entry.present_columns).get(target)
+                if cols is not None:
+                    col_preview = ", ".join(
+                        f"[cyan]{escape(c.name)}[/cyan]" for c in cols[:10]
+                    )
+                    if len(cols) > 10:
+                        col_preview += f" ... (+{len(cols) - 10} más)"
+                    yield Label(f"[dim]Columnas: {col_preview}[/dim]")
 
-            is_drop = target is TableAction.DROP
             yield Label(
                 "[bold]Eliminar tabla en:[/bold]"
-                if is_drop
+                if target is TableAction.DROP
                 else "[bold]Crear tabla en:[/bold]",
                 classes="dest-label",
             )
-            selection_list = SelectionList(classes="profile-selection-list")
-            # For DROP: show present profiles. For CREATE: show absent profiles.
-            if isinstance(self.entry, MergedMissingTable):
-                destination_profiles = (
-                    [prof for prof, _ in self.entry.present_columns]
-                    if is_drop
-                    else list(self.entry.missing_from_profiles)
-                )
-            else:
-                destination_profiles = (
-                    [prof for prof, _ in self.entry.present_columns]
-                    if is_drop
-                    else [self.entry.missing_from_profile]
-                )
-            for profile_name in destination_profiles:
-                selection_list.add_option(
-                    (
-                        escape(profile_name),
-                        profile_name,
-                        profile_name in selected_profiles,
-                    )
-                )
-            selection_list.disabled = target is None
-            yield selection_list
+            yield self._selection_list(target, selected_profiles)
             return
 
         if isinstance(self.entry, MergedMissingColumn):
@@ -667,66 +417,28 @@ class ColumnResolutionWidget(Container):
                 classes="column-title",
             )
         else:
-            diff_type = (
-                "Discrepancia de Atributos"
-                if isinstance(self.entry, ColumnMismatch)
-                else "Columna Faltante"
-            )
             yield Label(
-                f"Columna: [bold]{escape(self.entry.column_name)}[/bold] ({diff_type})",
+                f"Columna: [bold]{escape(self.entry.column_name)}[/bold] (Discrepancia de Atributos)",
                 classes="column-title",
             )
 
-        # RadioSet
-        decision = self.decision_screen.decisions.get(self.entry)
-        target_attrs, selected_profiles = decision
-
-        active_index = len(self.options) - 1
-        for i, (attrs, _) in enumerate(self.options):
-            if attrs == target_attrs:
-                active_index = i
-                break
-
         yield Label("[bold]Seleccionar definición correcta:[/bold]")
-        radio_set = RadioSet(
-            *[
-                RadioButton(escape(label), value=(i == active_index))
-                for i, (_, label) in enumerate(self.options)
-            ]
-        )
-        yield radio_set
-
-        # SelectionList
-        is_drop = target_attrs is ColumnAction.DROP
+        yield self._radio_set(target)
         yield Label(
             "[bold]Eliminar columna en:[/bold]"
-            if is_drop
+            if target is ColumnAction.DROP
             else "[bold]Aplicar corrección en:[/bold] (Presiona [Espacio] para marcar/desmarcar)",
             classes="dest-label",
         )
-        if is_drop:
-            dest_profiles = [
-                profile_name
-                for profile_name, _ in (
-                    self.entry.present_attributes
-                    if isinstance(self.entry, (MissingColumn, MergedMissingColumn))
-                    else self.entry.values_by_profile
-                )
-            ]
-        else:
-            if isinstance(self.entry, ColumnMismatch):
-                dest_profiles = list(self.decision_screen.profile_names)
-            elif isinstance(self.entry, MergedMissingColumn):
-                dest_profiles = list(self.entry.missing_from_profiles)
-            else:
-                dest_profiles = [self.entry.missing_from_profile]
+        yield self._selection_list(target, selected_profiles)
 
-        selection_list = SelectionList(classes="profile-selection-list")
-        for p in dest_profiles:
-            selection_list.add_option((escape(p), p, p in selected_profiles))
+    def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
+        self.handle_radio_change(event.index)
 
-        selection_list.disabled = target_attrs is None
-        yield selection_list
+    def on_selection_list_selected_changed(
+        self, event: SelectionList.SelectedChanged
+    ) -> None:
+        self.handle_selection_change(event.selection_list.selected)
 
     def handle_radio_change(self, idx: int) -> None:
         """Handle option changes from the radio button set."""
@@ -735,83 +447,20 @@ class ColumnResolutionWidget(Container):
 
         target, _ = self.options[idx]
         selection_list = self.query_one(SelectionList)
-
         if target is None:
             selection_list.disabled = True
             selection_list.deselect_all()
             self.decision_screen.decisions[self.entry] = (None, ())
-        elif isinstance(self.entry, (MissingTable, MergedMissingTable)):
-            selection_list.disabled = False
-            is_drop = target is TableAction.DROP
-            # For DROP: destination = profiles where table EXISTS (present_columns).
-            # For CREATE: destination = profiles where table is ABSENT.
-            if isinstance(self.entry, MergedMissingTable):
-                default_dests = (
-                    tuple(prof for prof, _ in self.entry.present_columns)
-                    if is_drop
-                    else self.entry.missing_from_profiles
-                )
-                destination_profiles = (
-                    [prof for prof, _ in self.entry.present_columns]
-                    if is_drop
-                    else list(self.entry.missing_from_profiles)
-                )
-            else:
-                default_dests = (
-                    tuple(prof for prof, _ in self.entry.present_columns)
-                    if is_drop
-                    else (self.entry.missing_from_profile,)
-                )
-                destination_profiles = (
-                    [prof for prof, _ in self.entry.present_columns]
-                    if is_drop
-                    else [self.entry.missing_from_profile]
-                )
-            selection_list.clear_options()
-            for profile_name in destination_profiles:
-                selection_list.add_option(
-                    (
-                        profile_name,
-                        profile_name,
-                        profile_name in default_dests,
-                    )
-                )
-            self.decision_screen.decisions[self.entry] = (target, default_dests)
-        elif target is ColumnAction.DROP:
-            selection_list.disabled = False
-            default_dests = tuple(
-                profile_name
-                for profile_name, _ in (
-                    self.entry.present_attributes
-                    if isinstance(self.entry, (MissingColumn, MergedMissingColumn))
-                    else self.entry.values_by_profile
-                )
-            )
-            selection_list.clear_options()
-            for profile_name in default_dests:
-                selection_list.add_option((profile_name, profile_name, True))
-            self.decision_screen.decisions[self.entry] = (target, default_dests)
-        else:
-            selection_list.disabled = False
-            if isinstance(self.entry, ColumnMismatch):
-                default_dests = tuple(
-                    prof
-                    for prof, attrs in self.entry.values_by_profile
-                    if attrs != target
-                )
-                dest_profiles = list(self.decision_screen.profile_names)
-            elif isinstance(self.entry, MergedMissingColumn):
-                default_dests = self.entry.missing_from_profiles
-                dest_profiles = list(self.entry.missing_from_profiles)
-            else:
-                default_dests = (self.entry.missing_from_profile,)
-                dest_profiles = [self.entry.missing_from_profile]
+            return
 
-            selection_list.clear_options()
-            for p in dest_profiles:
-                selection_list.add_option((p, p, p in default_dests))
-
-            self.decision_screen.decisions[self.entry] = (target, default_dests)
+        defaults = default_destinations(self.entry, target)
+        selection_list.disabled = False
+        _fill_destinations(
+            selection_list,
+            destination_choices(self.entry, target, self.decision_screen.profile_names),
+            defaults,
+        )
+        self.decision_screen.decisions[self.entry] = (target, defaults)
 
     def handle_selection_change(self, selected_items: list[str]) -> None:
         """Handle selected profiles changes from the selection list."""
