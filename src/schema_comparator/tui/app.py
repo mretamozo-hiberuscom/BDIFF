@@ -311,12 +311,23 @@ class SchemaComparatorApp(App):
 
     def action_open_decision_screen(self) -> None:
         from schema_comparator.tui.decision_screen import DecisionScreen
+        from schema_comparator.compare.consolidation import (
+            ConsolidationNotSupportedError,
+            unsupported_consolidation_profiles,
+        )
         from schema_comparator.compare.models import (
             ColumnMismatch,
             MissingColumn,
             MissingTable,
         )
         from pathlib import Path
+
+        unsupported = unsupported_consolidation_profiles(self._profiles)
+        if unsupported:
+            self.query_one(StatusLog).error(
+                str(ConsolidationNotSupportedError.for_profiles(unsupported))
+            )
+            return
 
         relevant_entries = [
             e

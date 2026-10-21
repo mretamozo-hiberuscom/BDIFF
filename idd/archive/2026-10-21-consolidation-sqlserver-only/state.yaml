@@ -1,0 +1,233 @@
+{
+  "schema": "idd-state/v1",
+  "change": "consolidation-sqlserver-only",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "La consolidación de la TUI genera siempre T-SQL (compare/consolidation.py:13) aunque los perfiles sean PostgreSQL, MySQL, Oracle o SQLite, produciendo scripts inejecutables",
+    "acceptance": "Con algún perfil de otro motor, la TUI no abre la consolidación y explica que solo está disponible para SQL Server; write_sql_scripts rechaza perfiles no SQL Server; con perfiles SQL Server nada cambia"
+  },
+  "facts": {
+    "basis": "Decisión del usuario 2026-10-21: 'Restringir a SQL Server: si hay perfiles de otro motor, la TUI bloquea la generación con un mensaje claro'"
+  },
+  "plan": {
+    "paths": [
+      "src/schema_comparator/compare/consolidation.py",
+      "src/schema_comparator/tui/app.py",
+      "tests/unit/compare/test_consolidation_providers.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "components compare, presentation: ADR 0001, 0003, 0005, 0006, 0007 and quality scenario mutation-requires-confirmation, no-false-drift, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "none",
+      "reason": "La regla vive en compare/consolidation; la TUI solo la consulta"
+    },
+    {
+      "kind": "adr",
+      "id": "0003",
+      "impact": "none",
+      "reason": "Sin cambios de comparación"
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "conforms",
+      "reason": "Evita renderizar T-SQL para un motor destino distinto; los renderers por motor quedan en el roadmap"
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "none",
+      "reason": "Sin cambios en la recompilación"
+    },
+    {
+      "kind": "adr",
+      "id": "0007",
+      "impact": "none",
+      "reason": "Sin cambios de identidad"
+    },
+    {
+      "kind": "scenario",
+      "id": "mutation-requires-confirmation",
+      "impact": "none",
+      "reason": "Sin cambios"
+    },
+    {
+      "kind": "scenario",
+      "id": "no-false-drift",
+      "impact": "none",
+      "reason": "Sin cambios"
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "none",
+      "reason": "El mensaje solo nombra perfiles"
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "none",
+      "reason": "Sin efecto"
+    }
+  ],
+  "attestations": [
+    {
+      "kind": "adr",
+      "id": "0006",
+      "evidence": "commit() solo en sp_validator.py:360",
+      "recorded_at": "2026-10-21T11:24:03.501Z"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T11:23:52.309Z",
+      "detail": {
+        "red": "run-1",
+        "green": "run-2"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T11:24:20.303Z",
+      "detail": {
+        "tree": "sha256:4253d8d67787082f37fd52cf6f5c1bb63d31f43f8cb1cf52cd9ca88919b1fd6e",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T11:24:20.303Z",
+      "detail": {
+        "refs": [
+          "adr:0001 none",
+          "adr:0003 none",
+          "adr:0005 conforms",
+          "adr:0006 none",
+          "adr:0007 none",
+          "scenario:mutation-requires-confirmation none",
+          "scenario:no-false-drift none",
+          "scenario:secret-safety none",
+          "scenario:windows-first-run none"
+        ],
+        "records": [],
+        "tree": "sha256:4253d8d67787082f37fd52cf6f5c1bb63d31f43f8cb1cf52cd9ca88919b1fd6e",
+        "fitness": [
+          "run-5"
+        ]
+      }
+    }
+  ],
+  "base": "8cf6f904b539f0f46967cd895f6b899fd6b3c3f4",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/compare/test_consolidation_providers.py",
+      "exit_code": 2,
+      "output_sha256": "sha256:913f26b7135c526520119842e5a4b73b663126a1232411f114da90cd21750c7d",
+      "tree": "sha256:7280c2f86e6946823dd0cdf0a288b5253992431125aec0aed863eedc54a5ab63",
+      "recorded_at": "2026-10-21T11:23:35.708Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/compare/test_consolidation_providers.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:4a6e9c36d8f59b5f37fea72c93e4df9fc194a7d55658ccade2f5975a987ec522",
+      "tree": "sha256:3aafb8a0a19d6a6768ff7749274c0786e34d1820c4ec76241510f069e45fad46",
+      "recorded_at": "2026-10-21T11:23:52.309Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:86646a88f2a3595def459ee9d62a9f3b12ad3996a32353e43d449c53a4889c50",
+      "tree": "sha256:4253d8d67787082f37fd52cf6f5c1bb63d31f43f8cb1cf52cd9ca88919b1fd6e",
+      "recorded_at": "2026-10-21T11:24:20.303Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:de0b90a0697e70e40103dff89c8fa0abeaea565f083d63e658454ca4f8aafd7f",
+      "tree": "sha256:4253d8d67787082f37fd52cf6f5c1bb63d31f43f8cb1cf52cd9ca88919b1fd6e",
+      "recorded_at": "2026-10-21T11:24:20.303Z"
+    },
+    {
+      "id": "run-5",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f9fd93d4bfe07fbc3f2ca83028355ce747308424b00ccac0298c99213e915731",
+      "tree": "sha256:4253d8d67787082f37fd52cf6f5c1bb63d31f43f8cb1cf52cd9ca88919b1fd6e",
+      "recorded_at": "2026-10-21T11:24:20.303Z"
+    }
+  ],
+  "closed_at": "2026-10-21T11:24:20.357Z"
+}

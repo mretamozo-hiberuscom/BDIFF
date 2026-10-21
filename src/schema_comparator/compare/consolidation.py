@@ -10,9 +10,29 @@ from schema_comparator.domain.comparison.models import (
     NamedColumnAttributes,
 )
 from schema_comparator.config.models import ConnectionProfile
+from schema_comparator.domain.errors import SchemaComparatorError
 from schema_comparator.infrastructure.providers.sqlserver.ddl_renderer import (
     generate_ddl_for_profile,
 )
+
+
+class ConsolidationNotSupportedError(SchemaComparatorError):
+    """Raised when consolidation is asked for profiles of an engine other
+    than SQL Server: the scripts it renders are T-SQL only."""
+
+    @classmethod
+    def for_profiles(cls, names: list[str]) -> "ConsolidationNotSupportedError":
+        return cls(
+            "La consolidación genera T-SQL y solo está disponible para SQL "
+            f"Server; perfiles de otros motores: {', '.join(names)}."
+        )
+
+
+def unsupported_consolidation_profiles(
+    profiles: list[ConnectionProfile],
+) -> list[str]:
+    """Names of the profiles consolidation cannot render scripts for."""
+    return sorted(p.name for p in profiles if p.provider.casefold() != "sqlserver")
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,6 +295,9 @@ def write_sql_scripts(
     column_deletions: list[ColumnDeletionResolution] | None = None,
 ) -> list[str]:
     """Create a timestamped directory inside 'scripts-db' and write transactional DDL files and impact report for all affected profiles."""
+    unsupported = unsupported_consolidation_profiles(profiles)
+    if unsupported:
+        raise ConsolidationNotSupportedError.for_profiles(unsupported)
     root_path = Path(repo_root)
     ts = timestamp or datetime.datetime.now()
     folder_name = ts.strftime("%Y%m%d_%H%M%S")
