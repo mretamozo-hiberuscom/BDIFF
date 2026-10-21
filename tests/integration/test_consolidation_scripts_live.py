@@ -1,0 +1,1467 @@
+"""Generated consolidation scripts run against a real SQL Server.
+
+Each test writes the scripts with `write_sql_scripts`, runs the profile's
+file through sqlcmd in a fresh database and checks the schema it leaves.
+Skipped without Docker (see `conftest.py`).
+"""
+
+import datetime
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+
+from schema_comparator.compare.consolidation import (
+    ColumnDeletionResolution,
+    ColumnResolution,
+    TableDeletionResolution,
+    TableResolution,
+    write_sql_scripts,
+)
+from schema_comparator.compare.models import ColumnAttributes, NamedColumnAttributes
+from schema_comparator.config.models import ConnectionProfile
+
+_PROFILE = "destino"
+_TIMESTAMP = datetime.datetime(2026, 10, 21, 12, 0, 0)
+
+
+def _attrs(
+    data_type: str,
+    *,
+    length: int | None = None,
+    precision: int | None = None,
+    scale: int | None = None,
+    nullable: bool = True,
+    default: str | None = None,
+) -> ColumnAttributes:
+    return ColumnAttributes(
+        data_type=data_type,
+        character_maximum_length=length,
+        numeric_precision=precision,
+        numeric_scale=scale,
+        is_nullable=nullable,
+        default_expression=default,
+    )
+
+
+def _script(tmp_path: Path, database: str, **resolutions) -> Path:
+    """The profile's generated script file for `database`."""
+    profile = ConnectionProfile(
+        name=_PROFILE, connection_string=f"Server=localhost;Database={database};"
+    )
+    written = write_sql_scripts(
+        resolutions.pop("columns", []),
+        tmp_path,
+        [profile],
+        timestamp=_TIMESTAMP,
+        **resolutions,
+    )
+    script = next(path for path in written if path.endswith(f"{_PROFILE}.sql"))
+    return Path(script)
+
+
+def _columns(server, database: str, table: str) -> dict[str, tuple[str, ...]]:
+    rows = server.query(
+        "SELECT COLUMN_NAME, DATA_TYPE, "
+        "ISNULL(CAST(CHARACTER_MAXIMUM_LENGTH AS varchar(10)), ''), IS_NULLABLE "
+        "FROM INFORMATION_SCHEMA.COLUMNS "
+        f"WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'{table}'",
+        database=database,
+    )
+    return {row[0]: row[1:] for row in rows}
+
+
+def _tables(server, database: str) -> set[str]:
+    rows = server.query(
+        "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES "
+        "WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA <> N'bdiff_respaldo'",
+        database=database,
+    )
+    return {row[0] for row in rows}
+
+
+def _setup(server, database: str, sql: str) -> None:
+    result = server.run(f"{sql}\nGO\n", database=database)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def _apply(server, script: Path) -> None:
+    result = server.run_file(script)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_creates_a_missing_table(mssql_server, mssql_db, tmp_path) -> None:
+    script = _script(
+        tmp_path,
+        mssql_db,
+        table_resolutions=[
+            TableResolution(
+                schema_name="dbo",
+                table_name="clientes",
+                columns=(
+                    NamedColumnAttributes("id", _attrs("int", nullable=False)),
+                    NamedColumnAttributes("nombre", _attrs("nvarchar", length=80)),
+                ),
+                profiles_to_update=(_PROFILE,),
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    assert _columns(mssql_server, mssql_db, "clientes") == {
+        "id": ("int", "", "NO"),
+        "nombre": ("nvarchar", "80", "YES"),
+    }
+
+
+def test_escapes_quotes_brackets_and_accents_in_identifiers(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    script = _script(
+        tmp_path,
+        mssql_db,
+        table_resolutions=[
+            TableResolution(
+                schema_name="dbo",
+                table_name="Año]x",
+                columns=(NamedColumnAttributes("o'brien", _attrs("int")),),
+                profiles_to_update=(_PROFILE,),
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    assert _columns(mssql_server, mssql_db, "Año]x") == {"o'brien": ("int", "", "YES")}
+
+
+def test_adds_columns_and_backfills_a_not_null_one(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.pedidos (id int NOT NULL); INSERT dbo.pedidos VALUES (1), (2);",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="pedidos",
+                column_name="nota",
+                target_attributes=_attrs("varchar", length=50),
+                profiles_to_update=(_PROFILE,),
+                is_missing_column=True,
+            ),
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="pedidos",
+                column_name="estado",
+                target_attributes=_attrs("int", nullable=False, default="((7))"),
+                profiles_to_update=(_PROFILE,),
+                is_missing_column=True,
+            ),
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    assert _columns(mssql_server, mssql_db, "pedidos") == {
+        "id": ("int", "", "NO"),
+        "nota": ("varchar", "50", "YES"),
+        "estado": ("int", "", "NO"),
+    }
+    assert mssql_server.query(
+        "SELECT DISTINCT estado FROM dbo.pedidos", database=mssql_db
+    ) == [("7",)]
+
+
+def test_widens_a_column_and_makes_it_not_null(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.productos (codigo varchar(10) NULL);"
+        " INSERT dbo.productos VALUES ('A1'), (NULL);",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="productos",
+                column_name="codigo",
+                target_attributes=_attrs("varchar", length=40, nullable=False),
+                profiles_to_update=(_PROFILE,),
+                is_missing_column=False,
+                backfill_value="SIN-CODIGO",
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    assert _columns(mssql_server, mssql_db, "productos") == {
+        "codigo": ("varchar", "40", "NO")
+    }
+    assert mssql_server.query(
+        "SELECT codigo FROM dbo.productos ORDER BY codigo", database=mssql_db
+    ) == [("A1",), ("SIN-CODIGO",)]
+
+
+def test_drops_a_column_with_its_index_check_and_default(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.stock (id int NOT NULL,"
+        " cantidad int NOT NULL CONSTRAINT DF_stock_cantidad DEFAULT 0"
+        " CONSTRAINT CK_stock_cantidad CHECK (cantidad >= 0));"
+        " CREATE INDEX IX_stock_cantidad ON dbo.stock (cantidad);",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        column_deletions=[
+            ColumnDeletionResolution(
+                schema_name="dbo",
+                table_name="stock",
+                column_name="cantidad",
+                profiles_to_update=(_PROFILE,),
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    assert _columns(mssql_server, mssql_db, "stock") == {"id": ("int", "", "NO")}
+
+
+def test_drops_a_table_referenced_by_a_foreign_key(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.paises (id int NOT NULL PRIMARY KEY);"
+        " CREATE TABLE dbo.ciudades (id int NOT NULL,"
+        " pais_id int NOT NULL CONSTRAINT FK_ciudades_paises REFERENCES dbo.paises (id));",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        table_deletions=[
+            TableDeletionResolution(
+                schema_name="dbo", table_name="paises", profiles_to_update=(_PROFILE,)
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    assert _tables(mssql_server, mssql_db) == {"ciudades"}
+
+
+def test_running_a_script_twice_changes_nothing_the_second_time(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(mssql_server, mssql_db, "CREATE TABLE dbo.lineas (id int NOT NULL);")
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="lineas",
+                column_name="importe",
+                target_attributes=_attrs("decimal", precision=12, scale=2),
+                profiles_to_update=(_PROFILE,),
+                is_missing_column=True,
+            )
+        ],
+        table_resolutions=[
+            TableResolution(
+                schema_name="dbo",
+                table_name="facturas",
+                columns=(NamedColumnAttributes("id", _attrs("int", nullable=False)),),
+                profiles_to_update=(_PROFILE,),
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+    _apply(mssql_server, script)
+
+    assert _tables(mssql_server, mssql_db) == {"lineas", "facturas"}
+    assert _columns(mssql_server, mssql_db, "lineas") == {
+        "id": ("int", "", "NO"),
+        "importe": ("decimal", "", "YES"),
+    }
+
+
+@pytest.mark.parametrize("stop_on_error", [True, False], ids=["sqlcmd-b", "ssms"])
+def test_a_failing_step_leaves_the_database_unchanged(
+    mssql_server, mssql_db, tmp_path, stop_on_error
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.ventas (codigo varchar(20) NOT NULL);"
+        " INSERT dbo.ventas VALUES ('no-numerico');",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        table_resolutions=[
+            TableResolution(
+                schema_name="dbo",
+                table_name="nueva",
+                columns=(NamedColumnAttributes("id", _attrs("int")),),
+                profiles_to_update=(_PROFILE,),
+            )
+        ],
+        columns=[
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="ventas",
+                column_name="extra",
+                target_attributes=_attrs("int"),
+                profiles_to_update=(_PROFILE,),
+                is_missing_column=True,
+            ),
+            # 'no-numerico' cannot become an int: with the loss accepted the
+            # check lets it through and the ALTER fails after earlier steps.
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="ventas",
+                column_name="codigo",
+                target_attributes=_attrs("int", nullable=False),
+                profiles_to_update=(_PROFILE,),
+                is_missing_column=False,
+                accept_data_loss=True,
+            ),
+        ],
+    )
+
+    result = mssql_server.run_file(script, stop_on_error=stop_on_error)
+
+    assert "Transaccion abortada" in result.stdout
+    if stop_on_error:
+        assert result.returncode != 0
+    assert _tables(mssql_server, mssql_db) == {"ventas"}
+    assert _columns(mssql_server, mssql_db, "ventas") == {
+        "codigo": ("varchar", "20", "NO")
+    }
+    assert mssql_server.query(
+        "SELECT COUNT(*) FROM sys.dm_tran_active_transactions t"
+        " JOIN sys.dm_tran_database_transactions d ON t.transaction_id = d.transaction_id"
+        f" WHERE d.database_id = DB_ID(N'{mssql_db}')"
+    ) == [("0",)]
+
+
+@pytest.mark.parametrize("stop_on_error", [True, False], ids=["sqlcmd-b", "ssms"])
+def test_changes_nothing_elsewhere_when_the_database_does_not_exist(
+    mssql_server, tmp_path, stop_on_error
+) -> None:
+    table = f"huerfana_{'b' if stop_on_error else 's'}"
+    script = _script(
+        tmp_path,
+        "bdiff_no_existe",
+        table_resolutions=[
+            TableResolution(
+                schema_name="dbo",
+                table_name=table,
+                columns=(NamedColumnAttributes("id", _attrs("int")),),
+                profiles_to_update=(_PROFILE,),
+            )
+        ],
+    )
+
+    try:
+        result = mssql_server.run_file(script, stop_on_error=stop_on_error)
+
+        if stop_on_error:
+            assert result.returncode != 0
+        assert table not in _tables(mssql_server, "master")
+    finally:
+        mssql_server.run(f"DROP TABLE IF EXISTS dbo.{table};\nGO\n")
+
+
+def test_a_failure_reports_the_original_error_number(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.ventas (codigo varchar(20) NOT NULL);"
+        " INSERT dbo.ventas VALUES ('no-numerico');",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="ventas",
+                column_name="codigo",
+                target_attributes=_attrs("int", nullable=False),
+                profiles_to_update=(_PROFILE,),
+                is_missing_column=False,
+                accept_data_loss=True,
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    assert result.returncode != 0
+    # 245: conversion failed; a re-raise through RAISERROR would say 50000.
+    assert "Msg 245," in result.stdout
+
+
+def test_modifies_a_column_whose_names_fall_outside_the_code_page(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    # The database's default collation is Latin1: '注文' as a varchar
+    # literal becomes '??' and would match nothing.
+    _setup(mssql_server, mssql_db, "CREATE TABLE dbo.[注文] ([数量] varchar(10) NULL);")
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="注文",
+                column_name="数量",
+                target_attributes=_attrs("varchar", length=40),
+                profiles_to_update=(_PROFILE,),
+                is_missing_column=False,
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    assert _columns(mssql_server, mssql_db, "注文") == {
+        "数量": ("varchar", "40", "YES")
+    }
+
+
+def test_drops_a_referenced_table_whose_name_has_a_bracket(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.[pa]]ises] (id int NOT NULL PRIMARY KEY);"
+        " CREATE TABLE dbo.ciudades (pais_id int NOT NULL"
+        " CONSTRAINT FK_ciudades_paises REFERENCES dbo.[pa]]ises] (id));",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        table_deletions=[
+            TableDeletionResolution(
+                schema_name="dbo", table_name="pa]ises", profiles_to_update=(_PROFILE,)
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    assert _tables(mssql_server, mssql_db) == {"ciudades"}
+
+
+def _modify(table: str, column: str, target: ColumnAttributes, observed=None):
+    return ColumnResolution(
+        schema_name="dbo",
+        table_name=table,
+        column_name=column,
+        target_attributes=target,
+        profiles_to_update=(_PROFILE,),
+        is_missing_column=False,
+        observed_by_profile=((_PROFILE, observed),) if observed else (),
+    )
+
+
+def _new_table(table: str) -> TableResolution:
+    return TableResolution(
+        schema_name="dbo",
+        table_name=table,
+        columns=(NamedColumnAttributes("id", _attrs("int", nullable=False)),),
+        profiles_to_update=(_PROFILE,),
+    )
+
+
+def _assert_aborted(result, *fragments: str) -> None:
+    assert result.returncode != 0, result.stdout
+    for fragment in fragments:
+        assert fragment in result.stdout, result.stdout
+
+
+def test_aborts_before_any_change_when_a_column_to_modify_is_missing(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(mssql_server, mssql_db, "CREATE TABLE dbo.clientes (id int NOT NULL);")
+    script = _script(
+        tmp_path,
+        mssql_db,
+        table_resolutions=[_new_table("auditoria")],
+        columns=[_modify("clientes", "email", _attrs("varchar", length=200))],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[clientes].[email]", "no existe")
+    assert _tables(mssql_server, mssql_db) == {"clientes"}
+
+
+def test_aborts_when_a_table_to_create_exists_with_another_definition(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(mssql_server, mssql_db, "CREATE TABLE dbo.auditoria (id bigint NULL);")
+    script = _script(tmp_path, mssql_db, table_resolutions=[_new_table("auditoria")])
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[auditoria]", "otra definicion")
+    assert _columns(mssql_server, mssql_db, "auditoria") == {
+        "id": ("bigint", "", "YES")
+    }
+
+
+def test_aborts_when_a_column_changed_since_the_comparison(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    # Compared as varchar(10); someone widened it to varchar(15) since.
+    _setup(
+        mssql_server, mssql_db, "CREATE TABLE dbo.productos (codigo varchar(15) NULL);"
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _modify(
+                "productos",
+                "codigo",
+                _attrs("varchar", length=40),
+                observed=_attrs("varchar", length=10),
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[productos].[codigo]", "difiere de lo comparado")
+    assert _columns(mssql_server, mssql_db, "productos") == {
+        "codigo": ("varchar", "15", "YES")
+    }
+
+
+def test_aborts_when_a_column_to_add_exists_with_another_definition(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(mssql_server, mssql_db, "CREATE TABLE dbo.pedidos (nota varchar(5) NULL);")
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="pedidos",
+                column_name="nota",
+                target_attributes=_attrs("varchar", length=50),
+                profiles_to_update=(_PROFILE,),
+                is_missing_column=True,
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[pedidos].[nota]", "otra definicion")
+
+
+def test_skips_a_step_already_in_the_target_state(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server, mssql_db, "CREATE TABLE dbo.productos (codigo varchar(40) NULL);"
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _modify(
+                "productos",
+                "codigo",
+                _attrs("varchar", length=40),
+                observed=_attrs("varchar", length=10),
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    assert result.returncode == 0, result.stdout
+    assert "ya aplicado; se omite" in result.stdout
+    assert "modificada con exito" not in result.stdout
+
+
+def _change(table: str, column: str, target, observed, **options):
+    return ColumnResolution(
+        schema_name="dbo",
+        table_name=table,
+        column_name=column,
+        target_attributes=target,
+        profiles_to_update=(_PROFILE,),
+        is_missing_column=False,
+        observed_by_profile=((_PROFILE, observed),),
+        **options,
+    )
+
+
+def test_aborts_with_the_count_when_nulls_have_no_fill_value(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.clientes (pais varchar(20) NULL);"
+        " INSERT dbo.clientes VALUES ('ES'), (NULL), (NULL);",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        table_resolutions=[_new_table("auditoria")],
+        columns=[
+            _change(
+                "clientes",
+                "pais",
+                _attrs("varchar", length=20, nullable=False),
+                _attrs("varchar", length=20),
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[clientes].[pais]", "2 fila(s) con NULL")
+    assert _tables(mssql_server, mssql_db) == {"clientes"}
+    assert mssql_server.query(
+        "SELECT COUNT(*) FROM dbo.clientes WHERE pais IS NULL", database=mssql_db
+    ) == [("2",)]
+
+
+def test_aborts_when_the_fill_value_does_not_fit_the_type(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.stock (cantidad int NULL); INSERT dbo.stock VALUES (NULL);",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _change(
+                "stock",
+                "cantidad",
+                _attrs("int", nullable=False),
+                _attrs("int"),
+                backfill_value="mucho",
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[stock].[cantidad]", "valor de relleno")
+
+
+def test_aborts_adding_a_not_null_column_without_fill_to_a_table_with_rows(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.pedidos (id int NOT NULL); INSERT dbo.pedidos VALUES (1);"
+        " CREATE TABLE dbo.vacia (id int NOT NULL);",
+    )
+
+    def add(table: str) -> ColumnResolution:
+        return ColumnResolution(
+            schema_name="dbo",
+            table_name=table,
+            column_name="estado",
+            target_attributes=_attrs("int", nullable=False),
+            profiles_to_update=(_PROFILE,),
+            is_missing_column=True,
+        )
+
+    failing = mssql_server.run_file(
+        _script(tmp_path / "con-filas", mssql_db, columns=[add("pedidos")])
+    )
+    _apply(mssql_server, _script(tmp_path / "vacia", mssql_db, columns=[add("vacia")]))
+
+    _assert_aborted(failing, "[dbo].[pedidos].[estado]", "1 fila(s)")
+    assert "estado" not in _columns(mssql_server, mssql_db, "pedidos")
+    assert _columns(mssql_server, mssql_db, "vacia")["estado"] == ("int", "", "NO")
+
+
+@pytest.mark.parametrize(
+    ("setup", "observed", "target"),
+    [
+        (
+            "CREATE TABLE dbo.t (c varchar(20) NULL); INSERT dbo.t VALUES ('abcdefgh');",
+            _attrs("varchar", length=20),
+            _attrs("varchar", length=5),
+        ),
+        (
+            "CREATE TABLE dbo.t (c nvarchar(10) NULL); INSERT dbo.t VALUES (N'日本');",
+            _attrs("nvarchar", length=10),
+            _attrs("varchar", length=10),
+        ),
+        (
+            "CREATE TABLE dbo.t (c decimal(10,4) NULL); INSERT dbo.t VALUES (1.2345);",
+            _attrs("decimal", precision=10, scale=4),
+            _attrs("decimal", precision=10, scale=2),
+        ),
+        (
+            "CREATE TABLE dbo.t (c varchar(20) NULL); INSERT dbo.t VALUES ('x1');",
+            _attrs("varchar", length=20),
+            _attrs("int"),
+        ),
+    ],
+    ids=["truncate", "unicode-to-codepage", "round-scale", "not-convertible"],
+)
+def test_aborts_with_the_count_when_a_change_would_lose_data(
+    mssql_server, mssql_db, tmp_path, setup, observed, target
+) -> None:
+    _setup(mssql_server, mssql_db, setup)
+    before = mssql_server.query(
+        "SELECT CAST(c AS nvarchar(50)) FROM dbo.t", database=mssql_db
+    )
+    script = _script(tmp_path, mssql_db, columns=[_change("t", "c", target, observed)])
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[t].[c]", "1 fila(s) perderian datos")
+    assert (
+        mssql_server.query(
+            "SELECT CAST(c AS nvarchar(50)) FROM dbo.t", database=mssql_db
+        )
+        == before
+    )
+
+
+def test_applies_an_accepted_data_loss_and_says_so_in_the_script(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.t (c nvarchar(10) NULL); INSERT dbo.t VALUES (N'日本');",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _change(
+                "t",
+                "c",
+                _attrs("varchar", length=10),
+                _attrs("nvarchar", length=10),
+                accept_data_loss=True,
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    assert result.returncode == 0, result.stdout
+    assert "perdida de datos aceptada" in script.read_text(encoding="utf-8-sig")
+    assert _columns(mssql_server, mssql_db, "t") == {"c": ("varchar", "10", "YES")}
+
+
+def test_a_not_null_change_on_a_missing_column_reports_the_step(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    # A query naming a missing column breaks the compilation of the whole
+    # batch; the checks must still report which step and object failed.
+    _setup(mssql_server, mssql_db, "CREATE TABLE dbo.clientes (id int NOT NULL);")
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _change(
+                "clientes",
+                "email",
+                _attrs("varchar", length=50, nullable=False),
+                _attrs("varchar", length=50),
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[clientes].[email]", "no existe")
+
+
+def _dependents(server, database: str, table: str) -> set[str]:
+    """Names of the indexes, statistics and constraints of `dbo.<table>`."""
+    rows = server.query(
+        "SELECT N'index:' + name FROM sys.indexes"
+        f" WHERE object_id = OBJECT_ID(N'dbo.{table}') AND name IS NOT NULL"
+        " UNION ALL SELECT N'stats:' + name FROM sys.stats"
+        f" WHERE object_id = OBJECT_ID(N'dbo.{table}') AND user_created = 1"
+        " UNION ALL SELECT N'constraint:' + name FROM sys.objects"
+        f" WHERE parent_object_id = OBJECT_ID(N'dbo.{table}') AND type IN ('D', 'C', 'F', 'PK', 'UQ')",
+        database=database,
+    )
+    return {row[0] for row in rows}
+
+
+def test_changes_a_column_type_keeping_every_dependent_object(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.articulos (id int NOT NULL, nombre varchar(30) NULL,"
+        " codigo varchar(10) NOT NULL CONSTRAINT DF_articulos_codigo DEFAULT 'x'"
+        " CONSTRAINT CK_articulos_codigo CHECK (codigo <> 'z')"
+        " CONSTRAINT UQ_articulos_codigo UNIQUE);"
+        " CREATE INDEX IX_articulos_codigo ON dbo.articulos (codigo DESC, id)"
+        " INCLUDE (nombre) WHERE codigo > 'a';"
+        " CREATE INDEX IX_articulos_id ON dbo.articulos (id) INCLUDE (codigo);"
+        " CREATE STATISTICS ST_articulos_codigo ON dbo.articulos (codigo);"
+        " INSERT dbo.articulos VALUES (1, 'pera', 'b1');",
+    )
+    before = _dependents(mssql_server, mssql_db, "articulos")
+    observed = _extract(mssql_server, mssql_db, "articulos")["codigo"]
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _change(
+                "articulos",
+                "codigo",
+                replace(observed, data_type="nvarchar", character_maximum_length=20),
+                observed,
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    assert _columns(mssql_server, mssql_db, "articulos")["codigo"] == (
+        "nvarchar",
+        "20",
+        "NO",
+    )
+    assert _dependents(mssql_server, mssql_db, "articulos") == before
+    assert mssql_server.query(
+        "SELECT i.filter_definition, c.name, ic.is_descending_key, ic.is_included_column"
+        " FROM sys.indexes i JOIN sys.index_columns ic"
+        " ON ic.object_id = i.object_id AND ic.index_id = i.index_id"
+        " JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id"
+        " WHERE i.name = N'IX_articulos_codigo' ORDER BY ic.index_column_id",
+        database=mssql_db,
+    ) == [
+        ("([codigo]>'a')", "codigo", "1", "0"),
+        ("([codigo]>'a')", "id", "0", "0"),
+        ("([codigo]>'a')", "nombre", "0", "1"),
+    ]
+
+
+def test_changes_a_referenced_primary_key_and_its_foreign_key_together(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.paises (id int NOT NULL CONSTRAINT PK_paises PRIMARY KEY);"
+        " CREATE TABLE dbo.ciudades (id int NOT NULL, pais_id int NOT NULL"
+        " CONSTRAINT FK_ciudades_paises REFERENCES dbo.paises (id) ON DELETE CASCADE);"
+        " CREATE INDEX IX_ciudades_pais ON dbo.ciudades (pais_id);"
+        " INSERT dbo.paises VALUES (34); INSERT dbo.ciudades VALUES (1, 34);",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _change(
+                "paises",
+                "id",
+                _attrs("bigint", nullable=False),
+                _attrs("int", nullable=False),
+            ),
+            _change(
+                "ciudades",
+                "pais_id",
+                _attrs("bigint", nullable=False),
+                _attrs("int", nullable=False),
+            ),
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    assert result.returncode == 0, result.stdout
+    assert "reconstruye la tabla" in result.stdout
+    assert _columns(mssql_server, mssql_db, "paises")["id"][0] == "bigint"
+    assert _columns(mssql_server, mssql_db, "ciudades")["pais_id"][0] == "bigint"
+    assert mssql_server.query(
+        "SELECT name, delete_referential_action_desc, is_not_trusted"
+        " FROM sys.foreign_keys",
+        database=mssql_db,
+    ) == [("FK_ciudades_paises", "CASCADE", "0")]
+    assert "index:PK_paises" in _dependents(mssql_server, mssql_db, "paises")
+    assert "index:IX_ciudades_pais" in _dependents(mssql_server, mssql_db, "ciudades")
+
+
+def test_shrinks_an_indexed_column_whose_data_fits(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.t (c varchar(20) NULL); CREATE INDEX IX_t_c ON dbo.t (c);"
+        " INSERT dbo.t VALUES ('corto');",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _change(
+                "t", "c", _attrs("varchar", length=10), _attrs("varchar", length=20)
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    assert _columns(mssql_server, mssql_db, "t") == {"c": ("varchar", "10", "YES")}
+    assert "index:IX_t_c" in _dependents(mssql_server, mssql_db, "t")
+
+
+@pytest.mark.parametrize(
+    ("setup", "named"),
+    [
+        (
+            "CREATE TABLE dbo.t (c varchar(10) NULL, total AS (c + '!'));",
+            "columna calculada [total]",
+        ),
+        (
+            "CREATE TABLE dbo.t (c varchar(10) NULL);\nGO\n"
+            "CREATE VIEW dbo.v_t WITH SCHEMABINDING AS SELECT c FROM dbo.t;",
+            "[dbo].[v_t]",
+        ),
+    ],
+    ids=["computed-column", "schemabound-view"],
+)
+def test_aborts_naming_dependents_it_cannot_recreate(
+    mssql_server, mssql_db, tmp_path, setup, named
+) -> None:
+    _setup(mssql_server, mssql_db, setup)
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _change(
+                "t", "c", _attrs("nvarchar", length=10), _attrs("varchar", length=10)
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[t].[c]", "no recrea", named)
+    assert _columns(mssql_server, mssql_db, "t")["c"] == ("varchar", "10", "YES")
+
+
+def _extract(server, database: str, table: str):
+    """The table as BDIFF's SQL Server extraction reads it, run on the engine."""
+    from schema_comparator.infrastructure.providers.sqlserver import introspector
+
+    def value(text: str):
+        if text == "NULL":
+            return None
+        return int(text) if text.lstrip("-").isdigit() else text
+
+    rows = [
+        tuple(value(v) for v in row)
+        for row in server.query(introspector.CATALOG_QUERY_SQL, database=database)
+    ]
+    snapshot = introspector.build_snapshot("p", rows)
+    (found,) = [t for t in snapshot.tables if t.table_name == table]
+    return {c.name: ColumnAttributes.from_snapshot(c) for c in found.columns}
+
+
+def test_extraction_reads_default_identity_explicit_collation_and_precision(
+    mssql_server, mssql_db
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.t (id int IDENTITY(1,1) NOT NULL,"
+        " alta datetime2(3) NOT NULL CONSTRAINT DF_t_alta DEFAULT getdate(),"
+        " codigo varchar(10) COLLATE Latin1_General_CS_AS NULL,"
+        " nombre varchar(10) NULL, hora time(0) NULL);",
+    )
+
+    columns = _extract(mssql_server, mssql_db, "t")
+
+    assert columns["id"].is_identity is True
+    assert columns["alta"].default_expression == "(getdate())"
+    assert columns["alta"].datetime_precision == 3
+    assert columns["hora"].datetime_precision == 0
+    assert columns["codigo"].collation == "Latin1_General_CS_AS"
+    # Following the database's collation is not an explicit one.
+    assert columns["nombre"].collation is None
+
+
+def test_applies_default_collation_and_precision_and_verifies_them(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.t (n int NOT NULL CONSTRAINT DF_t_n_propio DEFAULT 0,"
+        " c varchar(10) COLLATE Latin1_General_CS_AS NULL, d datetime2(7) NULL);"
+        " INSERT dbo.t (n, d) VALUES (1, '2026-01-01 10:00:00.120');",
+    )
+    observed = _extract(mssql_server, mssql_db, "t")
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _change(
+                "t",
+                "n",
+                replace(observed["n"], default_expression="((1))"),
+                observed["n"],
+            ),
+            _change("t", "c", replace(observed["c"], collation=None), observed["c"]),
+            _change(
+                "t", "d", replace(observed["d"], datetime_precision=3), observed["d"]
+            ),
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    after = _extract(mssql_server, mssql_db, "t")
+    assert after["n"].default_expression == "((1))"
+    assert after["c"].collation is None
+    assert after["d"].datetime_precision == 3
+    assert mssql_server.query(
+        "SELECT name FROM sys.default_constraints", database=mssql_db
+    ) == [("DF_t_n_propio",)]
+
+
+def test_aborts_when_a_precision_cut_would_round_values(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.t (d datetime2(7) NULL);"
+        " INSERT dbo.t VALUES ('2026-01-01 10:00:00.1234567');",
+    )
+    observed = _extract(mssql_server, mssql_db, "t")["d"]
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[_change("t", "d", replace(observed, datetime_precision=2), observed)],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[t].[d]", "1 fila(s) perderian datos")
+
+
+def test_aborts_explaining_that_identity_cannot_be_changed(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(mssql_server, mssql_db, "CREATE TABLE dbo.t (id int NOT NULL);")
+    observed = _extract(mssql_server, mssql_db, "t")["id"]
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[_change("t", "id", replace(observed, is_identity=True), observed)],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[t].[id]", "IDENTITY")
+
+
+def test_creates_tables_and_columns_with_every_attribute(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.molde (id int IDENTITY(1,1) NOT NULL,"
+        " alta datetime2(3) NOT NULL DEFAULT getdate(),"
+        " codigo varchar(10) COLLATE Latin1_General_CS_AS NULL);"
+        " CREATE TABLE dbo.pedidos (id int NOT NULL); INSERT dbo.pedidos VALUES (1);",
+    )
+    molde = _extract(mssql_server, mssql_db, "molde")
+    script = _script(
+        tmp_path,
+        mssql_db,
+        table_resolutions=[
+            TableResolution(
+                schema_name="dbo",
+                table_name="copia",
+                columns=tuple(NamedColumnAttributes(n, a) for n, a in molde.items()),
+                profiles_to_update=(_PROFILE,),
+            )
+        ],
+        columns=[
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="pedidos",
+                column_name="estado",
+                target_attributes=_attrs("int", nullable=False, default="((7))"),
+                profiles_to_update=(_PROFILE,),
+                is_missing_column=True,
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    assert _extract(mssql_server, mssql_db, "copia") == molde
+    assert (
+        _extract(mssql_server, mssql_db, "pedidos")["estado"].default_expression
+        == "((7))"
+    )
+    assert mssql_server.query("SELECT estado FROM dbo.pedidos", database=mssql_db) == [
+        ("7",)
+    ]
+
+
+_BACKUP = "bdiff_respaldo"
+_TS = "20261021_120000"
+
+
+def _journal(server, database: str) -> list[str]:
+    return [
+        row[0]
+        for row in server.query(
+            f"SELECT objeto FROM {_BACKUP}.bdiff_diario_{_TS} ORDER BY seq",
+            database=database,
+        )
+    ]
+
+
+def test_backs_up_a_dropped_table_and_journals_the_foreign_keys_to_it(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.paises (id int NOT NULL PRIMARY KEY, nombre nvarchar(20));"
+        " CREATE TABLE dbo.ciudades (pais_id int NOT NULL"
+        " CONSTRAINT FK_ciudades_paises REFERENCES dbo.paises (id));"
+        " INSERT dbo.paises VALUES (34, N'España'), (33, N'Francia');",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        table_deletions=[
+            TableDeletionResolution(
+                schema_name="dbo", table_name="paises", profiles_to_update=(_PROFILE,)
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    assert mssql_server.query(
+        f"SELECT id, nombre FROM {_BACKUP}.bdiff_bak_{_TS}_paises ORDER BY id",
+        database=mssql_db,
+    ) == [("33", "Francia"), ("34", "España")]
+    # Its own primary key first, the foreign keys to it last.
+    journal = _journal(mssql_server, mssql_db)
+    assert journal[-1] == "FK_ciudades_paises"
+    assert len(journal) == 2 and journal[0].startswith("PK__paises")
+    assert "paises" not in _tables(mssql_server, mssql_db)
+
+
+def test_backs_up_the_key_and_values_of_a_dropped_column(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.stock (id int NOT NULL CONSTRAINT PK_stock PRIMARY KEY,"
+        " almacen int NOT NULL, cantidad int NOT NULL CONSTRAINT DF_stock_cantidad DEFAULT 0);"
+        " CREATE INDEX IX_stock_almacen_cantidad ON dbo.stock (almacen, cantidad);"
+        " INSERT dbo.stock VALUES (1, 10, 5), (2, 10, 7);",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        column_deletions=[
+            ColumnDeletionResolution(
+                schema_name="dbo",
+                table_name="stock",
+                column_name="cantidad",
+                profiles_to_update=(_PROFILE,),
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    backup = f"{_BACKUP}.bdiff_bak_{_TS}_stock_cantidad"
+    assert _columns_of(
+        mssql_server, mssql_db, _BACKUP, f"bdiff_bak_{_TS}_stock_cantidad"
+    ) == [
+        "id",
+        "cantidad",
+    ]
+    assert mssql_server.query(
+        f"SELECT id, cantidad FROM {backup} ORDER BY id", database=mssql_db
+    ) == [("1", "5"), ("2", "7")]
+    assert sorted(_journal(mssql_server, mssql_db)) == [
+        "DF_stock_cantidad",
+        "IX_stock_almacen_cantidad",
+    ]
+
+
+def test_backs_up_the_whole_table_when_a_dropped_column_has_no_key(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.log (msg varchar(20), nivel int); INSERT dbo.log VALUES ('a', 1);",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        column_deletions=[
+            ColumnDeletionResolution(
+                schema_name="dbo",
+                table_name="log",
+                column_name="nivel",
+                profiles_to_update=(_PROFILE,),
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    assert result.returncode == 0, result.stdout
+    assert "sin PK" in result.stdout
+    assert _columns_of(
+        mssql_server, mssql_db, _BACKUP, f"bdiff_bak_{_TS}_log_nivel"
+    ) == [
+        "msg",
+        "nivel",
+    ]
+
+
+def test_aborts_when_the_backup_already_exists(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.viejas (id int NOT NULL);\nGO\n"
+        f"CREATE SCHEMA {_BACKUP};\nGO\n"
+        f"CREATE TABLE {_BACKUP}.bdiff_bak_{_TS}_viejas (id int);",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        table_deletions=[
+            TableDeletionResolution(
+                schema_name="dbo", table_name="viejas", profiles_to_update=(_PROFILE,)
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, f"bdiff_bak_{_TS}_viejas", "ya existe")
+    assert "viejas" in _tables(mssql_server, mssql_db)
+
+
+def _columns_of(server, database: str, schema: str, table: str) -> list[str]:
+    return [
+        row[0]
+        for row in server.query(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS"
+            f" WHERE TABLE_SCHEMA = N'{schema}' AND TABLE_NAME = N'{table}'"
+            " ORDER BY ORDINAL_POSITION",
+            database=database,
+        )
+    ]
+
+
+def _undo_of(script: Path) -> Path:
+    return script.with_name(script.stem + ".deshacer.sql")
+
+
+def _state(server, database: str) -> dict:
+    """Columns, dependents, foreign keys and rows of every application table."""
+    state = {}
+    for table in sorted(_tables(server, database)):
+        columns = _extract(server, database, table)
+        ordered = ", ".join(f"[{name}]" for name in sorted(columns))
+        state[table] = (
+            columns,
+            _dependents(server, database, table),
+            server.query(
+                f"SELECT {ordered} FROM dbo.[{table}] ORDER BY {ordered}",
+                database=database,
+            ),
+        )
+    state["fks"] = server.query(
+        "SELECT name, OBJECT_NAME(parent_object_id), OBJECT_NAME(referenced_object_id),"
+        " delete_referential_action_desc, is_not_trusted FROM sys.foreign_keys ORDER BY name",
+        database=database,
+    )
+    return state
+
+
+_UNDO_SETUP = (
+    "CREATE TABLE dbo.paises (id int NOT NULL CONSTRAINT PK_paises PRIMARY KEY,"
+    " nombre nvarchar(20) NOT NULL CONSTRAINT DF_paises_nombre DEFAULT N'?');"
+    " CREATE INDEX IX_paises_nombre ON dbo.paises (nombre);"
+    " CREATE TABLE dbo.ciudades (id int NOT NULL CONSTRAINT PK_ciudades PRIMARY KEY,"
+    " pais_id int NOT NULL CONSTRAINT FK_ciudades_paises REFERENCES dbo.paises (id)"
+    " ON DELETE CASCADE, codigo varchar(10) NOT NULL,"
+    " nota varchar(30) NULL CONSTRAINT DF_ciudades_nota DEFAULT 'x');"
+    " CREATE INDEX IX_ciudades_codigo ON dbo.ciudades (codigo);"
+    " CREATE INDEX IX_ciudades_nota ON dbo.ciudades (nota, id);"
+    " INSERT dbo.paises VALUES (34, N'España'), (33, N'Francia');"
+    " INSERT dbo.ciudades VALUES (1, 34, 'MAD', 'capital'), (2, 33, 'PAR', NULL);"
+)
+
+
+def _full_script(server, database: str, tmp_path: Path) -> Path:
+    """A script that creates, drops and modifies tables and columns."""
+    paises = _extract(server, database, "paises")
+    ciudades = _extract(server, database, "ciudades")
+    return _script(
+        tmp_path,
+        database,
+        table_resolutions=[_new_table("nueva")],
+        table_deletions=[
+            TableDeletionResolution(
+                schema_name="dbo",
+                table_name="paises",
+                profiles_to_update=(_PROFILE,),
+                observed_columns_by_profile=(
+                    (
+                        _PROFILE,
+                        tuple(NamedColumnAttributes(n, a) for n, a in paises.items()),
+                    ),
+                ),
+            )
+        ],
+        column_deletions=[
+            ColumnDeletionResolution(
+                schema_name="dbo",
+                table_name="ciudades",
+                column_name="nota",
+                profiles_to_update=(_PROFILE,),
+                observed_by_profile=((_PROFILE, ciudades["nota"]),),
+            )
+        ],
+        columns=[
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="ciudades",
+                column_name="extra",
+                target_attributes=_attrs("int"),
+                profiles_to_update=(_PROFILE,),
+                is_missing_column=True,
+            ),
+            _change(
+                "ciudades",
+                "codigo",
+                replace(
+                    ciudades["codigo"],
+                    data_type="nvarchar",
+                    character_maximum_length=20,
+                ),
+                ciudades["codigo"],
+            ),
+        ],
+    )
+
+
+def test_undo_restores_schema_dependents_and_data(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(mssql_server, mssql_db, _UNDO_SETUP)
+    before = _state(mssql_server, mssql_db)
+    script = _full_script(mssql_server, mssql_db, tmp_path)
+
+    _apply(mssql_server, script)
+    assert _state(mssql_server, mssql_db) != before
+    _apply(mssql_server, _undo_of(script))
+
+    assert _state(mssql_server, mssql_db) == before
+
+
+def test_running_the_undo_twice_changes_nothing_the_second_time(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(mssql_server, mssql_db, _UNDO_SETUP)
+    before = _state(mssql_server, mssql_db)
+    script = _full_script(mssql_server, mssql_db, tmp_path)
+    _apply(mssql_server, script)
+    _apply(mssql_server, _undo_of(script))
+
+    result = mssql_server.run_file(_undo_of(script))
+
+    assert result.returncode == 0, result.stdout
+    assert "ya aplicado; se omite" in result.stdout
+    assert _state(mssql_server, mssql_db) == before
+
+
+def test_undo_aborts_before_any_change_when_a_backup_is_missing(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(mssql_server, mssql_db, _UNDO_SETUP)
+    script = _full_script(mssql_server, mssql_db, tmp_path)
+    _apply(mssql_server, script)
+    _setup(mssql_server, mssql_db, f"DROP TABLE {_BACKUP}.bdiff_bak_{_TS}_paises;")
+    after_script = _state(mssql_server, mssql_db)
+
+    result = mssql_server.run_file(_undo_of(script))
+
+    _assert_aborted(result, f"bdiff_bak_{_TS}_paises", "no existe el respaldo")
+    assert _state(mssql_server, mssql_db) == after_script
+
+
+def test_undo_backs_up_rows_written_to_a_created_table(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    script = _script(tmp_path, mssql_db, table_resolutions=[_new_table("nueva")])
+    _apply(mssql_server, script)
+    _setup(mssql_server, mssql_db, "INSERT dbo.nueva VALUES (5);")
+
+    _apply(mssql_server, _undo_of(script))
+
+    assert "nueva" not in _tables(mssql_server, mssql_db)
+    assert mssql_server.query(
+        f"SELECT id FROM {_BACKUP}.bdiff_bak_{_TS}_deshacer_nueva", database=mssql_db
+    ) == [("5",)]

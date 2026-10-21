@@ -3,6 +3,7 @@
 The decision logic lives in `decision_model`; this module only renders it.
 """
 
+from dataclasses import replace
 from pathlib import Path
 
 from rich.markup import escape
@@ -12,6 +13,8 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import (
     Button,
+    Checkbox,
+    Input,
     Label,
     ListItem,
     ListView,
@@ -26,6 +29,7 @@ from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.compare.models import DiffEntry
 from schema_comparator.report.attributes import format_attributes
 from schema_comparator.tui.decision_model import (
+    ColumnOptions,
     DecisionEntry,
     MergedMissingColumn,
     MergedMissingTable,
@@ -33,6 +37,8 @@ from schema_comparator.tui.decision_model import (
     default_destinations,
     destination_choices,
     group_findings,
+    may_lose_data,
+    needs_fill_value,
 )
 
 __all__ = [
@@ -165,6 +171,8 @@ class DecisionScreen(Screen):
         self.decisions: dict[DecisionEntry, tuple[object, tuple[str, ...]]] = {
             card: (None, ()) for cards in self.display_groups.values() for card in cards
         }
+        # Fill value and accepted data loss of column fixes, by card.
+        self.column_options: dict[DecisionEntry, ColumnOptions] = {}
 
     def compose(self) -> ComposeResult:
         with Container(id="decision-container"):
@@ -258,7 +266,7 @@ class DecisionScreen(Screen):
     def action_generate_sql(self) -> None:
         from schema_comparator.compare.consolidation import write_sql_scripts
 
-        resolutions = build_resolutions(self.decisions)
+        resolutions = build_resolutions(self.decisions, self.column_options)
         if resolutions.is_empty():
             self.app.notify(
                 "No se seleccionó ninguna corrección para generar SQL.",
@@ -432,6 +440,50 @@ class ColumnResolutionWidget(Container):
         )
         yield self._selection_list(target, selected_profiles)
 
+        options = self.decision_screen.column_options.get(self.entry, ColumnOptions())
+        yield Label(
+            "[bold]Valor para filas con NULL[/bold] (vacío: el script aborta si hay)",
+            classes="dest-label fill-label",
+        )
+        yield Input(
+            value=options.backfill_value or "",
+            placeholder="valor de relleno",
+            classes="fill-value",
+        )
+        yield Checkbox(
+            "Aceptar pérdida de datos (truncar, redondear, no convertible)",
+            value=options.accept_data_loss,
+            classes="accept-loss",
+        )
+
+    def on_mount(self) -> None:
+        target, selected = self.decision_screen.decisions.get(self.entry, (None, ()))
+        self._refresh_data_controls(target, selected)
+
+    def _refresh_data_controls(
+        self, target: object, destinations: tuple[str, ...]
+    ) -> None:
+        if isinstance(self.entry, MergedMissingTable):
+            return
+        fill = needs_fill_value(target)
+        for widget in self.query(".fill-label, .fill-value"):
+            widget.display = fill
+        self.query_one(".accept-loss", Checkbox).display = may_lose_data(
+            self.entry, target, destinations
+        )
+
+    def _set_options(self, **changes) -> None:
+        current = self.decision_screen.column_options.get(self.entry, ColumnOptions())
+        self.decision_screen.column_options[self.entry] = replace(current, **changes)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.has_class("fill-value"):
+            self._set_options(backfill_value=event.value)
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        if event.checkbox.has_class("accept-loss"):
+            self._set_options(accept_data_loss=event.value)
+
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         self.handle_radio_change(event.index)
 
@@ -451,6 +503,7 @@ class ColumnResolutionWidget(Container):
             selection_list.disabled = True
             selection_list.deselect_all()
             self.decision_screen.decisions[self.entry] = (None, ())
+            self._refresh_data_controls(None, ())
             return
 
         defaults = default_destinations(self.entry, target)
@@ -461,6 +514,7 @@ class ColumnResolutionWidget(Container):
             defaults,
         )
         self.decision_screen.decisions[self.entry] = (target, defaults)
+        self._refresh_data_controls(target, defaults)
 
     def handle_selection_change(self, selected_items: list[str]) -> None:
         """Handle selected profiles changes from the selection list."""
@@ -468,3 +522,4 @@ class ColumnResolutionWidget(Container):
         if decision:
             target, _ = decision
             self.decision_screen.decisions[self.entry] = (target, tuple(selected_items))
+            self._refresh_data_controls(target, tuple(selected_items))

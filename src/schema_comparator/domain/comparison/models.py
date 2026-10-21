@@ -38,6 +38,7 @@ class ColumnAttributes:
     default_expression: str | None = None
     is_identity: bool = False
     collation: str | None = None
+    datetime_precision: int | None = None
 
     @classmethod
     def from_snapshot(cls, column: ColumnSnapshot) -> "ColumnAttributes":
@@ -50,6 +51,7 @@ class ColumnAttributes:
             default_expression=column.default_expression,
             is_identity=column.is_identity,
             collation=column.collation,
+            datetime_precision=column.datetime_precision,
         )
 
 

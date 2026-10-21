@@ -1,0 +1,266 @@
+{
+  "schema": "idd-state/v1",
+  "change": "undo-scripts",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "request": "queria hacer incapie en lo bueno que es el generador de scripts para solucionar los problemas, debe tener en cuenta las casuisticas más comunes y que en caso de error que no se apliquen a medias, que haya control de rollback, etc.. debe ser robusto y confiable",
+    "kind": "feature",
+    "summary": "Junto a cada <perfil>.sql se genera <perfil>.deshacer.sql: una transacción que revierte en orden inverso cada paso del script (modificaciones a su definición comparada, columnas y tablas eliminadas recreadas con sus datos desde bdiff_respaldo y sus índices y restricciones desde el diario, columnas y tablas creadas respaldadas y eliminadas), con las mismas comprobaciones previas y verificación final",
+    "acceptance": "En SQL Server real, aplicar un script que crea, elimina y modifica tablas y columnas y después su .deshacer.sql deja esquema, índices, restricciones y datos como estaban; si falta un respaldo o el estado no es el que dejó el script, el deshacer aborta antes de cambiar nada; ejecutarlo dos veces no cambia nada la segunda"
+  },
+  "facts": {
+    "coverage": [
+      {
+        "category": "inputs",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/compare/consolidation.py",
+          "line": 340
+        }
+      },
+      {
+        "category": "uniqueness",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/compare/consolidation.py",
+          "line": 141
+        }
+      },
+      {
+        "category": "persistence",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/compare/consolidation.py",
+          "line": 110
+        }
+      },
+      {
+        "category": "copy",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/compare/consolidation.py",
+          "line": 223
+        }
+      },
+      {
+        "category": "url-state",
+        "cite": {
+          "kind": "request",
+          "text": "que haya control de rollback"
+        }
+      },
+      {
+        "category": "accessibility",
+        "cite": {
+          "kind": "request",
+          "text": "debe ser robusto y confiable"
+        }
+      },
+      {
+        "category": "errors",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/infrastructure/providers/sqlserver/ddl_renderer.py",
+          "line": 439
+        }
+      }
+    ]
+  },
+  "plan": {
+    "paths": [
+      "README.md",
+      "src/schema_comparator/compare/consolidation.py",
+      "src/schema_comparator/infrastructure/providers/sqlserver/ddl_renderer.py",
+      "src/schema_comparator/tui/decision_model.py",
+      "tests/integration/test_consolidation_scripts_live.py",
+      "tests/unit/compare/test_consolidation.py",
+      "tests/unit/tui/test_decision_model.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "components compare, presentation, providers: ADR 0001, 0002, 0003, 0005, 0006, 0007 and quality scenario mutation-requires-confirmation, no-false-drift, optional-drivers, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "none",
+      "reason": "La TUI añade definiciones observadas a resoluciones que ya construía; el T-SQL sigue en el adaptador SQL Server."
+    },
+    {
+      "kind": "adr",
+      "id": "0002",
+      "impact": "none",
+      "reason": "No toca el registro de proveedores."
+    },
+    {
+      "kind": "adr",
+      "id": "0003",
+      "impact": "none",
+      "reason": "No cambia tipos ni comparación."
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "conforms",
+      "reason": "BDIFF escribe el script de deshacer y nunca lo ejecuta; cubre el control de rollback tras el COMMIT con respaldos y diario."
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "none",
+      "reason": "No añade escrituras ejecutadas por BDIFF."
+    },
+    {
+      "kind": "adr",
+      "id": "0007",
+      "impact": "none",
+      "reason": "No cambia identidad de objetos."
+    },
+    {
+      "kind": "scenario",
+      "id": "mutation-requires-confirmation",
+      "impact": "none",
+      "reason": "La TUI no ejecuta nada; solo escribe un archivo más."
+    },
+    {
+      "kind": "scenario",
+      "id": "no-false-drift",
+      "impact": "none",
+      "reason": "No cambia la comparación."
+    },
+    {
+      "kind": "scenario",
+      "id": "optional-drivers",
+      "impact": "none",
+      "reason": "No importa drivers."
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "none",
+      "reason": "Sin cadenas de conexión."
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "none",
+      "reason": "Archivos .sql con la misma codificación UTF-8 con BOM."
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T15:07:39.119Z",
+      "detail": {
+        "tree": "sha256:66b3feca6d64693b3341a34436a92f4a7cfec39408f407c5c38b862e0d67f371",
+        "runs": [
+          "run-1",
+          "run-2"
+        ]
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T15:07:39.119Z",
+      "detail": {
+        "refs": [
+          "adr:0001 none",
+          "adr:0002 none",
+          "adr:0003 none",
+          "adr:0005 conforms",
+          "adr:0006 none",
+          "adr:0007 none",
+          "scenario:mutation-requires-confirmation none",
+          "scenario:no-false-drift none",
+          "scenario:optional-drivers none",
+          "scenario:secret-safety none",
+          "scenario:windows-first-run none"
+        ],
+        "records": [],
+        "tree": "sha256:66b3feca6d64693b3341a34436a92f4a7cfec39408f407c5c38b862e0d67f371",
+        "fitness": [
+          "run-3"
+        ]
+      }
+    }
+  ],
+  "base": "107ec82ca7060526a0272347d361c01d9bb711cb",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:938ad7bf9b33846e3d06cacec72f192a136a006ad58da2470033df422882fafc",
+      "tree": "sha256:66b3feca6d64693b3341a34436a92f4a7cfec39408f407c5c38b862e0d67f371",
+      "recorded_at": "2026-10-21T15:07:39.119Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:74a0e5e3b1d650547f1e4b1055a0cbeb1a28d78665eb31f0de40ba3bc574bd4f",
+      "tree": "sha256:66b3feca6d64693b3341a34436a92f4a7cfec39408f407c5c38b862e0d67f371",
+      "recorded_at": "2026-10-21T15:07:39.119Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f9fd93d4bfe07fbc3f2ca83028355ce747308424b00ccac0298c99213e915731",
+      "tree": "sha256:66b3feca6d64693b3341a34436a92f4a7cfec39408f407c5c38b862e0d67f371",
+      "recorded_at": "2026-10-21T15:07:39.119Z"
+    }
+  ],
+  "assumptions": [
+    "No se pueden restaurar los valores perdidos por una pérdida aceptada explícitamente en la TUI: el deshacer revierte la definición, no esos datos; su cabecera lo indica.",
+    "Recrear una columna IDENTITY eliminada no se soporta (sus valores no se pueden reponer con UPDATE): ese paso del deshacer aborta con un mensaje.",
+    "Si una columna eliminada se respaldó entera por no haber una PK sin ella, sus valores no se pueden emparejar: si era NOT NULL el deshacer aborta, si admite NULL queda NULL con aviso.",
+    "Las restricciones e índices del diario se recrean al final del deshacer, tras restaurar todas las tablas y columnas, en el orden en que se eliminaron.",
+    "Una tabla eliminada se recrea con sus columnas comparadas; sus índices y PK propios no se extraen y no se recrean (solo las FK de otras tablas hacia ella, desde el diario).",
+    "CORRIGE el supuesto anterior sobre tablas eliminadas: el script normal anota en el diario también los índices, PK/UNIQUE, DEFAULT, CHECK y FK propios de la tabla que elimina, así que el deshacer la recrea con sus columnas comparadas y después todo lo anotado. Solo índices no rowstore, particionados o full-text no se anotan (se avisa)."
+  ],
+  "closed_at": "2026-10-21T15:07:45.095Z"
+}

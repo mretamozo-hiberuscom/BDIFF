@@ -35,6 +35,9 @@ class ColumnSnapshot:
     default_expression: str | None = None
     is_identity: bool = False
     collation: str | None = None
+    # Fractional-second digits of a type that takes them (datetime2, time,
+    # datetimeoffset in SQL Server); None where the type fixes it.
+    datetime_precision: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -164,3 +164,60 @@ def test_sql_server_provider_only_runs_read_only_catalog_queries() -> None:
     for sql in executed:
         for write_keyword in ("INSERT ", "UPDATE ", "DELETE ", "DROP ", "ALTER "):
             assert write_keyword not in sql.upper()
+
+
+def test_catalog_query_reads_default_identity_collation_and_time_precision() -> None:
+    sql = introspector.CATALOG_QUERY_SQL
+
+    for fragment in (
+        "COLUMN_DEFAULT",
+        "'IsIdentity'",
+        "DATABASEPROPERTYEX(DB_NAME(), 'Collation')",
+        "DATETIME_PRECISION",
+    ):
+        assert fragment in sql
+
+
+def test_build_snapshot_keeps_the_extended_column_attributes() -> None:
+    rows = [
+        ("dbo", "t", "id", "int", None, 10, 0, "NO", 1, None, 1, None, None),
+        (
+            "dbo",
+            "t",
+            "at",
+            "datetime2",
+            None,
+            None,
+            None,
+            "YES",
+            2,
+            "(getdate())",
+            0,
+            None,
+            3,
+        ),
+        (
+            "dbo",
+            "t",
+            "code",
+            "varchar",
+            10,
+            None,
+            None,
+            "YES",
+            3,
+            None,
+            0,
+            "Latin1_General_CS_AS",
+            None,
+        ),
+    ]
+
+    (table,) = introspector.build_snapshot("p", rows).tables
+
+    by_name = {c.name: c for c in table.columns}
+    assert by_name["id"].is_identity is True
+    assert by_name["at"].default_expression == "(getdate())"
+    assert by_name["at"].datetime_precision == 3
+    assert by_name["code"].collation == "Latin1_General_CS_AS"
+    assert by_name["code"].is_identity is False

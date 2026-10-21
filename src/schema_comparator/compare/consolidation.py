@@ -12,7 +12,13 @@ from schema_comparator.domain.comparison.models import (
 from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.domain.errors import SchemaComparatorError
 from schema_comparator.infrastructure.providers.sqlserver.ddl_renderer import (
+    BACKUP_SCHEMA,
+    SQL_SCRIPT_ENCODING,
+    backup_table_name,
+    extract_database_name,
     generate_ddl_for_profile,
+    generate_undo_for_profile,
+    journal_table_name,
 )
 
 
@@ -25,6 +31,19 @@ class ConsolidationNotSupportedError(SchemaComparatorError):
         return cls(
             "La consolidación genera T-SQL y solo está disponible para SQL "
             f"Server; perfiles de otros motores: {', '.join(names)}."
+        )
+
+
+class ConsolidationDatabaseUnknownError(SchemaComparatorError):
+    """Raised when a profile's connection string names no database: its
+    script would have to guess which database to change."""
+
+    @classmethod
+    def for_profiles(cls, names: list[str]) -> "ConsolidationDatabaseUnknownError":
+        return cls(
+            "No se generó ningún script: la cadena de conexión de estos "
+            "perfiles no indica la base de datos (Database= o Initial "
+            f"Catalog=): {', '.join(names)}. Añádela y vuelve a generar."
         )
 
 
@@ -45,6 +64,16 @@ class ColumnResolution:
     target_attributes: ColumnAttributes
     profiles_to_update: tuple[str, ...]
     is_missing_column: bool
+    # What each destination had when compared; its script aborts if the
+    # column differs from it. A destination left out is checked only for
+    # existence.
+    observed_by_profile: tuple[tuple[str, ColumnAttributes], ...] = ()
+    # Value for the rows left NULL when the column becomes NOT NULL without
+    # a default; without one, the script aborts if there are such rows.
+    backfill_value: str | None = None
+    # The user accepted truncation, rounding or failed conversions for this
+    # column; otherwise the script aborts when a value would be lost.
+    accept_data_loss: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +99,10 @@ class TableDeletionResolution:
     schema_name: str
     table_name: str
     profiles_to_update: tuple[str, ...]
+    # The columns each destination had, to recreate the table when undoing.
+    observed_columns_by_profile: tuple[
+        tuple[str, tuple[NamedColumnAttributes, ...]], ...
+    ] = ()
 
 
 class ColumnAction(str, Enum):
@@ -86,6 +119,8 @@ class ColumnDeletionResolution:
     table_name: str
     column_name: str
     profiles_to_update: tuple[str, ...]
+    # The column each destination had, to recreate it when undoing.
+    observed_by_profile: tuple[tuple[str, ColumnAttributes], ...] = ()
 
 
 _WINDOWS_RESERVED_NAMES = frozenset(
@@ -156,7 +191,11 @@ def generate_impact_report(
     for profile_name in sorted(profiles_to_update):
         lines.append(f"## Perfil / Base de Datos: `{profile_name}`")
         lines.append(
-            f"**Archivo de Script SQL:** `{script_filenames[profile_name]}.sql`\n"
+            f"**Archivo de Script SQL:** `{script_filenames[profile_name]}.sql`"
+        )
+        lines.append(
+            f"**Script para deshacer:** `{script_filenames[profile_name]}.deshacer.sql`"
+            " (ejecutar solo después del anterior; necesita sus respaldos)\n"
         )
 
         prof_table_creations = [
@@ -238,6 +277,9 @@ def generate_impact_report(
             lines.append(
                 "  - Variables locales (`DECLARE @var ...`) o parámetros de procedimiento cuya precisión o longitud quede desalineada con el tipo en la BD."
             )
+            lines.append(
+                "- [ ] **Tiempo de ejecución (Columnas Modificadas):** el script elimina y recrea los índices, PK/UNIQUE, FK, estadísticas, DEFAULT y CHECK que dependen de cada columna modificada. Si la columna forma parte del índice clustered o de la PK, recrearlo reconstruye la tabla completa: lento y con bloqueo en tablas grandes; planifique una ventana de mantenimiento."
+            )
         if prof_table_creations:
             lines.append("- [ ] **Punto de Control (Nuevas Tablas):**")
             lines.append(
@@ -280,6 +322,27 @@ def generate_impact_report(
             safe_tbl = tbl.replace("'", "''").replace("]", "]]")
             lines.append(f"EXEC sp_recompile '[{safe_sch}].[{safe_tbl}]';")
         lines.append("```\n")
+
+        if prof_table_deletions or prof_col_deletions:
+            backups = [
+                backup_table_name(timestamp, t.table_name) for t in prof_table_deletions
+            ] + [
+                backup_table_name(timestamp, c.table_name, c.column_name)
+                for c in prof_col_deletions
+            ]
+            journal = journal_table_name(timestamp)
+            lines.append(f"### 5. Respaldos en el esquema `{BACKUP_SCHEMA}`")
+            lines.append(
+                "Antes de cada eliminación el script copia los datos (la PK y la columna"
+                " al eliminar una columna) y anota en el diario la definición de cada"
+                " índice y restricción que elimina. BDIFF no los borra: tras validar el"
+                " cambio, elimínelos así:"
+            )
+            lines.append("```sql")
+            for name in [*backups, journal]:
+                quoted = name.replace("]", "]]")
+                lines.append(f"DROP TABLE [{BACKUP_SCHEMA}].[{quoted}];")
+            lines.append("```\n")
         lines.append("---\n")
 
     return "\n".join(lines)
@@ -300,9 +363,6 @@ def write_sql_scripts(
         raise ConsolidationNotSupportedError.for_profiles(unsupported)
     root_path = Path(repo_root)
     ts = timestamp or datetime.datetime.now()
-    folder_name = ts.strftime("%Y%m%d_%H%M%S")
-    output_dir = root_path / "scripts-db" / folder_name
-    output_dir.mkdir(parents=True, exist_ok=True)
     profile_map = {p.name: p for p in profiles}
 
     all_profiles_names = set()
@@ -315,27 +375,53 @@ def write_sql_scripts(
     for deletion in column_deletions or []:
         all_profiles_names.update(deletion.profiles_to_update)
 
-    written_files = []
     sorted_profiles = sorted(all_profiles_names)
+    unknown_database = [
+        name
+        for name in sorted_profiles
+        if name not in profile_map
+        or not extract_database_name(profile_map[name].connection_string)
+    ]
+    if unknown_database:
+        raise ConsolidationDatabaseUnknownError.for_profiles(unknown_database)
+
+    # Render every script before writing any, so a failure leaves no
+    # partial set of files behind.
     script_filenames = assign_script_filenames(sorted_profiles)
-    for profile_name in sorted_profiles:
-        profile = profile_map.get(
-            profile_name,
-            ConnectionProfile(
-                name=profile_name, connection_string=f"Database={profile_name};"
-            ),
-        )
-        ddl = generate_ddl_for_profile(
+    scripts = {
+        profile_name: generate_ddl_for_profile(
             resolutions,
-            profile,
+            profile_map[profile_name],
             timestamp=ts,
             table_resolutions=table_resolutions,
             table_deletions=table_deletions,
             column_deletions=column_deletions,
         )
-        file_path = output_dir / f"{script_filenames[profile_name]}.sql"
-        file_path.write_text(ddl, encoding="utf-8")
+        for profile_name in sorted_profiles
+    }
+    undo_scripts = {
+        profile_name: generate_undo_for_profile(
+            resolutions,
+            profile_map[profile_name],
+            timestamp=ts,
+            table_resolutions=table_resolutions,
+            table_deletions=table_deletions,
+            column_deletions=column_deletions,
+        )
+        for profile_name in sorted_profiles
+    }
+
+    output_dir = root_path / "scripts-db" / ts.strftime("%Y%m%d_%H%M%S")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    written_files = []
+    for profile_name, ddl in scripts.items():
+        stem = script_filenames[profile_name]
+        file_path = output_dir / f"{stem}.sql"
+        file_path.write_text(ddl, encoding=SQL_SCRIPT_ENCODING)
         written_files.append(str(file_path.resolve()))
+        undo_path = output_dir / f"{stem}.deshacer.sql"
+        undo_path.write_text(undo_scripts[profile_name], encoding=SQL_SCRIPT_ENCODING)
+        written_files.append(str(undo_path.resolve()))
 
     if sorted_profiles:
         report_content = generate_impact_report(

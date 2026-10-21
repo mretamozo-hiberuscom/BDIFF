@@ -498,3 +498,23 @@ def test_column_level_entries_ordering_is_independent_of_input_snapshot_order() 
     result_ba = compare_snapshots([b, a])
 
     assert result_ab.entries == result_ba.entries
+
+
+def test_time_precision_alone_is_a_mismatch() -> None:
+    from dataclasses import replace
+
+    base = make_column("at", data_type="datetime2", is_nullable=True)
+    a = make_snapshot_with_tables(
+        "a", make_table("dbo", "t", replace(base, datetime_precision=7))
+    )
+    b = make_snapshot_with_tables(
+        "b", make_table("dbo", "t", replace(base, datetime_precision=3))
+    )
+
+    result = compare_snapshots([a, b])
+
+    (mismatch,) = [e for e in result.entries if isinstance(e, ColumnMismatch)]
+    assert {attrs.datetime_precision for _, attrs in mismatch.values_by_profile} == {
+        3,
+        7,
+    }

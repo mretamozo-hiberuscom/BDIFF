@@ -1,0 +1,327 @@
+{
+  "schema": "idd-state/v1",
+  "change": "alter-column-dependencies",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "Modificar una columna con índices, PK/UNIQUE, FK, estadísticas, DEFAULT o CHECK que dependen de ella: el script los elimina y los vuelve a crear con la misma definición dentro de la transacción, y aborta con un mensaje claro ante dependencias que no sabe recrear",
+    "acceptance": "En SQL Server real, cambiar tipo, reducir, ampliar o pasar a NOT NULL una columna con índice, INCLUDE, PK referenciada por FK, UNIQUE, FK, estadística, DEFAULT o CHECK termina con la columna cambiada y cada dependencia recreada con su nombre y definición; ante una dependencia no soportada el script aborta antes de cambiar nada nombrándola; hoy falla con el error 4922 y no se aplica"
+  },
+  "facts": {
+    "open": [
+      "¿Cuál es la versión mínima de SQL Server que deben soportar los scripts: 2017 (permite STRING_AGG para regenerar índices) o 2012 (THROW y TRY_CONVERT ya lo exigen; obliga a FOR XML PATH)?",
+      "Ante dependencias que exigen recrear objetos ajenos a la tabla (vistas con SCHEMABINDING, columnas calculadas, vistas indexadas, índices columnstore/XML/espaciales, particionados o full-text): ¿abortar con un mensaje que las nombra, o intentar recrear al menos vistas con SCHEMABINDING desde su definición en sys.sql_modules?",
+      "Eliminar y recrear un índice clustered/PK reconstruye toda la tabla (lento y con bloqueo en tablas grandes): ¿solo avisar en el script e informe de impacto, o exigir una confirmación explícita en la TUI para ese paso?"
+    ]
+  },
+  "plan": {
+    "paths": [
+      "README.md",
+      "docs/architecture/technical-baseline.md",
+      "src/schema_comparator/compare/consolidation.py",
+      "src/schema_comparator/infrastructure/providers/sqlserver/ddl_renderer.py",
+      "tests/fixtures/golden/sqlserver/expected_add_column.sql",
+      "tests/integration/test_consolidation_scripts_live.py",
+      "tests/unit/compare/test_consolidation.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    },
+    {
+      "id": "persistent-data",
+      "reason": "persistent data: touches tests/fixtures/golden/sqlserver/expected_add_column.sql (matches **/*.sql)",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "components compare, providers: ADR 0001, 0002, 0003, 0005, 0006, 0007 and quality scenario no-false-drift, optional-drivers, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "none",
+      "reason": "Solo cambia el contenido T-SQL generado por el adaptador SQL Server."
+    },
+    {
+      "kind": "adr",
+      "id": "0002",
+      "impact": "none",
+      "reason": "No toca el registro de proveedores."
+    },
+    {
+      "kind": "adr",
+      "id": "0003",
+      "impact": "none",
+      "reason": "No cambia tipos canónicos."
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "conforms",
+      "reason": "Scripts escritos, nunca ejecutados por BDIFF; las dependencias no soportadas se anotan como error explícito en lugar de intentarse."
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "none",
+      "reason": "No añade escrituras ejecutadas por BDIFF."
+    },
+    {
+      "kind": "adr",
+      "id": "0007",
+      "impact": "none",
+      "reason": "No cambia identidad de objetos; los nombres de dependencias se leen del catálogo destino."
+    },
+    {
+      "kind": "scenario",
+      "id": "no-false-drift",
+      "impact": "none",
+      "reason": "No cambia la comparación."
+    },
+    {
+      "kind": "scenario",
+      "id": "optional-drivers",
+      "impact": "none",
+      "reason": "No importa drivers."
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "none",
+      "reason": "Mensajes con nombres de objetos, sin cadenas de conexión."
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "conforms",
+      "reason": "Requisito SQL Server 2016+ documentado en README; mensajes ASCII."
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-4"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "migration-compat-and-test",
+      "signal": "persistent-data",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-5"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "open-facts",
+      "status": "resolved",
+      "answer": "Versión mínima SQL Server 2016. Dependencias no soportadas: abortar y nombrarlas. Clustered/PK: avisar en script e informe.",
+      "source": "user"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T14:01:23.012Z",
+      "detail": {
+        "red": "run-1",
+        "green": "run-2"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T14:02:00.181Z",
+      "detail": {
+        "tree": "sha256:d8dcd4d461d815a4109528411f3f175f6c45cd315dbb848ff1f2673b341b9bdf",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "migration-test",
+      "obligation": "migration-compat-and-test",
+      "recorded_at": "2026-10-21T14:02:38.633Z",
+      "detail": {
+        "run": "run-6",
+        "tree": "sha256:adbfb8a7d04eb2e8e437c2db5af9da8dc069cf51ff4d0a72afbd27b41db303a5",
+        "plan": "Los scripts recrean dentro de la misma transacción cada índice, PK/UNIQUE, FK, estadística, DEFAULT y CHECK que eliminan; cualquier error hace ROLLBACK de todo, también de lo eliminado (probado en SQL Server 2022). Requisito nuevo documentado: SQL Server 2016+ (sin STRING_AGG ni funciones de 2017, comprobado por test)."
+      }
+    },
+    {
+      "id": "ev-4",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T14:03:16.484Z",
+      "detail": {
+        "tree": "sha256:d8dcd4d461d815a4109528411f3f175f6c45cd315dbb848ff1f2673b341b9bdf",
+        "runs": [
+          "run-7",
+          "run-8"
+        ]
+      }
+    },
+    {
+      "id": "ev-5",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T14:03:16.484Z",
+      "detail": {
+        "refs": [
+          "adr:0001 none",
+          "adr:0002 none",
+          "adr:0003 none",
+          "adr:0005 conforms",
+          "adr:0006 none",
+          "adr:0007 none",
+          "scenario:no-false-drift none",
+          "scenario:optional-drivers none",
+          "scenario:secret-safety none",
+          "scenario:windows-first-run conforms"
+        ],
+        "records": [],
+        "tree": "sha256:d8dcd4d461d815a4109528411f3f175f6c45cd315dbb848ff1f2673b341b9bdf",
+        "fitness": [
+          "run-9"
+        ]
+      }
+    }
+  ],
+  "base": "ba8b7f62f9b4899422b2b9505e2ab806007f5689",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/integration/test_consolidation_scripts_live.py -k 'dependent or referenced_primary or shrinks_an_indexed'",
+      "exit_code": 1,
+      "output_sha256": "sha256:ddf147ea9d80df3cf4eabfc51fdf289b1d6a56ee30c875c9426a09b2ffbc6830",
+      "tree": "sha256:e565d749ebadc1501e7742d84dfbaa52504da900a845f78ad4075b44fe873e5d",
+      "recorded_at": "2026-10-21T13:54:49.913Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/integration/test_consolidation_scripts_live.py -k 'dependent or referenced_primary or shrinks_an_indexed'",
+      "exit_code": 0,
+      "output_sha256": "sha256:a37ed979ee0cee8f96aa80bf02b2c7c7724f4238572062c80a23b73c9f772fe9",
+      "tree": "sha256:adbfb8a7d04eb2e8e437c2db5af9da8dc069cf51ff4d0a72afbd27b41db303a5",
+      "recorded_at": "2026-10-21T14:01:23.012Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:f3d232a6a48abb5ad2165cfcc9d4333f1a2d607b8ff81699dd324f41aa808fc6",
+      "tree": "sha256:d8dcd4d461d815a4109528411f3f175f6c45cd315dbb848ff1f2673b341b9bdf",
+      "recorded_at": "2026-10-21T14:02:00.181Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:74a0e5e3b1d650547f1e4b1055a0cbeb1a28d78665eb31f0de40ba3bc574bd4f",
+      "tree": "sha256:d8dcd4d461d815a4109528411f3f175f6c45cd315dbb848ff1f2673b341b9bdf",
+      "recorded_at": "2026-10-21T14:02:00.181Z"
+    },
+    {
+      "id": "run-5",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f9fd93d4bfe07fbc3f2ca83028355ce747308424b00ccac0298c99213e915731",
+      "tree": "sha256:d8dcd4d461d815a4109528411f3f175f6c45cd315dbb848ff1f2673b341b9bdf",
+      "recorded_at": "2026-10-21T14:02:00.181Z"
+    },
+    {
+      "id": "run-6",
+      "purpose": "migration-test",
+      "command": "python -m pytest -q tests/integration/test_consolidation_scripts_live.py tests/unit/sqlserver/test_characterization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:8ae56b873c15bc1f38a1a799b4f27e2841029a070b12fb9b51bb00e268154db9",
+      "tree": "sha256:adbfb8a7d04eb2e8e437c2db5af9da8dc069cf51ff4d0a72afbd27b41db303a5",
+      "recorded_at": "2026-10-21T14:02:38.633Z"
+    },
+    {
+      "id": "run-7",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:350a546e1ea91ce29fb6e9aebb9eab39abe5015173ba1a4c43fcf7de30763302",
+      "tree": "sha256:d8dcd4d461d815a4109528411f3f175f6c45cd315dbb848ff1f2673b341b9bdf",
+      "recorded_at": "2026-10-21T14:03:16.484Z"
+    },
+    {
+      "id": "run-8",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:74a0e5e3b1d650547f1e4b1055a0cbeb1a28d78665eb31f0de40ba3bc574bd4f",
+      "tree": "sha256:d8dcd4d461d815a4109528411f3f175f6c45cd315dbb848ff1f2673b341b9bdf",
+      "recorded_at": "2026-10-21T14:03:16.484Z"
+    },
+    {
+      "id": "run-9",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f9fd93d4bfe07fbc3f2ca83028355ce747308424b00ccac0298c99213e915731",
+      "tree": "sha256:d8dcd4d461d815a4109528411f3f175f6c45cd315dbb848ff1f2673b341b9bdf",
+      "recorded_at": "2026-10-21T14:03:16.484Z"
+    }
+  ],
+  "assumptions": [
+    "Las FK eliminadas para cambiar una columna se recrean al final de todos los pasos, para que cambiar en el mismo script la PK y la FK que la referencia funcione.",
+    "Ampliar una columna del mismo tipo solo exige recrear las FK que la usan; el resto de cambios recrea índices, PK/UNIQUE, estadísticas, DEFAULT y CHECK que la incluyen. Las estadísticas automáticas se eliminan y no se recrean (el motor las regenera)."
+  ],
+  "closed_at": "2026-10-21T14:03:31.858Z"
+}

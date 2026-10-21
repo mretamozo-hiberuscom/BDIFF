@@ -21,7 +21,20 @@ SELECT
     c.NUMERIC_PRECISION,
     c.NUMERIC_SCALE,
     c.IS_NULLABLE,
-    c.ORDINAL_POSITION
+    c.ORDINAL_POSITION,
+    c.COLUMN_DEFAULT,
+    COLUMNPROPERTY(
+        OBJECT_ID(QUOTENAME(c.TABLE_SCHEMA) + N'.' + QUOTENAME(c.TABLE_NAME)),
+        c.COLUMN_NAME,
+        'IsIdentity'
+    ) AS IS_IDENTITY,
+    -- Only a collation the column declares: one that follows the database
+    -- default is not drift, or two databases with different defaults
+    -- would differ in every text column.
+    CASE WHEN c.COLLATION_NAME <> CONVERT(nvarchar(128), DATABASEPROPERTYEX(DB_NAME(), 'Collation'))
+        THEN c.COLLATION_NAME END AS EXPLICIT_COLLATION,
+    CASE WHEN c.DATA_TYPE IN ('datetime2', 'time', 'datetimeoffset')
+        THEN c.DATETIME_PRECISION END AS DATETIME_PRECISION
 FROM INFORMATION_SCHEMA.COLUMNS c
 INNER JOIN INFORMATION_SCHEMA.TABLES t
     ON t.TABLE_SCHEMA = c.TABLE_SCHEMA
@@ -68,17 +81,21 @@ def build_snapshot(
 ) -> SchemaSnapshot:
     """Group and sort raw catalog rows into a deterministic `SchemaSnapshot`."""
     grouped: dict[tuple[str, str], list[ColumnSnapshot]] = {}
-    for (
-        schema,
-        table,
-        col_name,
-        data_type,
-        char_len,
-        num_prec,
-        num_scale,
-        is_nullable,
-        ordinal,
-    ) in rows:
+    for row in rows:
+        (
+            schema,
+            table,
+            col_name,
+            data_type,
+            char_len,
+            num_prec,
+            num_scale,
+            is_nullable,
+            ordinal,
+        ) = row[:9]
+        # Default, identity, explicit collation and time precision; rows
+        # without them come from callers that predate those columns.
+        default, identity, collation, dt_precision = (tuple(row[9:]) + (None,) * 4)[:4]
         grouped.setdefault((schema, table), []).append(
             ColumnSnapshot(
                 name=col_name,
@@ -88,6 +105,10 @@ def build_snapshot(
                 numeric_scale=num_scale,
                 is_nullable=(is_nullable == "YES"),
                 ordinal_position=ordinal,
+                default_expression=default,
+                is_identity=bool(identity),
+                collation=collation,
+                datetime_precision=dt_precision,
             )
         )
 

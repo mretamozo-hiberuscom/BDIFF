@@ -78,7 +78,12 @@ def test_impact_report_cites_the_written_file_names(tmp_path) -> None:
     )
 
     sql_names = sorted(Path(p).name for p in written if p.endswith(".sql"))
-    assert sql_names == ["Dev.sql", "dev_1.sql"]
+    assert sql_names == [
+        "Dev.deshacer.sql",
+        "Dev.sql",
+        "dev_1.deshacer.sql",
+        "dev_1.sql",
+    ]
     report = (
         tmp_path / "scripts-db" / "20261021_120000" / "impact_report.md"
     ).read_text(encoding="utf-8")

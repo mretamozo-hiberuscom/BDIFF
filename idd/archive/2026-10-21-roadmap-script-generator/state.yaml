@@ -1,0 +1,79 @@
+{
+  "schema": "idd-state/v1",
+  "change": "roadmap-script-generator",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "docs",
+    "summary": "Roadmap: registrar la tanda de endurecimiento del generador de scripts y actualizar las entradas del backlog que cambió",
+    "acceptance": "docs/roadmap.md lista los ocho cambios de la tanda con lo que resolvió cada uno, y las filas del backlog sobre atributos en reportes, DROP y destinos de discrepancias reflejan el estado actual"
+  },
+  "facts": {
+    "basis": "Cambios cerrados y archivados en idd/archive/2026-10-21-* de esta sesión."
+  },
+  "plan": {
+    "paths": [
+      "docs/roadmap.md"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T15:08:52.211Z",
+      "detail": {
+        "tree": "sha256:b8732c7466db97c40229c08129bfee23d23512abe273c50a88fc6679f4177021",
+        "runs": [
+          "run-1",
+          "run-2"
+        ]
+      }
+    }
+  ],
+  "base": "11098049a32237fde5ec2f0aed046d34f9378fd1",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:774ef6e80dfeaeb10089855dba96b87e213633328136ce4967034d733620ae93",
+      "tree": "sha256:b8732c7466db97c40229c08129bfee23d23512abe273c50a88fc6679f4177021",
+      "recorded_at": "2026-10-21T15:08:52.211Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:74a0e5e3b1d650547f1e4b1055a0cbeb1a28d78665eb31f0de40ba3bc574bd4f",
+      "tree": "sha256:b8732c7466db97c40229c08129bfee23d23512abe273c50a88fc6679f4177021",
+      "recorded_at": "2026-10-21T15:08:52.211Z"
+    }
+  ],
+  "closed_at": "2026-10-21T15:08:56.044Z"
+}

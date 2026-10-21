@@ -12,7 +12,7 @@
 | Actores | Desarrollador que ejecuta BDIFF; lectores de reportes. |
 | Sistemas externos | Bases comparadas (SQL Server vía ODBC 17/18, PostgreSQL, MySQL, MariaDB, Oracle, archivos SQLite). |
 | Entradas | `config.local.yaml` (ignorado por git) y argumentos del CLI. |
-| Salidas | Consola; `reportes/<ts>/` (HTML, PDF, Excel); `scripts-db/<ts>/` (T-SQL de consolidación e `impact_report.md`); scripts de reparación de rutinas. |
+| Salidas | Consola; `reportes/<ts>/` (HTML, PDF, Excel); `scripts-db/<ts>/` (T-SQL de consolidación e `impact_report.md`); scripts de reparación de rutinas. Los scripts de consolidación son UTF-8 con BOM, requieren SQL Server 2016+ y aplican todo o nada: comprobaciones previas de estado y datos, cambios con dependencias recreadas y verificación antes del COMMIT. |
 | Fuera de alcance | Servidor, web, ejecución de DDL, comparación de datos, gestión de conexiones en la TUI. |
 
 Frontera de confianza: la máquina del desarrollador. Las cadenas de
