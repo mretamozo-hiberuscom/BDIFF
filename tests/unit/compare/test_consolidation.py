@@ -2,6 +2,7 @@
 
 import datetime
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from schema_comparator.compare.consolidation import (
     ColumnDeletionResolution,
     TableDeletionResolution,
     TableResolution,
+    generate_impact_report,
     write_sql_scripts,
 )
 from schema_comparator.infrastructure.providers.sqlserver.ddl_renderer import (
@@ -527,3 +529,63 @@ def test_script_verifies_every_step_before_committing() -> None:
         "THROW 50002, N'Paso 1/1: agregar la columna [dbo].[users].[age]: "
         "no quedo aplicado; se deshace todo.', 1;" in script[verify:commit]
     )
+
+
+def test_scripts_use_nothing_newer_than_sql_server_2016() -> None:
+    attrs = ColumnAttributes(
+        data_type="nvarchar",
+        character_maximum_length=20,
+        numeric_precision=None,
+        numeric_scale=None,
+        is_nullable=False,
+    )
+    script = generate_ddl_for_profile(
+        [
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="t",
+                column_name="c",
+                target_attributes=attrs,
+                profiles_to_update=("p",),
+                is_missing_column=False,
+                observed_by_profile=(("p", replace(attrs, data_type="varchar")),),
+            )
+        ],
+        ConnectionProfile(name="p", connection_string="Database=a;"),
+    ).upper()
+
+    for newer in (
+        "STRING_AGG",
+        "TRIM(",
+        "CONCAT_WS",
+        "TRANSLATE(",
+        "GREATEST(",
+        "LEAST(",
+    ):
+        assert newer not in script
+
+
+def test_impact_report_warns_that_a_clustered_rebuild_is_slow() -> None:
+    attrs = ColumnAttributes(
+        data_type="int",
+        character_maximum_length=None,
+        numeric_precision=None,
+        numeric_scale=None,
+        is_nullable=False,
+    )
+    report = generate_impact_report(
+        [
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="t",
+                column_name="c",
+                target_attributes=attrs,
+                profiles_to_update=("p",),
+                is_missing_column=False,
+            )
+        ],
+        ["p"],
+        timestamp=datetime.datetime(2026, 10, 21, 12, 0, 0),
+    )
+
+    assert "reconstruye la tabla completa" in report

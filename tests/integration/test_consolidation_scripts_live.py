@@ -812,3 +812,175 @@ def test_a_not_null_change_on_a_missing_column_reports_the_step(
     result = mssql_server.run_file(script)
 
     _assert_aborted(result, "[dbo].[clientes].[email]", "no existe")
+
+
+def _dependents(server, database: str, table: str) -> set[str]:
+    """Names of the indexes, statistics and constraints of `dbo.<table>`."""
+    rows = server.query(
+        "SELECT N'index:' + name FROM sys.indexes"
+        f" WHERE object_id = OBJECT_ID(N'dbo.{table}') AND name IS NOT NULL"
+        " UNION ALL SELECT N'stats:' + name FROM sys.stats"
+        f" WHERE object_id = OBJECT_ID(N'dbo.{table}') AND user_created = 1"
+        " UNION ALL SELECT N'constraint:' + name FROM sys.objects"
+        f" WHERE parent_object_id = OBJECT_ID(N'dbo.{table}') AND type IN ('D', 'C', 'F', 'PK', 'UQ')",
+        database=database,
+    )
+    return {row[0] for row in rows}
+
+
+def test_changes_a_column_type_keeping_every_dependent_object(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.articulos (id int NOT NULL, nombre varchar(30) NULL,"
+        " codigo varchar(10) NOT NULL CONSTRAINT DF_articulos_codigo DEFAULT 'x'"
+        " CONSTRAINT CK_articulos_codigo CHECK (codigo <> 'z')"
+        " CONSTRAINT UQ_articulos_codigo UNIQUE);"
+        " CREATE INDEX IX_articulos_codigo ON dbo.articulos (codigo DESC, id)"
+        " INCLUDE (nombre) WHERE codigo > 'a';"
+        " CREATE INDEX IX_articulos_id ON dbo.articulos (id) INCLUDE (codigo);"
+        " CREATE STATISTICS ST_articulos_codigo ON dbo.articulos (codigo);"
+        " INSERT dbo.articulos VALUES (1, 'pera', 'b1');",
+    )
+    before = _dependents(mssql_server, mssql_db, "articulos")
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _change(
+                "articulos",
+                "codigo",
+                _attrs("nvarchar", length=20, nullable=False),
+                _attrs("varchar", length=10, nullable=False),
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    assert _columns(mssql_server, mssql_db, "articulos")["codigo"] == (
+        "nvarchar",
+        "20",
+        "NO",
+    )
+    assert _dependents(mssql_server, mssql_db, "articulos") == before
+    assert mssql_server.query(
+        "SELECT i.filter_definition, c.name, ic.is_descending_key, ic.is_included_column"
+        " FROM sys.indexes i JOIN sys.index_columns ic"
+        " ON ic.object_id = i.object_id AND ic.index_id = i.index_id"
+        " JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id"
+        " WHERE i.name = N'IX_articulos_codigo' ORDER BY ic.index_column_id",
+        database=mssql_db,
+    ) == [
+        ("([codigo]>'a')", "codigo", "1", "0"),
+        ("([codigo]>'a')", "id", "0", "0"),
+        ("([codigo]>'a')", "nombre", "0", "1"),
+    ]
+
+
+def test_changes_a_referenced_primary_key_and_its_foreign_key_together(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.paises (id int NOT NULL CONSTRAINT PK_paises PRIMARY KEY);"
+        " CREATE TABLE dbo.ciudades (id int NOT NULL, pais_id int NOT NULL"
+        " CONSTRAINT FK_ciudades_paises REFERENCES dbo.paises (id) ON DELETE CASCADE);"
+        " CREATE INDEX IX_ciudades_pais ON dbo.ciudades (pais_id);"
+        " INSERT dbo.paises VALUES (34); INSERT dbo.ciudades VALUES (1, 34);",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _change(
+                "paises",
+                "id",
+                _attrs("bigint", nullable=False),
+                _attrs("int", nullable=False),
+            ),
+            _change(
+                "ciudades",
+                "pais_id",
+                _attrs("bigint", nullable=False),
+                _attrs("int", nullable=False),
+            ),
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    assert result.returncode == 0, result.stdout
+    assert "reconstruye la tabla" in result.stdout
+    assert _columns(mssql_server, mssql_db, "paises")["id"][0] == "bigint"
+    assert _columns(mssql_server, mssql_db, "ciudades")["pais_id"][0] == "bigint"
+    assert mssql_server.query(
+        "SELECT name, delete_referential_action_desc, is_not_trusted"
+        " FROM sys.foreign_keys",
+        database=mssql_db,
+    ) == [("FK_ciudades_paises", "CASCADE", "0")]
+    assert "index:PK_paises" in _dependents(mssql_server, mssql_db, "paises")
+    assert "index:IX_ciudades_pais" in _dependents(mssql_server, mssql_db, "ciudades")
+
+
+def test_shrinks_an_indexed_column_whose_data_fits(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.t (c varchar(20) NULL); CREATE INDEX IX_t_c ON dbo.t (c);"
+        " INSERT dbo.t VALUES ('corto');",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _change(
+                "t", "c", _attrs("varchar", length=10), _attrs("varchar", length=20)
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    assert _columns(mssql_server, mssql_db, "t") == {"c": ("varchar", "10", "YES")}
+    assert "index:IX_t_c" in _dependents(mssql_server, mssql_db, "t")
+
+
+@pytest.mark.parametrize(
+    ("setup", "named"),
+    [
+        (
+            "CREATE TABLE dbo.t (c varchar(10) NULL, total AS (c + '!'));",
+            "columna calculada [total]",
+        ),
+        (
+            "CREATE TABLE dbo.t (c varchar(10) NULL);\nGO\n"
+            "CREATE VIEW dbo.v_t WITH SCHEMABINDING AS SELECT c FROM dbo.t;",
+            "[dbo].[v_t]",
+        ),
+    ],
+    ids=["computed-column", "schemabound-view"],
+)
+def test_aborts_naming_dependents_it_cannot_recreate(
+    mssql_server, mssql_db, tmp_path, setup, named
+) -> None:
+    _setup(mssql_server, mssql_db, setup)
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            _change(
+                "t", "c", _attrs("nvarchar", length=10), _attrs("varchar", length=10)
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, "[dbo].[t].[c]", "no recrea", named)
+    assert _columns(mssql_server, mssql_db, "t")["c"] == ("varchar", "10", "YES")

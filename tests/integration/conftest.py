@@ -33,9 +33,10 @@ class MssqlServer:
     def run(
         self, sql: str, *, database: str = "master", stop_on_error: bool = True
     ) -> subprocess.CompletedProcess[str]:
-        """Run `sql` (UTF-8, `GO` splits batches) from stdin."""
+        """Run setup `sql` (UTF-8, `GO` splits batches) from stdin, with
+        QUOTED_IDENTIFIER on (`-I`) as filtered indexes and views need."""
         return self._sqlcmd(
-            ["-f", "65001", "-d", database, "-i", "/dev/stdin"],
+            ["-I", "-f", "65001", "-d", database, "-i", "/dev/stdin"],
             stop_on_error=stop_on_error,
             stdin=sql,
         )

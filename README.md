@@ -17,7 +17,8 @@ interactivo de hallazgos que además genera scripts T-SQL de consolidación.
 ## Requisitos
 
 - Python 3.11 o superior.
-- Para SQL Server: Microsoft ODBC Driver 17 o 18 for SQL Server.
+- Para SQL Server: Microsoft ODBC Driver 17 o 18 for SQL Server. Los
+  scripts de corrección generados requieren SQL Server 2016 o posterior.
 - Para otros motores: su driver Python, instalable como extra (ver abajo).
 
 ## Inicio rápido (Windows)
@@ -78,7 +79,11 @@ validación, `2` error o uso incorrecto (p. ej. `--refresh-modules` sin
 
 - `reportes/<AAAAMMDD_HHMMSS>/schema-diff-report-<ts>.{html,pdf,xlsx}`.
 - Desde la TUI: `scripts-db/<ts>/` con un `.sql` por perfil e
-  `impact_report.md` (solo SQL Server).
+  `impact_report.md` (solo SQL Server). Cada script aplica todos sus cambios
+  en una transacción: comprueba antes que cada objeto sigue como se comparó y
+  que no se pierden datos, recrea índices y restricciones afectados y, ante
+  cualquier error, lo deshace todo. Ejecútalo con `sqlcmd -b -i <archivo>.sql`
+  o completo desde SSMS.
 
 ## Instalación manual
 

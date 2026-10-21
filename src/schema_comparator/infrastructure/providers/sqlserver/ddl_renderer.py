@@ -216,6 +216,8 @@ class _Step:
     check: str
     apply: str
     verify: str
+    # Drops foreign keys into the script-wide `@bdiff_fk` table.
+    uses_fk_table: bool = False
 
 
 def _qualified(*names: str) -> str:
@@ -575,6 +577,262 @@ def _add_column_step(res, pos: _Position) -> _Step:
     )
 
 
+def _only_widens_text(
+    observed: ColumnAttributes | None, target: ColumnAttributes
+) -> bool:
+    """A longer column of the same text type is a metadata change that
+    indexes, defaults and checks allow; only foreign keys block it."""
+    return (
+        observed is not None
+        and _base_type(observed) == _base_type(target)
+        and _base_type(target) in _STRING_TYPES
+        and observed.is_nullable == target.is_nullable
+        and not _shorter(observed, target)
+    )
+
+
+def _list_sql(select: str) -> str:
+    """Comma-separated values of a one-column SELECT (FOR XML PATH, which
+    SQL Server 2016 has; STRING_AGG needs 2017)."""
+    return f"STUFF(({select} FOR XML PATH(''), TYPE).value('.', 'nvarchar(max)'), 1, 2, N'')"
+
+
+def _index_columns_sql(included: bool) -> str:
+    if included:
+        select = (
+            "SELECT N', ' + QUOTENAME(c.name) FROM sys.index_columns ic "
+            "JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id "
+            "WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id "
+            "AND ic.is_included_column = 1 ORDER BY ic.index_column_id"
+        )
+    else:
+        select = (
+            "SELECT N', ' + QUOTENAME(c.name) + CASE WHEN ic.is_descending_key = 1 "
+            "THEN N' DESC' ELSE N' ASC' END FROM sys.index_columns ic "
+            "JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id "
+            "WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id "
+            "AND ic.key_ordinal > 0 ORDER BY ic.key_ordinal"
+        )
+    return _list_sql(select)
+
+
+def _fk_columns_sql(side: str) -> str:
+    return _list_sql(
+        "SELECT N', ' + QUOTENAME(COL_NAME(fkc."
+        + side
+        + "_object_id, fkc."
+        + side
+        + "_column_id)) FROM sys.foreign_key_columns fkc "
+        "WHERE fkc.constraint_object_id = fk.object_id ORDER BY fkc.constraint_column_id"
+    )
+
+
+def _blockers_check(pos: _Position, label: str, widen_only: bool) -> str:
+    """Abort naming the dependents BDIFF does not recreate."""
+    n = pos.number
+    obj, col = f"@obj_{n}", f"@col_{n}"
+    sources = [
+        "SELECT N', columna calculada ' + QUOTENAME(c.name) "
+        "FROM sys.sql_expression_dependencies d JOIN sys.columns c "
+        "ON c.object_id = d.referencing_id AND c.column_id = d.referencing_minor_id "
+        f"WHERE d.referencing_id = {obj} AND d.referenced_id = {obj} "
+        f"AND d.referenced_minor_id = {col} AND c.is_computed = 1",
+        "SELECT N', objeto con SCHEMABINDING ' + QUOTENAME(OBJECT_SCHEMA_NAME(o.object_id)) "
+        "+ N'.' + QUOTENAME(o.name) FROM sys.sql_expression_dependencies d "
+        "JOIN sys.objects o ON o.object_id = d.referencing_id "
+        f"WHERE d.referenced_id = {obj} AND d.referenced_minor_id = {col} "
+        "AND d.is_schema_bound_reference = 1 AND o.type IN ('V', 'FN', 'IF', 'TF')",
+    ]
+    if not widen_only:
+        on_column = (
+            "EXISTS (SELECT 1 FROM sys.index_columns ic WHERE ic.object_id = i.object_id "
+            f"AND ic.index_id = i.index_id AND ic.column_id = {col})"
+        )
+        sources += [
+            "SELECT N', indice ' + QUOTENAME(i.name) + N' ' + i.type_desc COLLATE DATABASE_DEFAULT "
+            f"FROM sys.indexes i WHERE i.object_id = {obj} AND i.type NOT IN (0, 1, 2) "
+            f"AND {on_column}",
+            "SELECT N', indice particionado ' + QUOTENAME(i.name) FROM sys.indexes i "
+            "JOIN sys.partition_schemes ps ON ps.data_space_id = i.data_space_id "
+            f"WHERE i.object_id = {obj} AND {on_column}",
+            "SELECT N', indice full-text' FROM sys.fulltext_index_columns f "
+            f"WHERE f.object_id = {obj} AND f.column_id = {col}",
+        ]
+    # FOR XML cannot apply to a UNION directly: wrap it in a derived table.
+    union = (
+        "SELECT x.what AS [text()] FROM ("
+        + " UNION ALL ".join(sources)
+        + ") AS x(what)"
+    )
+    prefix = _escape_literal(
+        f"{label}: la columna tiene dependencias que BDIFF no recrea: "
+    ).replace("%", "%%")
+    return (
+        f"DECLARE @blockers_{n} nvarchar(max) = {_list_sql(union)};\n"
+        f"IF @blockers_{n} IS NOT NULL\n"
+        "BEGIN\n"
+        f"    DECLARE @blockers_msg_{n} nvarchar(2048) = LEFT(N'{prefix}' + REPLACE(@blockers_{n}, N'%', N'%%')"
+        " + N'; ajustalas a mano antes de aplicar.', 2048);\n"
+        f"    THROW 50005, @blockers_msg_{n}, 1;\n"
+        "END"
+    )
+
+
+def _run_each(cursor: str, var: str, select: str) -> str:
+    """Execute, in order, every statement `select` returns."""
+    return (
+        f"DECLARE {cursor} CURSOR LOCAL FAST_FORWARD FOR {select};\n"
+        f"OPEN {cursor};\n"
+        f"FETCH NEXT FROM {cursor} INTO {var};\n"
+        "WHILE @@FETCH_STATUS = 0\n"
+        "BEGIN\n"
+        f"    EXEC sys.sp_executesql {var};\n"
+        f"    FETCH NEXT FROM {cursor} INTO {var};\n"
+        "END\n"
+        f"CLOSE {cursor};\n"
+        f"DEALLOCATE {cursor};"
+    )
+
+
+# Dependents of a column, in drop order (recreated in reverse): statistics
+# and nonclustered indexes, then the clustered one, then DEFAULT and CHECK.
+_KIND_NONCLUSTERED, _KIND_CLUSTERED, _KIND_CONSTRAINT = 1, 2, 3
+
+
+def _collect_dependents(n: int, widen_only: bool) -> str:
+    """Fill `@deps_<n>` with the drop and recreate statements of the
+    column's indexes, statistics, DEFAULT and CHECK, and `@bdiff_fk` with
+    its foreign keys (recreated once every step has run)."""
+    obj, col, tbl, deps = f"@obj_{n}", f"@col_{n}", f"@tbl_{n}", f"@deps_{n}"
+    on_column = (
+        "EXISTS (SELECT 1 FROM sys.index_columns ic WHERE ic.object_id = i.object_id "
+        f"AND ic.index_id = i.index_id AND ic.column_id = {col})"
+    )
+    is_constraint = "(i.is_primary_key = 1 OR i.is_unique_constraint = 1)"
+    kind_word = "CASE WHEN i.type = 1 THEN N'CLUSTERED' ELSE N'NONCLUSTERED' END"
+    index_sql = (
+        f"INSERT {deps} (kind, name, drop_sql, create_sql)\n"
+        f"SELECT CASE WHEN i.type = 1 THEN {_KIND_CLUSTERED} ELSE {_KIND_NONCLUSTERED} END, i.name,\n"
+        f"    CASE WHEN {is_constraint}\n"
+        f"        THEN N'ALTER TABLE ' + {tbl} + N' DROP CONSTRAINT ' + QUOTENAME(i.name)\n"
+        f"        ELSE N'DROP INDEX ' + QUOTENAME(i.name) + N' ON ' + {tbl} END,\n"
+        f"    CASE WHEN {is_constraint}\n"
+        f"        THEN N'ALTER TABLE ' + {tbl} + N' ADD CONSTRAINT ' + QUOTENAME(i.name)\n"
+        "            + CASE WHEN i.is_primary_key = 1 THEN N' PRIMARY KEY ' ELSE N' UNIQUE ' END + "
+        f"{kind_word}\n"
+        "        ELSE N'CREATE ' + CASE WHEN i.is_unique = 1 THEN N'UNIQUE ' ELSE N'' END + "
+        f"{kind_word}\n"
+        f"            + N' INDEX ' + QUOTENAME(i.name) + N' ON ' + {tbl} END\n"
+        f"    + N' (' + {_index_columns_sql(included=False)} + N')'\n"
+        f"    + ISNULL(N' INCLUDE (' + {_index_columns_sql(included=True)} + N')', N'')\n"
+        "    + CASE WHEN i.has_filter = 1 THEN N' WHERE ' + i.filter_definition ELSE N'' END\n"
+        "    + N' WITH (PAD_INDEX = ' + CASE WHEN i.is_padded = 1 THEN N'ON' ELSE N'OFF' END\n"
+        "    + CASE WHEN i.fill_factor > 0 THEN N', FILLFACTOR = ' + CAST(i.fill_factor AS nvarchar(3)) ELSE N'' END\n"
+        "    + CASE WHEN i.ignore_dup_key = 1 THEN N', IGNORE_DUP_KEY = ON' ELSE N'' END\n"
+        "    + N', ALLOW_ROW_LOCKS = ' + CASE WHEN i.allow_row_locks = 1 THEN N'ON' ELSE N'OFF' END\n"
+        "    + N', ALLOW_PAGE_LOCKS = ' + CASE WHEN i.allow_page_locks = 1 THEN N'ON' ELSE N'OFF' END\n"
+        "    + ISNULL((SELECT TOP (1) N', DATA_COMPRESSION = ' + p.data_compression_desc COLLATE DATABASE_DEFAULT\n"
+        "        FROM sys.partitions p WHERE p.object_id = i.object_id AND p.index_id = i.index_id\n"
+        "        AND p.data_compression > 0), N'')\n"
+        "    + N') ON ' + QUOTENAME(ds.name)\n"
+        "    + CASE WHEN i.is_disabled = 1\n"
+        f"        THEN N'; ALTER INDEX ' + QUOTENAME(i.name) + N' ON ' + {tbl} + N' DISABLE' ELSE N'' END\n"
+        "FROM sys.indexes i JOIN sys.data_spaces ds ON ds.data_space_id = i.data_space_id\n"
+        f"WHERE i.object_id = {obj} AND i.type IN (1, 2) AND i.is_hypothetical = 0 AND {on_column};\n"
+    )
+    stats_columns = _list_sql(
+        "SELECT N', ' + QUOTENAME(COL_NAME(sc.object_id, sc.column_id)) FROM sys.stats_columns sc "
+        "WHERE sc.object_id = s.object_id AND sc.stats_id = s.stats_id ORDER BY sc.stats_column_id"
+    )
+    stats_sql = (
+        f"INSERT {deps} (kind, name, drop_sql, create_sql)\n"
+        f"SELECT {_KIND_NONCLUSTERED}, s.name, N'DROP STATISTICS ' + {tbl} + N'.' + QUOTENAME(s.name),\n"
+        "    CASE WHEN s.user_created = 1\n"
+        f"        THEN N'CREATE STATISTICS ' + QUOTENAME(s.name) + N' ON ' + {tbl} + N' (' + {stats_columns} + N')'\n"
+        "            + CASE WHEN s.has_filter = 1 THEN N' WHERE ' + s.filter_definition ELSE N'' END END\n"
+        "FROM sys.stats s\n"
+        f"WHERE s.object_id = {obj} AND (s.user_created = 1 OR s.auto_created = 1)\n"
+        "  AND EXISTS (SELECT 1 FROM sys.stats_columns sc WHERE sc.object_id = s.object_id\n"
+        f"      AND sc.stats_id = s.stats_id AND sc.column_id = {col});\n"
+    )
+    constraint_sql = (
+        f"INSERT {deps} (kind, name, drop_sql, create_sql)\n"
+        f"SELECT {_KIND_CONSTRAINT}, dc.name, N'ALTER TABLE ' + {tbl} + N' DROP CONSTRAINT ' + QUOTENAME(dc.name),\n"
+        f"    N'ALTER TABLE ' + {tbl} + N' ADD CONSTRAINT ' + QUOTENAME(dc.name) + N' DEFAULT ' + dc.definition\n"
+        f"    + N' FOR ' + QUOTENAME(COL_NAME({obj}, {col}))\n"
+        f"FROM sys.default_constraints dc WHERE dc.parent_object_id = {obj} AND dc.parent_column_id = {col};\n"
+        f"INSERT {deps} (kind, name, drop_sql, create_sql)\n"
+        f"SELECT {_KIND_CONSTRAINT}, cc.name, N'ALTER TABLE ' + {tbl} + N' DROP CONSTRAINT ' + QUOTENAME(cc.name),\n"
+        f"    N'ALTER TABLE ' + {tbl} + CASE WHEN cc.is_not_trusted = 1 THEN N' WITH NOCHECK' ELSE N' WITH CHECK' END\n"
+        "    + N' ADD CONSTRAINT ' + QUOTENAME(cc.name) + N' CHECK '\n"
+        "    + CASE WHEN cc.is_not_for_replication = 1 THEN N'NOT FOR REPLICATION ' ELSE N'' END + cc.definition\n"
+        "    + CASE WHEN cc.is_disabled = 1\n"
+        f"        THEN N'; ALTER TABLE ' + {tbl} + N' NOCHECK CONSTRAINT ' + QUOTENAME(cc.name) ELSE N'' END\n"
+        f"FROM sys.check_constraints cc WHERE cc.parent_object_id = {obj}\n"
+        f"  AND (cc.parent_column_id = {col} OR EXISTS (SELECT 1 FROM sys.sql_expression_dependencies d\n"
+        f"      WHERE d.referencing_id = cc.object_id AND d.referenced_id = {obj} AND d.referenced_minor_id = {col}));\n"
+    )
+    qualified = "QUOTENAME(OBJECT_SCHEMA_NAME(fk.{0}_object_id)) + N'.' + QUOTENAME(OBJECT_NAME(fk.{0}_object_id))"
+    parent, referenced = qualified.format("parent"), qualified.format("referenced")
+    fk_sql = (
+        "INSERT @bdiff_fk (fk_id, step, name, drop_sql, create_sql)\n"
+        f"SELECT fk.object_id, {n}, fk.name,\n"
+        f"    N'ALTER TABLE ' + {parent} + N' DROP CONSTRAINT ' + QUOTENAME(fk.name),\n"
+        f"    N'ALTER TABLE ' + {parent}\n"
+        "    + CASE WHEN fk.is_not_trusted = 1 THEN N' WITH NOCHECK' ELSE N' WITH CHECK' END\n"
+        f"    + N' ADD CONSTRAINT ' + QUOTENAME(fk.name) + N' FOREIGN KEY (' + {_fk_columns_sql('parent')} + N')'\n"
+        f"    + N' REFERENCES ' + {referenced} + N' (' + {_fk_columns_sql('referenced')} + N')'\n"
+        "    + N' ON DELETE ' + REPLACE(fk.delete_referential_action_desc COLLATE DATABASE_DEFAULT, N'_', N' ')\n"
+        "    + N' ON UPDATE ' + REPLACE(fk.update_referential_action_desc COLLATE DATABASE_DEFAULT, N'_', N' ')\n"
+        "    + CASE WHEN fk.is_not_for_replication = 1 THEN N' NOT FOR REPLICATION' ELSE N'' END\n"
+        "    + CASE WHEN fk.is_disabled = 1\n"
+        f"        THEN N'; ALTER TABLE ' + {parent} + N' NOCHECK CONSTRAINT ' + QUOTENAME(fk.name) ELSE N'' END\n"
+        "FROM sys.foreign_keys fk\n"
+        "WHERE fk.object_id NOT IN (SELECT fk_id FROM @bdiff_fk)\n"
+        f"  AND ((fk.parent_object_id = {obj} AND EXISTS (SELECT 1 FROM sys.foreign_key_columns fkc\n"
+        f"          WHERE fkc.constraint_object_id = fk.object_id AND fkc.parent_column_id = {col}))\n"
+        f"    OR (fk.referenced_object_id = {obj} AND EXISTS (SELECT 1 FROM sys.foreign_key_columns fkc\n"
+        f"          WHERE fkc.constraint_object_id = fk.object_id AND fkc.referenced_column_id = {col})));\n"
+    )
+    sql = (
+        f"DECLARE {deps} TABLE (seq int IDENTITY(1, 1), kind tinyint NOT NULL, name sysname NOT NULL,\n"
+        "    drop_sql nvarchar(max) NOT NULL, create_sql nvarchar(max) NULL);\n"
+        f"DECLARE @dep_sql_{n} nvarchar(max);\n" + fk_sql
+    )
+    if not widen_only:
+        sql += index_sql + stats_sql + constraint_sql
+    return sql
+
+
+def _drop_dependents(n: int, label: str) -> str:
+    warning = _escape_literal(
+        f"{label}: aviso: se recrea el indice clustered o la PK; esto reconstruye la tabla completa."
+    )
+    return (
+        f"IF EXISTS (SELECT 1 FROM @deps_{n} WHERE kind = {_KIND_CLUSTERED})\n"
+        f"    PRINT N'{warning}';\n"
+        + _run_each(
+            f"bdiff_fk_drop_{n}",
+            f"@dep_sql_{n}",
+            f"SELECT drop_sql FROM @bdiff_fk WHERE step = {n} ORDER BY fk_id",
+        )
+        + "\n"
+        + _run_each(
+            f"bdiff_dep_drop_{n}",
+            f"@dep_sql_{n}",
+            f"SELECT drop_sql FROM @deps_{n} ORDER BY kind, seq",
+        )
+    )
+
+
+def _recreate_dependents(n: int) -> str:
+    return _run_each(
+        f"bdiff_dep_create_{n}",
+        f"@dep_sql_{n}",
+        f"SELECT create_sql FROM @deps_{n} WHERE create_sql IS NOT NULL ORDER BY kind DESC, seq",
+    )
+
+
 def _modify_column_step(
     res, observed: ColumnAttributes | None, pos: _Position
 ) -> _Step:
@@ -586,7 +844,12 @@ def _modify_column_step(
     col_print = _escape_literal(col_esc)
     attrs = res.target_attributes
     target = _column_is(res.schema_name, res.table_name, res.column_name, attrs)
+    n = pos.number
+    widen_only = _only_widens_text(observed, attrs)
     check = (
+        f"DECLARE @obj_{n} int = OBJECT_ID(N'{table_lit}');\n"
+        f"DECLARE @col_{n} int = COLUMNPROPERTY(@obj_{n}, N'{_escape_literal(res.column_name)}', 'ColumnId');\n"
+        f"DECLARE @tbl_{n} nvarchar(400) = N'{table_lit}';\n"
         f"IF {target}\n"
         f"    SET {pos.skip} = 1;\n"
         f"ELSE IF NOT {_column_exists(res.schema_name, res.table_name, res.column_name)}\n"
@@ -604,7 +867,7 @@ def _modify_column_step(
             )
         )
 
-    data: list[str] = []
+    data: list[str] = [_blockers_check(pos, label, widen_only)]
     fill = None
     if not attrs.is_nullable and (observed is None or observed.is_nullable):
         fill = _fill_expression(attrs, res.backfill_value)
@@ -651,15 +914,25 @@ def _modify_column_step(
                 )
             )
 
-    apply = ""
+    # Indexes, statistics and constraints on the column block most ALTER
+    # COLUMN changes: they are dropped and recreated around it, and the
+    # foreign keys once every step has run.
+    apply = (
+        "-- Si la columna forma parte del indice clustered o de la PK, recrearlo\n"
+        "-- reconstruye la tabla completa.\n"
+        + _collect_dependents(n, widen_only)
+        + _drop_dependents(n, label)
+        + "\n"
+    )
     if fill is not None:
         update = f"UPDATE {table} SET [{col_esc}] = {fill} WHERE [{col_esc}] IS NULL;"
-        apply = (
+        apply += (
             f"{_dynamic(update)}\n"
             f"PRINT N'Valores NULL en {table_lit}.[{col_print}] actualizados pre-ALTER.';\n"
         )
     apply += (
         f"ALTER TABLE {table} ALTER COLUMN [{col_esc}] {format_sql_column_definition(attrs)};\n"
+        f"{_recreate_dependents(n)}\n"
         f"PRINT N'Columna [{col_print}] de {table_lit} modificada con exito.';"
     )
     return _Step(
@@ -667,6 +940,7 @@ def _modify_column_step(
         check=check + _data_checks(data, pos.skip),
         apply=apply,
         verify=target,
+        uses_fk_table=True,
     )
 
 
@@ -679,8 +953,16 @@ def _render_steps(steps: list[_Step]) -> list[str]:
     if not steps:
         return ["    PRINT N'No se requieren cambios para este perfil.';"]
     flags = ", ".join(f"@skip_{n} bit = 0" for n in range(1, len(steps) + 1))
-    lines = [
-        f"    DECLARE {flags};",
+    uses_fk_table = any(step.uses_fk_table for step in steps)
+    lines = [f"    DECLARE {flags};"]
+    if uses_fk_table:
+        lines += [
+            "    -- Claves foraneas eliminadas por los pasos; se recrean al final.",
+            "    DECLARE @bdiff_fk TABLE (fk_id int PRIMARY KEY, step int NOT NULL, name sysname NOT NULL,",
+            "        drop_sql nvarchar(max) NOT NULL, create_sql nvarchar(max) NOT NULL);",
+            "    DECLARE @bdiff_fk_sql nvarchar(max);",
+        ]
+    lines += [
         "",
         "    -- 1. Comprobaciones previas: todavia no se ha cambiado nada.",
     ]
@@ -697,6 +979,19 @@ def _render_steps(steps: list[_Step]) -> list[str]:
             "    END",
             "    ELSE",
             f"        PRINT N'{label} ya aplicado; se omite.';",
+        ]
+    if uses_fk_table:
+        lines += [
+            "",
+            "    -- Claves foraneas recreadas tras todos los cambios.",
+            _indent(
+                _run_each(
+                    "bdiff_fk_create",
+                    "@bdiff_fk_sql",
+                    "SELECT create_sql FROM @bdiff_fk ORDER BY fk_id",
+                ),
+                4,
+            ),
         ]
     lines += ["", "    -- 3. Verificacion final antes de confirmar."]
     for step in steps:

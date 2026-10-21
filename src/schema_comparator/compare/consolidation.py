@@ -263,6 +263,9 @@ def generate_impact_report(
             lines.append(
                 "  - Variables locales (`DECLARE @var ...`) o parámetros de procedimiento cuya precisión o longitud quede desalineada con el tipo en la BD."
             )
+            lines.append(
+                "- [ ] **Tiempo de ejecución (Columnas Modificadas):** el script elimina y recrea los índices, PK/UNIQUE, FK, estadísticas, DEFAULT y CHECK que dependen de cada columna modificada. Si la columna forma parte del índice clustered o de la PK, recrearlo reconstruye la tabla completa: lento y con bloqueo en tablas grandes; planifique una ventana de mantenimiento."
+            )
         if prof_table_creations:
             lines.append("- [ ] **Punto de Control (Nuevas Tablas):**")
             lines.append(
