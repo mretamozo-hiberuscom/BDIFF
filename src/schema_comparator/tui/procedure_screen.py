@@ -10,7 +10,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, DataTable, Footer, Header, Label, Static
 
-from schema_comparator.compare.consolidation import sanitize_profile_filename
+from schema_comparator.compare.consolidation import assign_script_filenames
 from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.infrastructure.providers.sqlserver import connection
 from schema_comparator.infrastructure.providers.sqlserver.sp_validator import (
@@ -389,9 +389,10 @@ class ProcedureVerificationScreen(Screen):
         ]
 
         written_profile_files: list[str] = []
+        script_filenames = assign_script_filenames(list(source_map))
 
         for profile_name, res_list in sorted(source_map.items()):
-            safe_filename = sanitize_profile_filename(profile_name) + ".sql"
+            safe_filename = script_filenames[profile_name] + ".sql"
             prof_file_path = repair_dir / safe_filename
 
             prof_lines = [

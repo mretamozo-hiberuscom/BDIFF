@@ -333,8 +333,8 @@ class SchemaComparatorApp(App):
                     f"{', '.join(Path(f).name for f in result)}"
                 )
 
-        # Hallar la raíz del proyecto
-        repo_root = Path(__file__).resolve().parents[3]
+        # Los scripts van al directorio de trabajo, igual que reportes/.
+        repo_root = Path.cwd()
 
         profiles_to_pass = self._profiles
         if not profiles_to_pass:
@@ -359,7 +359,7 @@ class SchemaComparatorApp(App):
         from pathlib import Path
         from schema_comparator.config.models import ConnectionProfile
 
-        repo_root = Path(__file__).resolve().parents[3]
+        repo_root = Path.cwd()
         profiles_to_pass = self._profiles
         if not profiles_to_pass:
             profiles_to_pass = [

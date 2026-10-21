@@ -375,3 +375,19 @@ async def test_app_opens_decision_screen() -> None:
 
         # Verify that DecisionScreen is now the active screen
         assert isinstance(app.screen, DecisionScreen)
+
+
+@pytest.mark.asyncio
+async def test_decision_screen_writes_scripts_under_the_working_directory(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    app = SchemaComparatorApp(comparison_result_with_findings(), profiles=_profiles())
+
+    async with app.run_test() as pilot:
+        app.query_one(FindingsTree).focus()
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+
+        assert app.screen.repo_root == tmp_path

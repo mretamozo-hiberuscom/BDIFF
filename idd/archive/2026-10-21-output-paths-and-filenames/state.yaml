@@ -1,0 +1,214 @@
+{
+  "schema": "idd-state/v1",
+  "change": "output-paths-and-filenames",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "La TUI escribe scripts-db en una ruta derivada del paquete (tui/app.py:337,362) y los nombres de archivo por perfil pierden prefijos ('prod/db' y 'qa/db' acaban en db.sql), no evitan nombres reservados de Windows (CON, NUL...) y chocan sin distinguir mayúsculas en Windows; el reporte de impacto cita un nombre que no coincide con el archivo con sufijo",
+    "acceptance": "scripts-db se crea en el directorio de trabajo, como reportes/; cada perfil obtiene un nombre de archivo válido en Windows y único sin distinguir mayúsculas; impact_report.md y los scripts de reparación usan exactamente esos nombres"
+  },
+  "facts": {
+    "basis": "Los reportes ya se escriben relativos al cwd (report/write.py:20) y la deduplicación con sufijo _N ya existe (compare/consolidation.py:278); se aplica la misma convención a scripts-db y a los scripts de reparación"
+  },
+  "plan": {
+    "paths": [
+      "src/schema_comparator/compare/consolidation.py",
+      "src/schema_comparator/tui/app.py",
+      "src/schema_comparator/tui/procedure_screen.py",
+      "tests/unit/compare/test_script_filenames.py",
+      "tests/unit/tui/test_app.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "components compare, presentation: ADR 0001, 0003, 0005, 0006 and quality scenario mutation-requires-confirmation, no-false-drift, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "none",
+      "reason": "Cambios dentro de compare y tui; sin nuevas dependencias entre capas"
+    },
+    {
+      "kind": "adr",
+      "id": "0003",
+      "impact": "none",
+      "reason": "No toca tipos ni modos de comparación"
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "conforms",
+      "reason": "Los scripts se siguen escribiendo a disco sin ejecutarse; solo cambian ruta y nombres"
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "none",
+      "reason": "No toca la recompilación"
+    },
+    {
+      "kind": "scenario",
+      "id": "mutation-requires-confirmation",
+      "impact": "none",
+      "reason": "Sin cambios"
+    },
+    {
+      "kind": "scenario",
+      "id": "no-false-drift",
+      "impact": "none",
+      "reason": "No toca el motor"
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "none",
+      "reason": "Los nombres de archivo derivan del nombre del perfil, nunca de la cadena"
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "conforms",
+      "reason": "Nombres válidos en Windows y sin colisiones por mayúsculas; scripts-db junto a reportes/ en el directorio de trabajo"
+    }
+  ],
+  "attestations": [
+    {
+      "kind": "adr",
+      "id": "0006",
+      "evidence": "grep '.commit()' en src/: solo sp_validator.py:360; este cambio solo renombra archivos de reparación",
+      "recorded_at": "2026-10-21T10:38:45.577Z"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T10:38:39.556Z",
+      "detail": {
+        "red": "run-1",
+        "green": "run-2"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T10:39:00.791Z",
+      "detail": {
+        "tree": "sha256:73f6d9c3b8a0f994917d8492f548a73c40f57592cc6daab683ba7e7d33ec9180",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T10:39:00.791Z",
+      "detail": {
+        "refs": [
+          "adr:0001 none",
+          "adr:0003 none",
+          "adr:0005 conforms",
+          "adr:0006 none",
+          "scenario:mutation-requires-confirmation none",
+          "scenario:no-false-drift none",
+          "scenario:secret-safety none",
+          "scenario:windows-first-run conforms"
+        ],
+        "records": []
+      }
+    }
+  ],
+  "base": "f2d6c1f9337028fbc298c3fbdb92c0188ad9ac42",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/compare/test_script_filenames.py tests/unit/tui/test_app.py",
+      "exit_code": 2,
+      "output_sha256": "sha256:79fa3a9ac0810774a71dd979e782d35ad09c3ca7a675d09d2bf5fbd004269fe3",
+      "tree": "sha256:bd1c0657ef8a02ced055a7d1078dfa905e031c002c32e82f05c0aa2db2cce403",
+      "recorded_at": "2026-10-21T10:38:10.412Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/compare/test_script_filenames.py tests/unit/tui/test_app.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:cff050742d6ae343c150401997cbcb97ad0ce4c9b86cfb04d6dcaa4e34ca4ce9",
+      "tree": "sha256:db0716b948c601823a1918b696129cea6088894fdadbd709f3f61dc2d988c119",
+      "recorded_at": "2026-10-21T10:38:39.556Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:0ba043f9dc22531b69e0a2b4fb295b9b73c780605d781f10be55015190ede072",
+      "tree": "sha256:73f6d9c3b8a0f994917d8492f548a73c40f57592cc6daab683ba7e7d33ec9180",
+      "recorded_at": "2026-10-21T10:39:00.791Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:82f2c6f77e791471dd2e7a2a3facfa70cb7c9fbfada14f7f795239e25253382c",
+      "tree": "sha256:73f6d9c3b8a0f994917d8492f548a73c40f57592cc6daab683ba7e7d33ec9180",
+      "recorded_at": "2026-10-21T10:39:00.791Z"
+    }
+  ],
+  "closed_at": "2026-10-21T10:39:05.551Z"
+}
