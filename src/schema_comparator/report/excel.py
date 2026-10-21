@@ -64,7 +64,7 @@ def _write_findings_sheet(ws: Worksheet, result: ComparisonResult) -> None:
 
             row = [
                 view.schema_name,
-                view.object_name,
+                view.display_object,
                 view.detail_name or "",
                 view.finding_type,
                 *profile_cells,

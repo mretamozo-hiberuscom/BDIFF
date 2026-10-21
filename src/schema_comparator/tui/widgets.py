@@ -13,6 +13,7 @@ from schema_comparator.compare.models import (
     MissingColumn,
     MissingTable,
 )
+from schema_comparator.domain.comparison.models import column_label, object_label
 from schema_comparator.report.attributes import format_attributes
 from schema_comparator.tui.formatting import (
     TreeData,
@@ -42,11 +43,10 @@ class DetailPanel(Static):
             return
 
         if isinstance(entry, ColumnMismatch):
-            schema, table = entry.qualified_name
             markup = [
                 "[bold cyan]🔍 Detalle de Discrepancia de Atributos[/]",
-                f"[bold]Tabla:[/bold] {schema}.{table}",
-                f"[bold]Columna:[/bold] [yellow]{entry.column_name}[/]",
+                f"[bold]Tabla:[/bold] {object_label(entry)}",
+                f"[bold]Columna:[/bold] [yellow]{column_label(entry)}[/]",
                 "",
                 "[bold underline]Definición por Perfil de Conexión:[/bold underline]",
             ]
@@ -57,11 +57,10 @@ class DetailPanel(Static):
             self.update("\n".join(markup))
 
         elif isinstance(entry, MissingColumn):
-            schema, table = entry.qualified_name
             markup = [
                 "[bold orange3]➖ Detalle de Columna Faltante[/]",
-                f"[bold]Tabla:[/bold] {schema}.{table}",
-                f"[bold]Columna:[/bold] [orange3]{entry.column_name}[/]",
+                f"[bold]Tabla:[/bold] {object_label(entry)}",
+                f"[bold]Columna:[/bold] [orange3]{column_label(entry)}[/]",
                 "",
                 f"⚠️ [bold red]Faltante en el perfil:[/bold red] [bold underline]{entry.missing_from_profile}[/]",
                 "",
@@ -74,10 +73,9 @@ class DetailPanel(Static):
             self.update("\n".join(markup))
 
         elif isinstance(entry, MissingTable):
-            schema, table = entry.qualified_name
             markup = [
                 "[bold red]✖ Detalle de Tabla Faltante[/]",
-                f"[bold]Tabla:[/bold] [red]{schema}.{table}[/]",
+                f"[bold]Tabla:[/bold] [red]{object_label(entry)}[/]",
                 "",
                 f"⚠️ [bold red]Faltante en el perfil:[/bold red] [bold underline]{entry.missing_from_profile}[/]",
             ]
@@ -111,12 +109,12 @@ class FindingsTree(Tree):
             )
         if isinstance(entry, MissingColumn):
             return Text.from_markup(
-                f"[bold orange3]➖[/] [bold orange3]{entry.column_name}[/]: [orange3]columna faltante[/] (de [bold]{entry.missing_from_profile}[/bold])"
+                f"[bold orange3]➖[/] [bold orange3]{column_label(entry)}[/]: [orange3]columna faltante[/] (de [bold]{entry.missing_from_profile}[/bold])"
             )
         if isinstance(entry, ColumnMismatch):
             profiles = ", ".join(p for p, _ in entry.values_by_profile)
             return Text.from_markup(
-                f"[bold yellow]≠[/] [bold yellow]{entry.column_name}[/]: [yellow]discrepancia de atributos[/] entre [bold]{profiles}[/bold]"
+                f"[bold yellow]≠[/] [bold yellow]{column_label(entry)}[/]: [yellow]discrepancia de atributos[/] entre [bold]{profiles}[/bold]"
             )
         return Text(leaf_label(entry))
 

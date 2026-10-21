@@ -33,8 +33,13 @@ WHERE c.OWNER NOT IN (
 ORDER BY c.OWNER, c.TABLE_NAME, c.COLUMN_ID;
 """.strip()
 
+# python-oracledb rejects a trailing semicolon in a single statement.
+ORACLE_CURRENT_SCHEMA_SQL = "SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM DUAL"
 
-def build_snapshot(profile_name: str, rows: list[tuple]) -> SchemaSnapshot:
+
+def build_snapshot(
+    profile_name: str, rows: list[tuple], default_schema: str | None = None
+) -> SchemaSnapshot:
     """Group raw Oracle catalog rows into a deterministic SchemaSnapshot."""
     grouped: dict[tuple[str, str], list[ColumnSnapshot]] = {}
     for row in rows:
@@ -86,4 +91,5 @@ def build_snapshot(profile_name: str, rows: list[tuple]) -> SchemaSnapshot:
         provider_id="oracle",
         tables=tables,
         extracted_features=frozenset({SchemaFeature.TABLES}),
+        default_schema=default_schema,
     )

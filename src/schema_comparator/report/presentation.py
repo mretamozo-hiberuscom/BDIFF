@@ -1,7 +1,7 @@
 """FindingView: Normalized intermediate representation of schema findings for all renderers."""
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from schema_comparator.compare.models import (
     ColumnMismatch,
@@ -14,6 +14,7 @@ from schema_comparator.compare.models import (
     PrimaryKeyMismatch,
     ProcedureMismatch,
 )
+from schema_comparator.domain.comparison.models import column_label
 from schema_comparator.domain.schema.models import ProcedureSnapshot
 from schema_comparator.report.attributes import MISSING_MARKER, format_attributes
 
@@ -39,10 +40,20 @@ class FindingView:
     detail_name: str | None
     finding_type: str
     cells_by_profile: dict[str, str]
+    object_variants: tuple[str, ...] = ()
 
     @property
     def qualified_name(self) -> str:
+        if self.object_variants:
+            return " / ".join(self.object_variants)
         return f"{self.schema_name}.{self.object_name}"
+
+    @property
+    def display_object(self) -> str:
+        """Object name with every original spelling (ADR 0007)."""
+        if self.object_variants:
+            return " / ".join(self.object_variants)
+        return self.object_name
 
     @property
     def display_detail(self) -> str:
@@ -79,7 +90,18 @@ def _format_procedure_signature(p_snap: ProcedureSnapshot) -> str:
 def present_finding(
     entries: Sequence[DiffEntry], profiles: tuple[str, ...]
 ) -> FindingView:
-    """Convert one group of sibling DiffEntry objects for an identity into a FindingView."""
+    """Convert one group of sibling DiffEntry objects for an identity into a
+    FindingView, carrying every original spelling of the object and column."""
+    first = entries[0]
+    view = _present_finding(entries, profiles)
+    if isinstance(first, (MissingColumn, ColumnMismatch)):
+        view = replace(view, detail_name=column_label(first))
+    return replace(view, object_variants=first.object_variants)
+
+
+def _present_finding(
+    entries: Sequence[DiffEntry], profiles: tuple[str, ...]
+) -> FindingView:
     first = entries[0]
     schema_name, object_name = first.qualified_name
     finding_type = FINDING_TYPE_LABELS.get(type(first), type(first).__name__)

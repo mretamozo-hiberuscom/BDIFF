@@ -1,11 +1,13 @@
 """Two-pass union-of-identities N-way comparison engine."""
 
 from collections.abc import Sequence
+from dataclasses import replace
 
 from schema_comparator.compare.errors import (
     DuplicateProfileNameError,
     InsufficientSnapshotsError,
 )
+from schema_comparator.compare.identity import CanonicalSnapshots, canonicalize
 from schema_comparator.compare.models import (
     ColumnAttributes,
     ColumnMismatch,
@@ -418,13 +420,35 @@ def _sort_key(
     )
 
 
+def _with_variants(entry: DiffEntry, canonical: CanonicalSnapshots) -> DiffEntry:
+    """Attach every original spelling of the entry's object and column."""
+    if isinstance(entry, (MissingProcedure, ProcedureMismatch)):
+        variants = canonical.procedure_variants.get(entry.qualified_name, ())
+    else:
+        variants = canonical.table_variants.get(entry.qualified_name, ())
+    changes: dict[str, tuple[str, ...]] = {}
+    if variants:
+        changes["object_variants"] = variants
+    if isinstance(entry, (MissingColumn, ColumnMismatch)):
+        column_variants = canonical.column_variants.get(
+            (*entry.qualified_name, entry.column_name), ()
+        )
+        if column_variants:
+            changes["column_variants"] = column_variants
+    return replace(entry, **changes) if changes else entry
+
+
 def compare_snapshots(
     snapshots: Sequence[SchemaSnapshot],
     mode: ComparisonMode = ComparisonMode.NATIVE_STRICT,
     routine_policy: RoutineComparisonPolicy = RoutineComparisonPolicy.SAME_PROVIDER,
 ) -> ComparisonResult:
-    """Compare 2+ named schema snapshots and return a deterministic diff."""
+    """Compare 2+ named schema snapshots and return a deterministic diff.
+
+    Objects are matched by normalized identity (ADR 0007)."""
     _validate(snapshots)
+    canonical = canonicalize(snapshots)
+    snapshots = canonical.snapshots
     profile_names = tuple(sorted(s.profile_name for s in snapshots))
     union, presence = _build_presence_index(snapshots)
     table_index = _build_table_index(snapshots)
@@ -442,7 +466,13 @@ def compare_snapshots(
 
     entries = tuple(
         sorted(
-            table_entries + column_entries + advanced_entries + procedure_entries,
+            (
+                _with_variants(entry, canonical)
+                for entry in table_entries
+                + column_entries
+                + advanced_entries
+                + procedure_entries
+            ),
             key=_sort_key,
         )
     )

@@ -133,6 +133,9 @@ class SchemaSnapshot:
     """The full extraction result for one profile.
 
     `tables` and `procedures` are sorted at construction time.
+    `default_schema` names the schema that stands for the database itself
+    (MySQL/MariaDB database, Oracle session schema); objects in it match
+    objects in the other profiles' default schema (ADR 0007).
     """
 
     profile_name: str
@@ -144,3 +147,4 @@ class SchemaSnapshot:
             {SchemaFeature.TABLES, SchemaFeature.ROUTINES}
         )
     )
+    default_schema: str | None = None

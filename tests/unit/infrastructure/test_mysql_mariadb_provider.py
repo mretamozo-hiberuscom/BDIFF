@@ -201,3 +201,21 @@ def test_generate_mysql_script():
         in script
     )
     assert "SET FOREIGN_KEY_CHECKS = 0;" in script
+
+
+def _mysql_row(schema, table):
+    return (schema, table, "id", "int", None, 10, 0, "NO", 1, None, "", None)
+
+
+def test_single_database_snapshot_declares_it_as_default_schema():
+    snapshot = build_snapshot("p", [_mysql_row("app_dev", "poliza")])
+
+    assert snapshot.default_schema == "app_dev"
+
+
+def test_multi_database_snapshot_has_no_default_schema():
+    snapshot = build_snapshot(
+        "p", [_mysql_row("app_dev", "poliza"), _mysql_row("audit", "log")]
+    )
+
+    assert snapshot.default_schema is None
