@@ -98,7 +98,7 @@ def _run_routine_validation(
     mode_str = (
         "solo lectura" if read_only else "recompilación mutante (sp_refreshsqlmodule)"
     )
-    print(f"\n🔍 Ejecutando validación de rutinas [{mode_str}]...")
+    print(f"\nEjecutando validación de rutinas [{mode_str}]...")
     has_errors = False
 
     for profile in profiles:
@@ -122,7 +122,7 @@ def _run_routine_validation(
                     if failures:
                         has_errors = True
                         print(
-                            f"❌ Perfil '{profile.name}': {len(failures)} objeto(s) con fallos:"
+                            f"[ERROR] Perfil '{profile.name}': {len(failures)} objeto(s) con fallos:"
                         )
                         for f in failures:
                             proc_name = getattr(f, "routine", f).object_name
@@ -132,18 +132,28 @@ def _run_routine_validation(
                             )
                     else:
                         print(
-                            f"✅ Perfil '{profile.name}': todas las rutinas evaluadas están correctas ({len(results)} verificadas)."
+                            f"[OK] Perfil '{profile.name}': todas las rutinas evaluadas están correctas ({len(results)} verificadas)."
                         )
             except Exception as exc:
                 has_errors = True
                 print(
-                    f"⚠️ Perfil '{profile.name}': error al conectar o validar rutinas: {exc}"
+                    f"[AVISO] Perfil '{profile.name}': error al conectar o validar rutinas: {exc}"
                 )
 
     return has_errors
 
 
+def _make_console_output_safe() -> None:
+    """Replace characters the console code page cannot encode (cp1252 on a
+    redirected Windows stdout, for instance) instead of aborting the run."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(errors="replace")
+
+
 def main(argv: list[str] | None = None) -> int:
+    _make_console_output_safe()
     try:
         args = build_arg_parser().parse_args(argv)
         profiles = load_profiles(args.config)
@@ -179,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.refresh_modules or args.verify_sps:
             if not args.yes:
                 print(
-                    "\n⚠️ ATENCIÓN: --refresh-modules ejecuta sp_refreshsqlmodule para recompilar metadatos en la BD. "
+                    "\n[AVISO] ATENCIÓN: --refresh-modules ejecuta sp_refreshsqlmodule para recompilar metadatos en la BD. "
                     "Para confirmar esta acción mutante, incluye la bandera --yes.",
                     file=sys.stderr,
                 )

@@ -1,0 +1,192 @@
+{
+  "schema": "idd-state/v1",
+  "change": "console-encoding-windows",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "En Windows con la salida redirigida (cp1252) el resumen de consola se pierde por el marcador ❌ y los emojis del CLI de rutinas terminan la ejecución con código 2",
+    "acceptance": "Con PYTHONIOENCODING=cp1252 el CLI imprime el resumen completo (marcador FALTA) y los mensajes de rutinas con prefijos [OK]/[ERROR]/[AVISO]; identificadores no representables se sustituyen en vez de fallar; HTML y Excel conservan ❌"
+  },
+  "facts": {
+    "basis": "Usuario eligió 'ASCII + red de seguridad': consola sin emojis, marcador FALTA, prefijos [OK]/[ERROR]/[AVISO], stdout/stderr con errors='replace', HTML/Excel conservan ❌"
+  },
+  "plan": {
+    "paths": [
+      "src/schema_comparator/cli.py",
+      "src/schema_comparator/report/console.py",
+      "tests/unit/report/test_console.py",
+      "tests/unit/test_cli_console_encoding.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "components presentation, report: ADR 0001, 0006 and quality scenario mutation-requires-confirmation, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "none",
+      "reason": "Solo cambia texto de salida en cli.py y report/console.py; no añade dependencias entre capas"
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "none",
+      "reason": "El aviso de --refresh-modules sin --yes cambia solo su prefijo; el momento de la validación no cambia en este cambio"
+    },
+    {
+      "kind": "scenario",
+      "id": "mutation-requires-confirmation",
+      "impact": "none",
+      "reason": "Sin cambios en la confirmación"
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "none",
+      "reason": "Los mensajes conservan el mismo contenido; solo cambian los prefijos"
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "conforms",
+      "reason": "La salida de consola ya no falla con cp1252 al redirigir en Windows"
+    }
+  ],
+  "attestations": [
+    {
+      "kind": "adr",
+      "id": "0006",
+      "evidence": "grep '.commit()' en src/: solo sp_validator.py:360 (refresh_modules_mutating). El segundo punto aún no se cumple: --yes se valida después de comparar (divergencia adr-0006-late-confirmation, prevista en el cambio cli-robustness); este cambio no lo empeora",
+      "recorded_at": "2026-10-21T10:32:54.844Z"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T10:32:30.775Z",
+      "detail": {
+        "red": "run-1",
+        "green": "run-2"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T10:32:50.257Z",
+      "detail": {
+        "tree": "sha256:37f2beeb313d5be8e07bea5f040a702c96bcf00ec66b065e932dfa9af09428cf",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T10:32:50.257Z",
+      "detail": {
+        "refs": [
+          "adr:0001 none",
+          "adr:0006 none",
+          "scenario:mutation-requires-confirmation none",
+          "scenario:secret-safety none",
+          "scenario:windows-first-run conforms"
+        ],
+        "records": []
+      }
+    }
+  ],
+  "base": "8288a961e3071e6ff46fd04e84cbfc2b9130d104",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/test_cli_console_encoding.py tests/unit/report/test_console.py",
+      "exit_code": 1,
+      "output_sha256": "sha256:c412239770f89c1d75eed44c3d7f1f6c963c9618a359bdff36bd67c542716d10",
+      "tree": "sha256:029d211087917f3c4f0fce69bec59a84dc0aa1e37255766a01fb2ce95c558a0d",
+      "recorded_at": "2026-10-21T10:32:11.736Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/test_cli_console_encoding.py tests/unit/report/test_console.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:63d7a2372c998e5eece86a21ba5445a6882758fc30f56b0cfbe09136c18f82d3",
+      "tree": "sha256:9e11f41d6787fadb85ea39597d8c7e8951199e59b015f3e0adea474f8086a43f",
+      "recorded_at": "2026-10-21T10:32:30.775Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:5b69c11a95bd7cc5193ab09bc3f3c30f1d19055f04d18d35a0ced0a771b823aa",
+      "tree": "sha256:37f2beeb313d5be8e07bea5f040a702c96bcf00ec66b065e932dfa9af09428cf",
+      "recorded_at": "2026-10-21T10:32:50.257Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:de0b90a0697e70e40103dff89c8fa0abeaea565f083d63e658454ca4f8aafd7f",
+      "tree": "sha256:37f2beeb313d5be8e07bea5f040a702c96bcf00ec66b065e932dfa9af09428cf",
+      "recorded_at": "2026-10-21T10:32:50.257Z"
+    }
+  ],
+  "closed_at": "2026-10-21T10:32:54.894Z"
+}
