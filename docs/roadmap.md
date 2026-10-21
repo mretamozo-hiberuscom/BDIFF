@@ -49,14 +49,31 @@ Cada cambio se cerró con evidencia de `ospec` y está archivado en
 | 17 | `tui-thread-safety` | Estado de la TUI coherente entre hilos y re-ejecuciones. |
 | 18 | `tui-screens-refactor` | Lógica de consolidación en módulo puro; bucle de rutinas único. |
 
+## Tanda del generador de scripts — cerrada (rama `feat/script-generator-hardening`)
+
+Objetivo: que los scripts de consolidación cubran los casos comunes, nunca
+se apliquen a medias y tengan control de rollback. Cada cambio se probó
+contra SQL Server 2022 real (fixture Docker en `tests/integration/conftest.py`).
+
+| # | Cambio IDD | Qué resolvió |
+|---|---|---|
+| 1 | `sqlserver-script-live-tests` | Pruebas que ejecutan los scripts con `sqlcmd` contra SQL Server en Docker. |
+| 2 | `script-safety-envelope` | Guarda `DB_NAME()` + `NOEXEC`, `XACT_ABORT`, `LOCK_TIMEOUT`, `THROW`, literales `N''`, BOM; sin base en la cadena, error. |
+| 3 | `script-preflight-state` | Comprobación previa contra lo comparado, pasos ya aplicados omitidos, verificación antes del `COMMIT`. |
+| 4 | `script-data-loss-guard` | Sin relleno inventado; abortar con conteo ante NULL o pérdida salvo decisión explícita en la TUI. |
+| 5 | `alter-column-dependencies` | Índices, PK/UNIQUE, FK, estadísticas, DEFAULT y CHECK recreados al cambiar una columna; SQL Server 2016+. |
+| 6 | `sqlserver-column-attributes` | Extracción y aplicación de DEFAULT, IDENTITY, collation explícita y precisión de fecha/hora. |
+| 7 | `drop-backups` | Respaldo en `bdiff_respaldo` antes de cada `DROP` y diario de dependencias eliminadas. |
+| 8 | `undo-scripts` | `<perfil>.deshacer.sql` que revierte cada paso con datos, índices y restricciones. |
+
 ## Siguiente — funcionalidad
 
 | Prioridad | Cambio | Notas |
 |---|---|---|
 | P1 | Extracción de PK, FK e índices (SQL Server primero, luego el resto) | Requiere el cambio 8. |
-| P1 | Reportes con todos los atributos que difieren y conteos homogéneos entre formatos | Hoy un mismatch de default/identity se ve idéntico. |
-| P1 | Confirmación y aviso para `DROP` en la consolidación | Hoy se generan sin modal ni aviso en el script. |
-| P1 | Destinos de una discrepancia de columna limitados a los perfiles que la tienen | Hoy se ofrecen todos los perfiles y el UPDATE generado no compila donde falta la columna. |
+| P1 | Conteos homogéneos entre formatos de reporte | Los atributos (DEFAULT, IDENTITY, collation, precisión) ya se muestran; falta igualar conteos. |
+| P1 | Confirmación en la TUI para `DROP` en la consolidación | El script ya respalda los datos y genera su deshacer; falta el modal de confirmación. |
+| P1 | Destinos de una discrepancia de columna limitados a los perfiles que la tienen | Hoy se ofrecen todos; el script ya aborta con un mensaje claro donde falta la columna. |
 | P2 | Exclusión de esquemas Oracle por `ORACLE_MAINTAINED` en lugar de una lista fija | Hoy faltan owners de sistema (DVSYS, ORDSYS…). |
 | P1 | Sincronizar `openspec/specs/` con el comportamiento real | Ver divergencias `spec-*` en `docs/architecture/component-map.yaml`. |
 | P2 | Flag de CLI para el modo semántico y política de motores mezclados con aviso (ADR 0003) | |
