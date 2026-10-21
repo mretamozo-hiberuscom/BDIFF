@@ -4,189 +4,446 @@
     {
       "id": "presentation",
       "summary": "CLI (argparse, códigos de salida), lanzador run.py y TUI Textual (hallazgos, consolidación, rutinas)",
-      "evidence": ["src/schema_comparator/cli.py:146", "src/schema_comparator/tui/app.py:29", "run.py:66"],
-      "paths": ["src/schema_comparator/cli.py", "src/schema_comparator/__main__.py", "src/schema_comparator/tui/**", "run.py"],
+      "evidence": [
+        "src/schema_comparator/cli.py:146",
+        "src/schema_comparator/tui/app.py:29",
+        "run.py:66"
+      ],
+      "paths": [
+        "src/schema_comparator/cli.py",
+        "src/schema_comparator/__main__.py",
+        "src/schema_comparator/tui/**",
+        "run.py"
+      ],
       "knowledge": {
-        "adrs": ["0001", "0006"],
-        "scenarios": ["windows-first-run", "secret-safety", "mutation-requires-confirmation"],
-        "constraints": ["business.constraints"]
+        "adrs": [
+          "0001",
+          "0006"
+        ],
+        "scenarios": [
+          "windows-first-run",
+          "secret-safety",
+          "mutation-requires-confirmation"
+        ],
+        "constraints": [
+          "business.constraints"
+        ]
       }
     },
     {
       "id": "application",
       "summary": "Puertos (DatabaseProvider, ProfileRepository, ReportSink, ScriptSink), CompareProfilesUseCase y SchemaExtractionService",
-      "evidence": ["src/schema_comparator/application/use_cases/compare_profiles.py:18", "src/schema_comparator/application/ports/database_provider.py:10"],
-      "paths": ["src/schema_comparator/application/**"],
-      "knowledge": {"adrs": ["0001", "0002"], "scenarios": ["optional-drivers"]}
+      "evidence": [
+        "src/schema_comparator/application/use_cases/compare_profiles.py:18",
+        "src/schema_comparator/application/ports/database_provider.py:10"
+      ],
+      "paths": [
+        "src/schema_comparator/application/**"
+      ],
+      "knowledge": {
+        "adrs": [
+          "0001",
+          "0002"
+        ],
+        "scenarios": [
+          "optional-drivers"
+        ]
+      }
     },
     {
       "id": "domain",
       "summary": "Modelos inmutables de snapshot y hallazgos, capacidades, tipos canónicos y errores base",
-      "evidence": ["src/schema_comparator/domain/schema/models.py:132", "src/schema_comparator/domain/errors.py:4"],
-      "paths": ["src/schema_comparator/domain/**"],
-      "knowledge": {"adrs": ["0001", "0003"], "scenarios": ["no-false-drift"], "terms": ["Snapshot de esquema", "Identidad de objeto", "Discrepancia (mismatch)"]}
+      "evidence": [
+        "src/schema_comparator/domain/schema/models.py:132",
+        "src/schema_comparator/domain/errors.py:4"
+      ],
+      "paths": [
+        "src/schema_comparator/domain/**"
+      ],
+      "knowledge": {
+        "adrs": [
+          "0001",
+          "0003"
+        ],
+        "scenarios": [
+          "no-false-drift"
+        ],
+        "terms": [
+          "Snapshot de esquema",
+          "Identidad de objeto",
+          "Discrepancia (mismatch)"
+        ]
+      }
     },
     {
       "id": "compare",
       "summary": "Motor de comparación N-way y consolidación a scripts T-SQL",
-      "evidence": ["src/schema_comparator/compare/engine.py:421", "src/schema_comparator/compare/consolidation.py:233"],
-      "paths": ["src/schema_comparator/compare/**"],
-      "knowledge": {"adrs": ["0001", "0003", "0005"], "scenarios": ["no-false-drift"], "terms": ["Consolidación", "Línea base (baseline) de comparación"]}
+      "evidence": [
+        "src/schema_comparator/compare/engine.py:421",
+        "src/schema_comparator/compare/consolidation.py:233"
+      ],
+      "paths": [
+        "src/schema_comparator/compare/**"
+      ],
+      "knowledge": {
+        "adrs": [
+          "0001",
+          "0003",
+          "0005"
+        ],
+        "scenarios": [
+          "no-false-drift"
+        ],
+        "terms": [
+          "Consolidación",
+          "Línea base (baseline) de comparación"
+        ]
+      }
     },
     {
       "id": "config",
       "summary": "Carga de config YAML v1/v2 y ConnectionProfile con repr redactado",
-      "evidence": ["src/schema_comparator/config/loader.py:44", "src/schema_comparator/config/models.py:8"],
-      "paths": ["src/schema_comparator/config/**", "config.example.yaml"],
-      "knowledge": {"adrs": ["0004"], "scenarios": ["secret-safety"], "terms": ["Perfil de conexión"]}
+      "evidence": [
+        "src/schema_comparator/config/loader.py:44",
+        "src/schema_comparator/config/models.py:8"
+      ],
+      "paths": [
+        "src/schema_comparator/config/**",
+        "config.example.yaml"
+      ],
+      "knowledge": {
+        "adrs": [
+          "0004"
+        ],
+        "scenarios": [
+          "secret-safety"
+        ],
+        "terms": [
+          "Perfil de conexión"
+        ]
+      }
     },
     {
       "id": "providers",
       "summary": "Registro de proveedores y adaptadores por motor: conexión, introspección, parser de perfil, renderer DDL, errores y validador de rutinas SQL Server",
-      "evidence": ["src/schema_comparator/infrastructure/providers/registry.py:100", "src/schema_comparator/infrastructure/providers/sqlserver/sp_validator.py:313"],
-      "paths": ["src/schema_comparator/infrastructure/**"],
-      "knowledge": {"adrs": ["0001", "0002", "0005", "0006"], "scenarios": ["secret-safety", "optional-drivers", "windows-first-run"]}
+      "evidence": [
+        "src/schema_comparator/infrastructure/providers/registry.py:100",
+        "src/schema_comparator/infrastructure/providers/sqlserver/sp_validator.py:313"
+      ],
+      "paths": [
+        "src/schema_comparator/infrastructure/**"
+      ],
+      "knowledge": {
+        "adrs": [
+          "0001",
+          "0002",
+          "0005",
+          "0006"
+        ],
+        "scenarios": [
+          "secret-safety",
+          "optional-drivers",
+          "windows-first-run"
+        ]
+      }
     },
     {
       "id": "report",
       "summary": "Resumen de consola, HTML con Pico.css embebido, PDF con xhtml2pdf y Excel con openpyxl",
-      "evidence": ["src/schema_comparator/report/write.py:32", "src/schema_comparator/report/html.py:110"],
-      "paths": ["src/schema_comparator/report/**"],
-      "knowledge": {"adrs": ["0001"], "scenarios": ["secret-safety", "windows-first-run"], "terms": ["Reporte de deriva"]}
+      "evidence": [
+        "src/schema_comparator/report/write.py:32",
+        "src/schema_comparator/report/html.py:110"
+      ],
+      "paths": [
+        "src/schema_comparator/report/**"
+      ],
+      "knowledge": {
+        "adrs": [
+          "0001"
+        ],
+        "scenarios": [
+          "secret-safety",
+          "windows-first-run"
+        ],
+        "terms": [
+          "Reporte de deriva"
+        ]
+      }
     },
     {
       "id": "legacy",
-      "summary": "Paquetes previos a la ADR 0001: discovery (errores y filtros en uso; service y queries sin uso) y connectors (sin uso)",
-      "evidence": ["src/schema_comparator/discovery/__init__.py:14", "src/schema_comparator/connectors/__init__.py:6"],
-      "paths": ["src/schema_comparator/discovery/**", "src/schema_comparator/connectors/**"],
-      "knowledge": {"adrs": ["0001", "0002"], "scenarios": ["optional-drivers"]}
+      "summary": "Paquete discovery previo a la ADR 0001: jerarquía de errores de extracción, filtros de exclusión y reexport de modelos (service, queries y connectors eliminados el 2026-10-21)",
+      "evidence": [
+        "src/schema_comparator/discovery/errors.py:11",
+        "src/schema_comparator/discovery/filters.py:9"
+      ],
+      "paths": [
+        "src/schema_comparator/discovery/**"
+      ],
+      "knowledge": {
+        "adrs": [
+          "0001",
+          "0002"
+        ],
+        "scenarios": [
+          "optional-drivers"
+        ]
+      }
     },
     {
       "id": "build",
       "summary": "Empaquetado, extras opcionales por motor, configuración de ruff y pytest, CI",
-      "evidence": ["pyproject.toml:5", ".github/workflows/ci.yml:11"],
-      "paths": ["pyproject.toml", ".github/**"],
-      "knowledge": {"adrs": ["0004"], "scenarios": ["optional-drivers", "windows-first-run"], "constraints": ["delivery.environments"]}
+      "evidence": [
+        "pyproject.toml:5",
+        ".github/workflows/ci.yml:11"
+      ],
+      "paths": [
+        "pyproject.toml",
+        ".github/**"
+      ],
+      "knowledge": {
+        "adrs": [
+          "0004"
+        ],
+        "scenarios": [
+          "optional-drivers",
+          "windows-first-run"
+        ],
+        "constraints": [
+          "delivery.environments"
+        ]
+      }
     }
   ],
   "boundaries": [
     {
       "id": "database-boundary",
       "summary": "Única frontera con sistemas externos: los proveedores abren conexiones a las bases comparadas; solo sp_validator escribe, con confirmación",
-      "components": ["providers"],
-      "evidence": ["src/schema_comparator/infrastructure/providers/sqlserver/sp_validator.py:360"]
+      "components": [
+        "providers"
+      ],
+      "evidence": [
+        "src/schema_comparator/infrastructure/providers/sqlserver/sp_validator.py:360"
+      ]
     },
     {
       "id": "filesystem-output",
       "summary": "Escritura de reportes y scripts en disco local",
-      "components": ["report", "compare", "presentation"],
-      "evidence": ["src/schema_comparator/report/write.py:20", "src/schema_comparator/compare/consolidation.py:233"]
+      "components": [
+        "report",
+        "compare",
+        "presentation"
+      ],
+      "evidence": [
+        "src/schema_comparator/report/write.py:20",
+        "src/schema_comparator/compare/consolidation.py:233"
+      ]
     }
   ],
   "dependencies": [
-    {"from": "presentation", "to": "application", "evidence": ["src/schema_comparator/tui/actions.py:7"]},
-    {"from": "presentation", "to": "providers", "evidence": ["src/schema_comparator/cli.py:90"]},
-    {"from": "presentation", "to": "report", "evidence": ["src/schema_comparator/cli.py:12"]},
-    {"from": "application", "to": "compare", "evidence": ["src/schema_comparator/application/use_cases/compare_profiles.py:5"]},
-    {"from": "application", "to": "legacy", "evidence": ["src/schema_comparator/application/use_cases/compare_profiles.py:7"]},
-    {"from": "application", "to": "providers", "evidence": ["src/schema_comparator/application/services/extraction.py:16"]},
-    {"from": "application", "to": "config", "evidence": ["src/schema_comparator/application/ports/database_provider.py:5"]},
-    {"from": "compare", "to": "domain", "evidence": ["src/schema_comparator/compare/models.py:6"]},
-    {"from": "compare", "to": "providers", "evidence": ["src/schema_comparator/compare/consolidation.py:13"]},
-    {"from": "config", "to": "providers", "evidence": ["src/schema_comparator/config/connection_string.py:6"]},
-    {"from": "providers", "to": "legacy", "evidence": ["src/schema_comparator/infrastructure/providers/registry.py:6"]},
-    {"from": "report", "to": "domain", "evidence": ["src/schema_comparator/report/write.py:10"]}
+    {
+      "from": "presentation",
+      "to": "application",
+      "evidence": [
+        "src/schema_comparator/tui/actions.py:7"
+      ]
+    },
+    {
+      "from": "presentation",
+      "to": "providers",
+      "evidence": [
+        "src/schema_comparator/cli.py:90"
+      ]
+    },
+    {
+      "from": "presentation",
+      "to": "report",
+      "evidence": [
+        "src/schema_comparator/cli.py:12"
+      ]
+    },
+    {
+      "from": "application",
+      "to": "compare",
+      "evidence": [
+        "src/schema_comparator/application/use_cases/compare_profiles.py:5"
+      ]
+    },
+    {
+      "from": "application",
+      "to": "legacy",
+      "evidence": [
+        "src/schema_comparator/application/use_cases/compare_profiles.py:7"
+      ]
+    },
+    {
+      "from": "application",
+      "to": "providers",
+      "evidence": [
+        "src/schema_comparator/application/services/extraction.py:16"
+      ]
+    },
+    {
+      "from": "application",
+      "to": "config",
+      "evidence": [
+        "src/schema_comparator/application/ports/database_provider.py:5"
+      ]
+    },
+    {
+      "from": "compare",
+      "to": "domain",
+      "evidence": [
+        "src/schema_comparator/compare/models.py:6"
+      ]
+    },
+    {
+      "from": "compare",
+      "to": "providers",
+      "evidence": [
+        "src/schema_comparator/compare/consolidation.py:13"
+      ]
+    },
+    {
+      "from": "config",
+      "to": "providers",
+      "evidence": [
+        "src/schema_comparator/config/connection_string.py:6"
+      ]
+    },
+    {
+      "from": "providers",
+      "to": "legacy",
+      "evidence": [
+        "src/schema_comparator/infrastructure/providers/registry.py:6"
+      ]
+    },
+    {
+      "from": "report",
+      "to": "domain",
+      "evidence": [
+        "src/schema_comparator/report/write.py:10"
+      ]
+    }
   ],
   "divergences": [
     {
       "id": "adr-0001-application-imports-outward",
       "summary": "La capa de aplicación importa compare, discovery (legacy) e infraestructura, y el CLI abre conexiones SQL Server directamente",
       "documented": "docs/architecture/decisions/0001-hexagonal-architecture-and-dependency-rules.md:28",
-      "evidence": ["src/schema_comparator/application/use_cases/compare_profiles.py:7", "src/schema_comparator/application/services/extraction.py:16", "src/schema_comparator/cli.py:90"]
-    },
-    {
-      "id": "adr-0002-eager-pyodbc",
-      "summary": "La carga diferida no se cumple: registry y config importan en cadena módulos que hacen import pyodbc al cargarse; sin libodbc (Linux/macOS) no arranca ni con proveedores no SQL Server",
-      "documented": "docs/architecture/decisions/0002-internal-provider-registry.md:20",
-      "evidence": ["src/schema_comparator/infrastructure/providers/registry.py:6", "src/schema_comparator/discovery/service.py:5", "src/schema_comparator/config/connection_string.py:6"]
+      "evidence": [
+        "src/schema_comparator/application/use_cases/compare_profiles.py:7",
+        "src/schema_comparator/application/services/extraction.py:16",
+        "src/schema_comparator/cli.py:90"
+      ]
     },
     {
       "id": "adr-0002-providers-doctor",
       "summary": "El diagnóstico 'bdiff providers doctor' citado como consecuencia no existe",
       "documented": "docs/architecture/decisions/0002-internal-provider-registry.md:27",
-      "evidence": ["src/schema_comparator/cli.py:17"]
+      "evidence": [
+        "src/schema_comparator/cli.py:17"
+      ]
     },
     {
       "id": "adr-0003-canonical-types-unused",
       "summary": "SqlType y TypeFamily no se usan; las columnas guardan data_type como texto y type_equivalences usa otro vocabulario de familias",
       "documented": "docs/architecture/decisions/0003-canonical-type-system-and-comparison-modes.md:15",
-      "evidence": ["src/schema_comparator/domain/schema/types.py:20", "src/schema_comparator/domain/schema/models.py:29"]
+      "evidence": [
+        "src/schema_comparator/domain/schema/types.py:20",
+        "src/schema_comparator/domain/schema/models.py:29"
+      ]
     },
     {
       "id": "adr-0003-native-strict-mixed-providers",
       "summary": "native-strict no limita la comparación a un mismo motor ni avisa, y el modo semantic no es accesible desde CLI ni TUI",
       "documented": "docs/architecture/decisions/0003-canonical-type-system-and-comparison-modes.md:18",
-      "evidence": ["src/schema_comparator/compare/engine.py:113", "src/schema_comparator/application/use_cases/compare_profiles.py:71"]
+      "evidence": [
+        "src/schema_comparator/compare/engine.py:113",
+        "src/schema_comparator/application/use_cases/compare_profiles.py:71"
+      ]
     },
     {
-      "id": "adr-0004-pyodbc-mandatory",
-      "summary": "pyodbc sigue siendo dependencia obligatoria además de extra, y no se emite aviso de deprecación para el formato databases:",
-      "documented": "docs/architecture/decisions/0004-configuration-v2-and-backwards-compatibility.md:31",
-      "evidence": ["pyproject.toml:14", "src/schema_comparator/config/loader.py:44"]
+      "id": "adr-0004-no-deprecation-warning",
+      "summary": "No se emite aviso de deprecación para el formato databases: (pyodbc sigue en la base por decisión del usuario del 2026-10-21; la carga es diferida)",
+      "documented": "docs/architecture/decisions/0004-configuration-v2-and-backwards-compatibility.md:29",
+      "evidence": [
+        "src/schema_comparator/config/loader.py:44"
+      ]
     },
     {
       "id": "adr-0005-no-migration-plan",
       "summary": "No hay plan de migración neutro ni clasificación SAFE/DESTRUCTIVE; la consolidación llama directamente al renderer T-SQL",
       "documented": "docs/architecture/decisions/0005-decoupled-write-only-script-generation.md:18",
-      "evidence": ["src/schema_comparator/compare/consolidation.py:13"]
+      "evidence": [
+        "src/schema_comparator/compare/consolidation.py:13"
+      ]
     },
     {
       "id": "adr-0006-late-confirmation",
       "summary": "--refresh-modules sin --yes se rechaza después de extraer, comparar y escribir reportes, no antes de abrir conexiones",
       "documented": "docs/architecture/decisions/0006-mantenimiento-de-metadatos-con-confirmacion.md:36",
-      "evidence": ["src/schema_comparator/cli.py:179"]
+      "evidence": [
+        "src/schema_comparator/cli.py:179"
+      ]
     },
     {
       "id": "baseline-secret-leak",
       "summary": "Los errores de MySQL/MariaDB y Oracle, y los del CLI de rutinas, interpolan el texto del driver, que puede incluir host y usuario",
       "documented": "docs/architecture/technical-baseline.md:19",
-      "evidence": ["src/schema_comparator/infrastructure/providers/mysql_family/errors.py:12", "src/schema_comparator/infrastructure/providers/oracle/errors.py:12", "src/schema_comparator/cli.py:140"]
+      "evidence": [
+        "src/schema_comparator/infrastructure/providers/mysql_family/errors.py:12",
+        "src/schema_comparator/infrastructure/providers/oracle/errors.py:12",
+        "src/schema_comparator/cli.py:140"
+      ]
     },
     {
       "id": "spec-schema-extraction-sqlserver-only",
       "summary": "El spec describe solo SQL Server con tablas y columnas; el código tiene 6 proveedores y extrae rutinas",
       "documented": "openspec/specs/schema-extraction/spec.md:5",
-      "evidence": ["src/schema_comparator/infrastructure/providers/registry.py:100"]
+      "evidence": [
+        "src/schema_comparator/infrastructure/providers/registry.py:100"
+      ]
     },
     {
       "id": "spec-comparison-engine-attributes",
       "summary": "El spec fija 5 atributos de columna y 3 tipos de hallazgo; el código compara 8 atributos y emite 8 tipos de hallazgo",
       "documented": "openspec/specs/comparison-engine/spec.md:70",
-      "evidence": ["src/schema_comparator/domain/comparison/models.py:72"]
+      "evidence": [
+        "src/schema_comparator/domain/comparison/models.py:72"
+      ]
     },
     {
       "id": "spec-reporting-file-names",
       "summary": "El spec exige archivos con guion directamente en reportes/; el código usa subcarpeta por timestamp y guion bajo",
       "documented": "openspec/specs/reporting-and-output/spec.md:29",
-      "evidence": ["src/schema_comparator/report/write.py:37"]
+      "evidence": [
+        "src/schema_comparator/report/write.py:37"
+      ]
     },
     {
       "id": "spec-interactive-tui-read-only",
       "summary": "El spec define una TUI de solo lectura; la TUI re-ejecuta, genera scripts y recompila rutinas",
       "documented": "openspec/specs/interactive-tui/spec.md:5",
-      "evidence": ["src/schema_comparator/tui/app.py:337"]
+      "evidence": [
+        "src/schema_comparator/tui/app.py:337"
+      ]
     },
     {
       "id": "spec-connection-profile-v1-only",
       "summary": "El spec sigue en formato delta y solo contempla databases:; el código soporta profiles: v2 con provider y options",
       "documented": "openspec/specs/connection-profile-config/spec.md:288",
-      "evidence": ["src/schema_comparator/config/models.py:8"]
+      "evidence": [
+        "src/schema_comparator/config/models.py:8"
+      ]
     },
     {
       "id": "ci-linux-only",
       "summary": "Windows es la plataforma principal pero el CI solo ejecuta en ubuntu-latest",
       "documented": "docs/architecture/technical-baseline.md:79",
-      "evidence": [".github/workflows/ci.yml:11"]
+      "evidence": [
+        ".github/workflows/ci.yml:11"
+      ]
     }
   ]
 }

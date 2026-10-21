@@ -1,7 +1,6 @@
-"""SQL Server database provider package."""
+"""SQL Server database provider package.
 
-from schema_comparator.infrastructure.providers.sqlserver.provider import (
-    SqlServerProvider,
-)
-
-__all__ = ["SqlServerProvider"]
+Submodules are imported explicitly (`...sqlserver.provider`, `.connection`)
+so importing a driver-free one, such as `profile_parser`, never loads
+pyodbc (ADR 0002).
+"""

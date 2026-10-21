@@ -1,4 +1,4 @@
-"""INFORMATION_SCHEMA / sys.* extraction into a schema snapshot model."""
+"""Discovery error hierarchy, snapshot model re-exports and exclusion filters."""
 
 from schema_comparator.discovery.errors import (
     ConnectionFailedError,
@@ -11,13 +11,11 @@ from schema_comparator.discovery.models import (
     SchemaSnapshot,
     TableSnapshot,
 )
-from schema_comparator.discovery.service import extract_schema
 
 __all__ = [
     "ColumnSnapshot",
     "TableSnapshot",
     "SchemaSnapshot",
-    "extract_schema",
     "DiscoveryError",
     "DriverUnavailableError",
     "ConnectionFailedError",

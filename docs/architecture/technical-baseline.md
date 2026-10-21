@@ -32,7 +32,7 @@ Arquitectura hexagonal ligera (ADR 0001) en un único proceso:
 | Configuración | `config/` | Carga YAML v1/v2, `ConnectionProfile` | Perfiles en memoria; el YAML es del usuario |
 | Proveedores | `infrastructure/providers/<motor>/` | Conexión, introspección, parser de perfil, renderer DDL, errores | Ninguno |
 | Reportes | `report/` | Consola, HTML (Pico.css embebido), PDF, Excel | Archivos de `reportes/` |
-| Heredados | `discovery/`, `connectors/` | Restos previos a la ADR 0001; parte sin uso | — |
+| Heredados | `discovery/` | Errores de extracción, filtros y reexport de modelos previos a la ADR 0001 | — |
 
 Nadie escribe en las bases comparadas salvo `sqlserver/sp_validator.py`
 para la recompilación confirmada (ADR 0006).

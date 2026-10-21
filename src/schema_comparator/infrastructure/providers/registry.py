@@ -62,7 +62,9 @@ class ProviderRegistry:
 
 
 def _load_sqlserver_provider() -> DatabaseProvider:
-    from schema_comparator.infrastructure.providers.sqlserver import SqlServerProvider
+    from schema_comparator.infrastructure.providers.sqlserver.provider import (
+        SqlServerProvider,
+    )
 
     return SqlServerProvider()
 
