@@ -1,0 +1,139 @@
+{
+  "schema": "idd-state/v1",
+  "change": "sqlserver-script-live-tests",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "request": "queria hacer incapie en lo bueno que es el generador de scripts para solucionar los problemas, debe tener en cuenta las casuisticas más comunes y que en caso de error que no se apliquen a medias, que haya control de rollback, etc.. debe ser robusto y confiable",
+    "kind": "feature",
+    "summary": "Pruebas de integración que ejecutan los scripts de consolidación T-SQL generados contra un SQL Server real en Docker y verifican el estado resultante, incluido el todo-o-nada ante error",
+    "acceptance": "Con un SQL Server en Docker disponible, pytest ejecuta los scripts generados para crear tabla, agregar/modificar/eliminar columna y eliminar tabla, comprueba el esquema resultante, y demuestra que un error a mitad del script deja la base sin cambios; sin motor disponible esas pruebas se saltan y el resto de la suite no cambia"
+  },
+  "facts": {
+    "coverage": [
+      {
+        "category": "inputs",
+        "question": "¿Cómo llegan las pruebas al motor: con el sqlcmd del contenedor (docker exec <contenedor> /opt/mssql-tools18/bin/sqlcmd -b, sin dependencias nuevas) o con un driver Python puro como python-tds>=1.15 añadido al extra dev?"
+      },
+      {
+        "category": "uniqueness",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/compare/consolidation.py",
+          "line": 288
+        }
+      },
+      {
+        "category": "persistence",
+        "question": "¿Quién arranca el contenedor: el desarrollador lo levanta y lo indica con una variable de entorno (p. ej. BDIFF_MSSQL_CONTAINER, como SCHEMA_COMPARATOR_TEST_DSN) o un fixture de pytest lo arranca y lo para en cada ejecución (unos 20-30 s extra)?"
+      },
+      {
+        "category": "copy",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/infrastructure/providers/sqlserver/ddl_renderer.py",
+          "line": 184
+        }
+      },
+      {
+        "category": "url-state",
+        "cite": {
+          "kind": "request",
+          "text": "que no se apliquen a medias"
+        }
+      },
+      {
+        "category": "accessibility",
+        "cite": {
+          "kind": "request",
+          "text": "debe ser robusto y confiable"
+        }
+      },
+      {
+        "category": "errors",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/infrastructure/providers/sqlserver/ddl_renderer.py",
+          "line": 414
+        }
+      }
+    ]
+  },
+  "plan": {
+    "paths": [
+      "tests/integration/conftest.py",
+      "tests/integration/mssql_live.py",
+      "tests/integration/test_consolidation_scripts_live.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "open-facts",
+      "status": "resolved",
+      "answer": "Cliente: sqlcmd del contenedor (docker exec). Contenedor: fixture automático.",
+      "source": "user"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T13:02:06.789Z",
+      "detail": {
+        "tree": "sha256:d920c4d5300f4ec587bc7a96632942f7c03dd6f44c70e090da7cc59ea86a82bc",
+        "runs": [
+          "run-1",
+          "run-2"
+        ]
+      }
+    }
+  ],
+  "base": "df4ced74d858c50bfbbb6417274af1fc3f0b3137",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:52c94974b50177f0338653b5cd8e547346f3bb22f758b67db2d11f29f63cfb6d",
+      "tree": "sha256:d920c4d5300f4ec587bc7a96632942f7c03dd6f44c70e090da7cc59ea86a82bc",
+      "recorded_at": "2026-10-21T13:02:06.789Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:2e4d14f1aef1a55c1d0d01157c835bb12a52c188adce900ddc8ecc0b839b05fb",
+      "tree": "sha256:d920c4d5300f4ec587bc7a96632942f7c03dd6f44c70e090da7cc59ea86a82bc",
+      "recorded_at": "2026-10-21T13:02:06.789Z"
+    }
+  ],
+  "assumptions": [
+    "El fixture se salta (no falla) si Docker no está disponible o no puede ejecutar la imagen Linux (p. ej. runner Windows), y también cuando la variable CI está definida, para respetar la decisión de no correr estas pruebas en CI; falla si el contenedor arranca pero no responde en 120 s."
+  ],
+  "closed_at": "2026-10-21T13:02:12.795Z"
+}
