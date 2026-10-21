@@ -1,0 +1,226 @@
+{
+  "schema": "idd-state/v1",
+  "change": "sqlite-read-only-open",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "sqlite3.connect(path) crea un archivo vacío si la ruta no existe (sqlite/connection.py:12) y abre en lectura-escritura, así que una ruta mal escrita compara una base vacía y deja un archivo suelto",
+    "acceptance": "Una ruta SQLite inexistente produce un error de conexión que no muestra la ruta y no crea ningún archivo; las bases existentes se abren en solo lectura; ':memory:' sigue funcionando"
+  },
+  "facts": {
+    "basis": "BDIFF nunca escribe en bases comparadas (ADR 0005/0006) y la traducción de errores SQLite no expone rutas (sqlite/errors.py:11)"
+  },
+  "plan": {
+    "paths": [
+      "src/schema_comparator/infrastructure/providers/sqlite/connection.py",
+      "src/schema_comparator/infrastructure/providers/sqlite/errors.py",
+      "tests/unit/infrastructure/test_sqlite_provider.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "component providers: ADR 0001, 0002, 0005, 0006, 0007 and quality scenario optional-drivers, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "none",
+      "reason": "Cambio local en el adaptador SQLite"
+    },
+    {
+      "kind": "adr",
+      "id": "0002",
+      "impact": "none",
+      "reason": "Sin cambios en el registro"
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "conforms",
+      "reason": "La base comparada se abre en solo lectura; BDIFF no puede escribir en ella"
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "conforms",
+      "reason": "Ninguna escritura sin confirmación: SQLite queda en solo lectura"
+    },
+    {
+      "kind": "adr",
+      "id": "0007",
+      "impact": "none",
+      "reason": "Sin cambios de identidad"
+    },
+    {
+      "kind": "scenario",
+      "id": "optional-drivers",
+      "impact": "none",
+      "reason": "sqlite3 es stdlib"
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "conforms",
+      "reason": "El error de archivo inexistente no muestra la ruta"
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "conforms",
+      "reason": "La ruta se convierte a URI con Path.as_uri, válido para rutas Windows con unidad"
+    }
+  ],
+  "attestations": [
+    {
+      "kind": "adr",
+      "id": "0006",
+      "evidence": "commit() solo en sp_validator.py:360; SQLite abierto con mode=ro (test de solo lectura)",
+      "recorded_at": "2026-10-21T11:22:57.915Z"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T11:22:57.529Z",
+      "detail": {
+        "red": "run-1",
+        "green": "run-2"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T11:23:14.444Z",
+      "detail": {
+        "tree": "sha256:0232d34eaddd3ba81babba7b6f04b0874d796a2731aab64235674bee5f5f4635",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T11:23:14.444Z",
+      "detail": {
+        "refs": [
+          "adr:0001 none",
+          "adr:0002 none",
+          "adr:0005 conforms",
+          "adr:0006 conforms",
+          "adr:0007 none",
+          "scenario:optional-drivers none",
+          "scenario:secret-safety conforms",
+          "scenario:windows-first-run conforms"
+        ],
+        "records": [],
+        "tree": "sha256:0232d34eaddd3ba81babba7b6f04b0874d796a2731aab64235674bee5f5f4635",
+        "fitness": [
+          "run-5"
+        ]
+      }
+    }
+  ],
+  "base": "4aa5bc740d6b85a243e6492571be97b477623087",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/infrastructure/test_sqlite_provider.py",
+      "exit_code": 1,
+      "output_sha256": "sha256:0779cad813eab844b668f0da832d617e42a3cdbf6f36fa0b18959db657e54106",
+      "tree": "sha256:6c1b057d17f03b5a1777dcbf4b1eb88b1d5b888de34e8a8335384ab039402062",
+      "recorded_at": "2026-10-21T11:22:44.383Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/infrastructure/test_sqlite_provider.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:edea1fe2e925f38d64cba1ee0f8ba3f25b2723ff28e7e65063c9b7b3e2414e63",
+      "tree": "sha256:947c79139ddc73f5965d1b4760b475551be977b115b179776e8dee6b7984b294",
+      "recorded_at": "2026-10-21T11:22:57.529Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:1bdeb56d4df9b83fc2f36c987491ec7d9672d7c94ec40eceb197e28f0eac8df2",
+      "tree": "sha256:0232d34eaddd3ba81babba7b6f04b0874d796a2731aab64235674bee5f5f4635",
+      "recorded_at": "2026-10-21T11:23:14.444Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:4a163a5d90faa7d60d6392f52dc32056519ac4cf71a71a1f53c7bfe1369f6eeb",
+      "tree": "sha256:0232d34eaddd3ba81babba7b6f04b0874d796a2731aab64235674bee5f5f4635",
+      "recorded_at": "2026-10-21T11:23:14.444Z"
+    },
+    {
+      "id": "run-5",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f9fd93d4bfe07fbc3f2ca83028355ce747308424b00ccac0298c99213e915731",
+      "tree": "sha256:0232d34eaddd3ba81babba7b6f04b0874d796a2731aab64235674bee5f5f4635",
+      "recorded_at": "2026-10-21T11:23:14.444Z"
+    }
+  ],
+  "closed_at": "2026-10-21T11:23:17.679Z"
+}
