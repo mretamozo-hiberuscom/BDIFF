@@ -1,0 +1,234 @@
+{
+  "schema": "idd-state/v1",
+  "change": "sp-repair-master-script",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "El script maestro de reparación de rutinas (repair_sps.sql) usa #RefreshSummary sin crearla y sin USE por perfil, así que falla con Msg 208 o se ejecuta en la base activa; qname no escapa ']', el nombre de perfil no se escapa en PRINT y se omite cualquier rutina del esquema SYSTEM o llamada CONNECT",
+    "acceptance": "Cada bloque de perfil (en su archivo y en el maestro) hace USE de su base, crea y elimina #RefreshSummary; nombres escapados para T-SQL; solo se omite el marcador de fallo de conexión; sin base conocida se avisa en lugar de adivinar"
+  },
+  "facts": {
+    "basis": "Los scripts de consolidación ya hacen USE [base] por perfil con la base de la cadena (sqlserver/ddl_renderer.py:34) y escapan con _escape_ident/_escape_literal (ddl_renderer.py:75-82); se aplica la misma convención"
+  },
+  "plan": {
+    "paths": [
+      "src/schema_comparator/infrastructure/providers/sqlserver/repair_script.py",
+      "src/schema_comparator/tui/procedure_screen.py",
+      "tests/unit/sqlserver/test_repair_script.py",
+      "tests/unit/tui/test_procedure_screen.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "components presentation, providers: ADR 0001, 0002, 0005, 0006, 0007 and quality scenario mutation-requires-confirmation, optional-drivers, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "conforms",
+      "reason": "La generación T-SQL pasa de la TUI al adaptador SQL Server (infraestructura); la TUI solo escribe archivos"
+    },
+    {
+      "kind": "adr",
+      "id": "0002",
+      "impact": "none",
+      "reason": "Sin cambios en el registro"
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "conforms",
+      "reason": "Los scripts se escriben y nunca se ejecutan"
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "conforms",
+      "reason": "La recompilación del script la ejecuta una persona; BDIFF solo la ejecuta con confirmación (sin cambios)"
+    },
+    {
+      "kind": "adr",
+      "id": "0007",
+      "impact": "none",
+      "reason": "Sin cambios de identidad"
+    },
+    {
+      "kind": "scenario",
+      "id": "mutation-requires-confirmation",
+      "impact": "none",
+      "reason": "Sin cambios en la confirmación"
+    },
+    {
+      "kind": "scenario",
+      "id": "optional-drivers",
+      "impact": "none",
+      "reason": "El módulo nuevo no importa pyodbc"
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "none",
+      "reason": "Los scripts nombran perfil y base, nunca la cadena"
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "none",
+      "reason": "Sin efecto"
+    }
+  ],
+  "attestations": [
+    {
+      "kind": "adr",
+      "id": "0006",
+      "evidence": "commit() solo en sp_validator.py:360; repair_script.py solo genera texto",
+      "recorded_at": "2026-10-21T11:26:19.158Z"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T11:26:10.826Z",
+      "detail": {
+        "red": "run-1",
+        "green": "run-2"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T11:26:36.133Z",
+      "detail": {
+        "tree": "sha256:f4002e07f523202da679f5ae938e86060ad3e74fa27271b8aa31203f899554ec",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T11:26:36.133Z",
+      "detail": {
+        "refs": [
+          "adr:0001 conforms",
+          "adr:0002 none",
+          "adr:0005 conforms",
+          "adr:0006 conforms",
+          "adr:0007 none",
+          "scenario:mutation-requires-confirmation none",
+          "scenario:optional-drivers none",
+          "scenario:secret-safety none",
+          "scenario:windows-first-run none"
+        ],
+        "records": [],
+        "tree": "sha256:f4002e07f523202da679f5ae938e86060ad3e74fa27271b8aa31203f899554ec",
+        "fitness": [
+          "run-5"
+        ]
+      }
+    }
+  ],
+  "base": "49bdd126d736d046920f973de8071699a8084377",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/sqlserver/test_repair_script.py",
+      "exit_code": 2,
+      "output_sha256": "sha256:25671765f1b66a6e9be05c4ff499dff087bec9505935d25a5f22b480407cb210",
+      "tree": "sha256:2b6e52fbdf9905f260fea89f8f4d0d48bef0a196742ba4eaf45047ce63e3e2d0",
+      "recorded_at": "2026-10-21T11:25:08.060Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/sqlserver/test_repair_script.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:a4ce3c4d2d126cf54794b588fe0568dcf174b80e68913316f73e0da7b9f1c64b",
+      "tree": "sha256:2ece853c3540d25ec3eaf15bcd1c32c75a193d1f6257d81ac3e96b6c4b3c7afe",
+      "recorded_at": "2026-10-21T11:26:10.826Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:b52dc0b873f07b740c726a6a344e374afe2677e9cd3d2baa4478998ccfba3d2e",
+      "tree": "sha256:f4002e07f523202da679f5ae938e86060ad3e74fa27271b8aa31203f899554ec",
+      "recorded_at": "2026-10-21T11:26:36.133Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:82f2c6f77e791471dd2e7a2a3facfa70cb7c9fbfada14f7f795239e25253382c",
+      "tree": "sha256:f4002e07f523202da679f5ae938e86060ad3e74fa27271b8aa31203f899554ec",
+      "recorded_at": "2026-10-21T11:26:36.133Z"
+    },
+    {
+      "id": "run-5",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f9fd93d4bfe07fbc3f2ca83028355ce747308424b00ccac0298c99213e915731",
+      "tree": "sha256:f4002e07f523202da679f5ae938e86060ad3e74fa27271b8aa31203f899554ec",
+      "recorded_at": "2026-10-21T11:26:36.133Z"
+    }
+  ],
+  "closed_at": "2026-10-21T11:26:36.187Z"
+}

@@ -13,10 +13,16 @@ from textual.widgets import Button, DataTable, Footer, Header, Label, Static
 from schema_comparator.compare.consolidation import assign_script_filenames
 from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.infrastructure.providers.sqlserver import connection
+from schema_comparator.infrastructure.providers.sqlserver.ddl_renderer import (
+    extract_database_name,
+)
 from schema_comparator.infrastructure.providers.sqlserver.errors import describe_failure
+from schema_comparator.infrastructure.providers.sqlserver.repair_script import (
+    CONNECTION_FAILURE_ROUTINE,
+    render_repair_scripts,
+)
 from schema_comparator.infrastructure.providers.sqlserver.sp_validator import (
     ModuleRefreshResult,
-    RoutineIdentity,
     RoutineValidationResult,
     RoutineValidationStatus,
     SignatureStatus,
@@ -207,7 +213,7 @@ class ProcedureVerificationScreen(Screen):
                         res = validate_routines_read_only(conn, targets)
                         results_map[profile.name] = res
                 except Exception as exc:
-                    dummy = RoutineIdentity(schema_name="SYSTEM", object_name="CONNECT")
+                    dummy = CONNECTION_FAILURE_ROUTINE
                     results_map[profile.name] = (
                         RoutineValidationResult(
                             routine=dummy,
@@ -308,7 +314,7 @@ class ProcedureVerificationScreen(Screen):
                         res = refresh_modules_mutating(conn, targets)
                         results_map[profile.name] = res
                 except Exception as exc:
-                    dummy = RoutineIdentity(schema_name="SYSTEM", object_name="CONNECT")
+                    dummy = CONNECTION_FAILURE_ROUTINE
                     results_map[profile.name] = (
                         ModuleRefreshResult.failure(
                             dummy,
@@ -376,144 +382,28 @@ class ProcedureVerificationScreen(Screen):
         repair_dir.mkdir(parents=True, exist_ok=True)
 
         source_map = self._refresh_results or self._validation_results
-        master_lines = [
-            "-- ============================================================================",
-            "-- Script Maestro de Reparación y Recompilación de Procedimientos Almacenados y Vistas",
-            f"-- Generado el {ts.strftime('%Y-%m-%d %H:%M:%S')}",
-            "-- NOTA: Excluye automáticamente objetos con firma digital criptográfica.",
-            "-- NOTA: Cada perfil de base de datos dispone de su propio archivo en la carpeta 'repair_sps/'.",
-            "-- ============================================================================",
-            "",
-            "SET NOCOUNT ON;",
-            "GO",
-            "",
-        ]
+        databases = {
+            p.name: extract_database_name(p.connection_string) for p in self._profiles
+        }
+        scripts = render_repair_scripts(source_map, databases, ts)
+        script_filenames = assign_script_filenames(list(scripts.per_profile))
 
         written_profile_files: list[str] = []
-        script_filenames = assign_script_filenames(list(source_map))
-
-        for profile_name, res_list in sorted(source_map.items()):
+        for profile_name, content in scripts.per_profile.items():
             safe_filename = script_filenames[profile_name] + ".sql"
-            prof_file_path = repair_dir / safe_filename
-
-            prof_lines = [
-                "-- ============================================================================",
-                f"-- Script de Recompilación de Rutinas - Perfil / Base de Datos: {profile_name}",
-                f"-- Generado el {ts.strftime('%Y-%m-%d %H:%M:%S')}",
-                "-- NOTA: Excluye automáticamente objetos con firma digital criptográfica.",
-                "-- ============================================================================",
-                "",
-                "SET NOCOUNT ON;",
-                "GO",
-                "",
-                "IF OBJECT_ID('tempdb..#RefreshSummary') IS NOT NULL DROP TABLE #RefreshSummary;",
-                "CREATE TABLE #RefreshSummary (",
-                "    Esquema NVARCHAR(128),",
-                "    Objeto NVARCHAR(128),",
-                "    Estado NVARCHAR(20),",
-                "    ErrorDetalle NVARCHAR(MAX)",
-                ");",
-                "GO",
-                "",
-                "PRINT '============================================================================';",
-                f"PRINT '  INICIANDO RECOMPILACIÓN DE RUTINAS EN PERFIL: {profile_name}';",
-                "PRINT '============================================================================';",
-                "GO",
-                "",
-            ]
-
-            master_lines.append(
-                "-- ============================================================================"
-            )
-            master_lines.append(f"-- Perfil / Base de Datos: {profile_name}")
-            master_lines.append(
-                "-- ============================================================================"
-            )
-            master_lines.append(
-                "PRINT '============================================================================';"
-            )
-            master_lines.append(
-                f"PRINT '  INICIANDO RECOMPILACIÓN DE RUTINAS EN PERFIL: {profile_name}';"
-            )
-            master_lines.append(
-                "PRINT '============================================================================';"
-            )
-            master_lines.append("GO")
-            master_lines.append("")
-
-            proc_idx = 0
-            for r in res_list:
-                routine = getattr(r, "routine", None)
-                if (
-                    not routine
-                    or routine.schema_name == "SYSTEM"
-                    or routine.object_name == "CONNECT"
-                ):
-                    continue
-                if (
-                    getattr(r, "signature_status", SignatureStatus.UNSIGNED)
-                    != SignatureStatus.UNSIGNED
-                ):
-                    comment_line = f"-- OMITIDO (Firmado): [{routine.schema_name}].[{routine.object_name}]"
-                    prof_lines.append(comment_line)
-                    master_lines.append(comment_line)
-                    continue
-
-                proc_idx += 1
-                safe_sch = routine.schema_name.replace("'", "''")
-                safe_obj = routine.object_name.replace("'", "''")
-                qname = f"[{safe_sch}].[{safe_obj}]"
-                var_err = f"@err_{proc_idx}"
-
-                tsql_block = [
-                    f"PRINT 'Recompilando {qname}...';",
-                    "BEGIN TRY",
-                    f"    EXEC sys.sp_refreshsqlmodule @name = N'{qname}';",
-                    f"    INSERT INTO #RefreshSummary VALUES (N'{safe_sch}', N'{safe_obj}', N'[OK]', NULL);",
-                    "    PRINT '  -> [OK] Recompilado correctamente.';",
-                    "END TRY",
-                    "BEGIN CATCH",
-                    f"    DECLARE {var_err} NVARCHAR(MAX) = ERROR_MESSAGE() + N' (Error ' + CAST(ERROR_NUMBER() AS NVARCHAR) + N')';",
-                    f"    INSERT INTO #RefreshSummary VALUES (N'{safe_sch}', N'{safe_obj}', N'[ERROR]', {var_err});",
-                    f"    PRINT '  -> [ERROR] en {qname}: ' + {var_err};",
-                    "END CATCH;",
-                    "GO",
-                    "",
-                ]
-                prof_lines.extend(tsql_block)
-                master_lines.extend(tsql_block)
-
-            summary_grid_block = [
-                "PRINT '============================================================================';",
-                f"PRINT '  RESUMEN FINAL DE RECOMPILACIÓN PARA PERFIL: {profile_name}';",
-                "PRINT '============================================================================';",
-                "SELECT ",
-                "    Esquema AS [Esquema],",
-                "    Objeto AS [Rutina / Objeto],",
-                "    Estado AS [Resultado],",
-                "    ISNULL(ErrorDetalle, '-') AS [Mensaje de Error / Diagnostico]",
-                "FROM #RefreshSummary",
-                "ORDER BY CASE WHEN Estado = '[ERROR]' THEN 0 ELSE 1 END, Esquema, Objeto;",
-                "DROP TABLE #RefreshSummary;",
-                "GO",
-                "",
-            ]
-            prof_lines.extend(summary_grid_block)
-            master_lines.extend(summary_grid_block)
-
             try:
-                prof_file_path.write_text("\n".join(prof_lines), encoding="utf-8")
+                (repair_dir / safe_filename).write_text(content, encoding="utf-8")
                 written_profile_files.append(safe_filename)
             except Exception as exc:
                 if status_labels:
                     status_labels.first().update(
-                        f"[bold red]❌ Error al escribir el script para {profile_name}: {exc}[/bold red]"
+                        f"[bold red]❌ Error al escribir el script para {escape(profile_name)}: {escape(str(exc))}[/bold red]"
                     )
                 return
 
         master_script_path = output_dir / "repair_sps.sql"
         try:
-            master_script_path.write_text("\n".join(master_lines), encoding="utf-8")
+            master_script_path.write_text(scripts.master, encoding="utf-8")
             if status_labels:
                 status_labels.first().update(
                     f"✅ Scripts generados en: scripts-db/{folder_name}/repair_sps/ ({len(written_profile_files)} archivo(s) por BD + repair_sps.sql)"
@@ -521,7 +411,7 @@ class ProcedureVerificationScreen(Screen):
         except Exception as exc:
             if status_labels:
                 status_labels.first().update(
-                    f"[bold red]❌ Error al escribir el script maestro de reparación: {exc}[/bold red]"
+                    f"[bold red]❌ Error al escribir el script maestro de reparación: {escape(str(exc))}[/bold red]"
                 )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
