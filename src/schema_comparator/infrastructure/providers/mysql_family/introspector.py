@@ -80,9 +80,13 @@ def build_snapshot(
         )
         for (schema, table), cols in sorted(grouped.items())
     )
+    # A connection to one database yields one schema: that schema is the
+    # database itself and matches the other profiles' database (ADR 0007).
+    schemas = {schema for schema, _ in grouped}
     return SchemaSnapshot(
         profile_name=profile_name,
         provider_id=provider_id,
         tables=tables,
         extracted_features=frozenset({SchemaFeature.TABLES}),
+        default_schema=next(iter(schemas)) if len(schemas) == 1 else None,
     )

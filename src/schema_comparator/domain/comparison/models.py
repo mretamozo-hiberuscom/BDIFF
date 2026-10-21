@@ -70,6 +70,7 @@ class MissingTable:
     table_name: str
     missing_from_profile: str
     present_columns: tuple[tuple[str, tuple[NamedColumnAttributes, ...]], ...] = ()
+    object_variants: tuple[str, ...] = ()
 
     @property
     def qualified_name(self) -> tuple[str, str]:
@@ -86,6 +87,8 @@ class MissingColumn:
     column_name: str
     missing_from_profile: str
     present_attributes: tuple[tuple[str, ColumnAttributes], ...] = ()
+    object_variants: tuple[str, ...] = ()
+    column_variants: tuple[str, ...] = ()
 
     @property
     def qualified_name(self) -> tuple[str, str]:
@@ -100,6 +103,8 @@ class ColumnMismatch:
     table_name: str
     column_name: str
     values_by_profile: tuple[tuple[str, ColumnAttributes], ...]
+    object_variants: tuple[str, ...] = ()
+    column_variants: tuple[str, ...] = ()
 
     @property
     def qualified_name(self) -> tuple[str, str]:
@@ -113,6 +118,7 @@ class PrimaryKeyMismatch:
     schema_name: str
     table_name: str
     values_by_profile: tuple[tuple[str, PrimaryKeySnapshot | None], ...]
+    object_variants: tuple[str, ...] = ()
 
     @property
     def qualified_name(self) -> tuple[str, str]:
@@ -127,6 +133,7 @@ class ForeignKeyMismatch:
     table_name: str
     fk_name: str
     values_by_profile: tuple[tuple[str, ForeignKeySnapshot | None], ...]
+    object_variants: tuple[str, ...] = ()
 
     @property
     def qualified_name(self) -> tuple[str, str]:
@@ -141,6 +148,7 @@ class IndexMismatch:
     table_name: str
     index_name: str
     values_by_profile: tuple[tuple[str, IndexSnapshot | None], ...]
+    object_variants: tuple[str, ...] = ()
 
     @property
     def qualified_name(self) -> tuple[str, str]:
@@ -155,6 +163,7 @@ class MissingProcedure:
     procedure_name: str
     missing_from_profile: str
     present_procedures: tuple[tuple[str, ProcedureSnapshot], ...] = ()
+    object_variants: tuple[str, ...] = ()
 
     @property
     def qualified_name(self) -> tuple[str, str]:
@@ -168,6 +177,7 @@ class ProcedureMismatch:
     schema_name: str
     procedure_name: str
     values_by_profile: tuple[tuple[str, ProcedureSnapshot], ...]
+    object_variants: tuple[str, ...] = ()
 
     @property
     def qualified_name(self) -> tuple[str, str]:
@@ -184,6 +194,22 @@ DiffEntry = (
     | MissingProcedure
     | ProcedureMismatch
 )
+
+
+def object_label(entry: "DiffEntry") -> str:
+    """`schema.object` as reports show it: every original spelling when the
+    profiles name the object differently (ADR 0007)."""
+    if entry.object_variants:
+        return " / ".join(entry.object_variants)
+    schema_name, object_name = entry.qualified_name
+    return f"{schema_name}.{object_name}"
+
+
+def column_label(entry: "MissingColumn | ColumnMismatch") -> str:
+    """The column name as reports show it, with every original spelling."""
+    if entry.column_variants:
+        return " / ".join(entry.column_variants)
+    return entry.column_name
 
 
 @dataclass(frozen=True, slots=True)

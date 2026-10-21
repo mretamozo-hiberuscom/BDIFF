@@ -28,6 +28,13 @@ def test_render_console_no_drift_message_on_empty_entries_without_zero_counts() 
     assert "0" not in output
 
 
+def test_render_console_marks_missing_cells_with_cp1252_safe_text() -> None:
+    output = render_console(comparison_result_with_findings())
+
+    output.encode("cp1252")
+    assert "FALTA" in output
+
+
 def test_render_console_is_independent_of_html_and_pdf_modules() -> None:
     import schema_comparator.report.console as console_module
 

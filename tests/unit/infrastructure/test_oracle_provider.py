@@ -168,3 +168,47 @@ def test_generate_oracle_script():
         'ALTER TABLE "HR"."EMPLOYEES" MODIFY ("EMAIL" VARCHAR2(100) NOT NULL);'
         in script
     )
+
+
+def test_introspect_declares_session_schema_as_default_schema(monkeypatch):
+    import contextlib
+    from unittest.mock import MagicMock
+
+    from schema_comparator.config.models import ConnectionProfile
+    from schema_comparator.infrastructure.providers.oracle import connection
+    from schema_comparator.infrastructure.providers.oracle.provider import (
+        OracleProvider,
+    )
+
+    cursor = MagicMock()
+    cursor.fetchall.return_value = [
+        ("APP_DEV", "POLIZA", "ID", "NUMBER", 0, 10, 0, "N", 1, None, "NO")
+    ]
+    cursor.fetchone.return_value = ("APP_DEV",)
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cursor
+    monkeypatch.setattr(
+        connection, "connect", lambda *_a, **_k: contextlib.nullcontext(conn)
+    )
+    profile = ConnectionProfile(
+        name="dev",
+        provider="oracle",
+        connection_string="oracle://app:secret@db:1521/XEPDB1",
+    )
+
+    snapshot = OracleProvider().introspect(profile)
+
+    assert snapshot.default_schema == "APP_DEV"
+    executed = [call.args[0] for call in cursor.execute.call_args_list]
+    assert executed[-1].startswith("SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')")
+    assert not executed[-1].rstrip().endswith(";")
+
+
+def test_oracle_queries_have_no_trailing_semicolon():
+    from schema_comparator.infrastructure.providers.oracle import introspector
+
+    for sql in (
+        introspector.ORACLE_CATALOG_QUERY_SQL,
+        introspector.ORACLE_CURRENT_SCHEMA_SQL,
+    ):
+        assert not sql.rstrip().endswith(";")

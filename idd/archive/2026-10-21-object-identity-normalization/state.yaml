@@ -1,0 +1,343 @@
+{
+  "schema": "idd-state/v1",
+  "change": "object-identity-normalization",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "request": "Normalizar esquema y mayúsculas (Recommended): MySQL/MariaDB: el esquema se ignora (es la propia BD). Oracle: el owner por defecto del perfil se normaliza. Emparejamiento de tabla/columna insensible a mayúsculas; los reportes muestran el nombre original.",
+    "kind": "feature",
+    "summary": "Emparejar tablas, columnas y rutinas entre bases sin distinguir mayúsculas y normalizando el esquema que es la propia base (MySQL/MariaDB) o el owner por defecto (Oracle); hoy app_dev vs app_prod da todas las tablas como faltantes",
+    "acceptance": "Comparar dos bases MySQL u Oracle con las mismas tablas en esquemas/owners distintos no produce faltantes; dbo.Users y dbo.users se emparejan; los reportes muestran el nombre original"
+  },
+  "facts": {
+    "coverage": [
+      {
+        "category": "inputs",
+        "question": "Si una misma base tiene dos tablas que solo difieren en mayúsculas (posible en PostgreSQL), ¿cómo se emparejan?"
+      },
+      {
+        "category": "uniqueness",
+        "question": "¿Las rutinas (procedimientos) también se emparejan sin distinguir mayúsculas?"
+      },
+      {
+        "category": "persistence",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/domain/schema/models.py",
+          "line": 132
+        }
+      },
+      {
+        "category": "copy",
+        "question": "Cuando el nombre difiere solo en mayúsculas o esquema entre perfiles, ¿qué nombre muestra el reporte?"
+      },
+      {
+        "category": "url-state",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/compare/engine.py",
+          "line": 45
+        }
+      },
+      {
+        "category": "accessibility",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/report/console.py",
+          "line": 29
+        }
+      },
+      {
+        "category": "errors",
+        "question": "MySQL sin base por defecto en la cadena extrae varios esquemas: ¿se normaliza igualmente?"
+      }
+    ]
+  },
+  "plan": {
+    "paths": [
+      "docs/architecture/component-map.yaml",
+      "docs/architecture/decisions/0007-identidad-normalizada-de-objetos.md",
+      "docs/architecture/decisions/README.md",
+      "src/schema_comparator/compare/engine.py",
+      "src/schema_comparator/compare/identity.py",
+      "src/schema_comparator/domain/comparison/models.py",
+      "src/schema_comparator/domain/schema/models.py",
+      "src/schema_comparator/infrastructure/providers/mysql_family/introspector.py",
+      "src/schema_comparator/infrastructure/providers/oracle/introspector.py",
+      "src/schema_comparator/infrastructure/providers/oracle/provider.py",
+      "src/schema_comparator/report/console.py",
+      "src/schema_comparator/report/excel.py",
+      "src/schema_comparator/report/html.py",
+      "src/schema_comparator/report/presentation.py",
+      "src/schema_comparator/report/templates/report.html.jinja",
+      "src/schema_comparator/tui/formatting.py",
+      "src/schema_comparator/tui/widgets.py",
+      "tests/unit/compare/test_identity_normalization.py",
+      "tests/unit/infrastructure/test_mysql_mariadb_provider.py",
+      "tests/unit/infrastructure/test_oracle_provider.py"
+    ],
+    "work_units": 3,
+    "decision": true,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "multi-unit-or-decision",
+      "reason": "declared 3 work units",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "components compare, domain, presentation, providers, report: ADR 0001, 0002, 0003, 0005, 0006 and quality scenario mutation-requires-confirmation, no-false-drift, optional-drivers, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "conforms",
+      "reason": "La normalización vive en compare (puro, sin I/O); los proveedores solo declaran default_schema en el snapshot de dominio"
+    },
+    {
+      "kind": "adr",
+      "id": "0002",
+      "impact": "none",
+      "reason": "Sin cambios en el registro"
+    },
+    {
+      "kind": "adr",
+      "id": "0003",
+      "impact": "conforms",
+      "reason": "Los atributos se siguen comparando de forma nativa y exacta; solo cambia cómo se empareja la identidad"
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "none",
+      "reason": "Los scripts siguen sin ejecutarse; usan el nombre canónico"
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "none",
+      "reason": "Sin cambios en la recompilación"
+    },
+    {
+      "kind": "scenario",
+      "id": "mutation-requires-confirmation",
+      "impact": "none",
+      "reason": "Sin cambios"
+    },
+    {
+      "kind": "scenario",
+      "id": "no-false-drift",
+      "impact": "conforms",
+      "reason": "Bases con distinto nombre de base/owner o solo distintas mayúsculas ya no producen faltantes"
+    },
+    {
+      "kind": "scenario",
+      "id": "optional-drivers",
+      "impact": "none",
+      "reason": "Sin nuevos imports de drivers"
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "none",
+      "reason": "Las variantes son nombres de objetos, nunca la cadena de conexión"
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "none",
+      "reason": "Sin efecto en el arranque"
+    },
+    {
+      "kind": "adr",
+      "id": "0007",
+      "impact": "conforms",
+      "reason": "Implementa la ADR 0007 creada en este cambio; su check de fitness es tests/unit/compare/test_identity_normalization.py"
+    }
+  ],
+  "attestations": [
+    {
+      "kind": "adr",
+      "id": "0006",
+      "evidence": "grep '.commit()' en src/: solo sp_validator.py:360",
+      "recorded_at": "2026-10-21T11:05:04.722Z"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-4"
+      ]
+    },
+    {
+      "id": "living-doc",
+      "signal": "multi-unit-or-decision",
+      "status": "satisfied",
+      "evidence": [
+        "ev-5"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "open-facts",
+      "status": "resolved",
+      "answer": "Colisión en una misma base: solo esas tablas se emparejan con nombre exacto. Rutinas: mismo criterio. Nombre en reportes: todos los nombres (variantes). MySQL: el esquema se ignora solo si la conexión apunta a una base (un solo esquema).",
+      "source": "user"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T11:05:20.750Z",
+      "detail": {
+        "tree": "sha256:f2ed6255adba28ecd5fc4d68f0fe706a3bf6cee0efb557a78701ee631a97c17c",
+        "runs": [
+          "run-1",
+          "run-2"
+        ]
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T11:05:39.913Z",
+      "detail": {
+        "tree": "sha256:f2ed6255adba28ecd5fc4d68f0fe706a3bf6cee0efb557a78701ee631a97c17c",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T11:05:39.913Z",
+      "detail": {
+        "refs": [
+          "adr:0001 conforms",
+          "adr:0002 none",
+          "adr:0003 conforms",
+          "adr:0005 none",
+          "adr:0006 none",
+          "scenario:mutation-requires-confirmation none",
+          "scenario:no-false-drift conforms",
+          "scenario:optional-drivers none",
+          "scenario:secret-safety none",
+          "scenario:windows-first-run none",
+          "adr:0007 conforms"
+        ],
+        "records": []
+      }
+    },
+    {
+      "id": "ev-4",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T11:06:01.640Z",
+      "detail": {
+        "tree": "sha256:f2ed6255adba28ecd5fc4d68f0fe706a3bf6cee0efb557a78701ee631a97c17c",
+        "runs": [
+          "run-5",
+          "run-6"
+        ]
+      }
+    },
+    {
+      "id": "ev-5",
+      "kind": "living-doc-current",
+      "obligation": "living-doc",
+      "recorded_at": "2026-10-21T11:06:01.696Z"
+    }
+  ],
+  "base": "10e45c4cab726f7f88bf4f1c2972d864cdfba0ee",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:dfb181e56a5e38630f902d82941debabcd6a14c6c343d85b2fb944fd08d0fe6d",
+      "tree": "sha256:f2ed6255adba28ecd5fc4d68f0fe706a3bf6cee0efb557a78701ee631a97c17c",
+      "recorded_at": "2026-10-21T11:05:20.750Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:10aeae5796307327d68d7050e72f9c9abcfd165090c9d421b80f2471a8210869",
+      "tree": "sha256:f2ed6255adba28ecd5fc4d68f0fe706a3bf6cee0efb557a78701ee631a97c17c",
+      "recorded_at": "2026-10-21T11:05:20.750Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:aec0ff173bcb664dbcafe1f0fc3491cd3c4c37f3e6bc3c268eddc92c0f83a3a2",
+      "tree": "sha256:f2ed6255adba28ecd5fc4d68f0fe706a3bf6cee0efb557a78701ee631a97c17c",
+      "recorded_at": "2026-10-21T11:05:39.913Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:10aeae5796307327d68d7050e72f9c9abcfd165090c9d421b80f2471a8210869",
+      "tree": "sha256:f2ed6255adba28ecd5fc4d68f0fe706a3bf6cee0efb557a78701ee631a97c17c",
+      "recorded_at": "2026-10-21T11:05:39.913Z"
+    },
+    {
+      "id": "run-5",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:60a63300ecbf579444de9f446bc052bdbdc63335a9d928acee46627f4c4f0232",
+      "tree": "sha256:f2ed6255adba28ecd5fc4d68f0fe706a3bf6cee0efb557a78701ee631a97c17c",
+      "recorded_at": "2026-10-21T11:06:01.640Z"
+    },
+    {
+      "id": "run-6",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:10aeae5796307327d68d7050e72f9c9abcfd165090c9d421b80f2471a8210869",
+      "tree": "sha256:f2ed6255adba28ecd5fc4d68f0fe706a3bf6cee0efb557a78701ee631a97c17c",
+      "recorded_at": "2026-10-21T11:06:01.640Z"
+    }
+  ],
+  "closed_at": "2026-10-21T11:06:01.696Z"
+}

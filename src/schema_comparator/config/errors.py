@@ -5,8 +5,10 @@ value, fragment, or raw parser/OS traceback text is ever interpolated into
 a message. Only a profile `name` may appear (never the connection string).
 """
 
+from schema_comparator.domain.errors import SchemaComparatorError
 
-class ConfigError(Exception):
+
+class ConfigError(SchemaComparatorError):
     """Base class for all connection-profile configuration errors.
 
     Callers can catch this single type to handle any config-loading failure
@@ -45,6 +47,20 @@ class ConfigParseError(ConfigError):
             "cuyo valor sea a su vez un mapeo de nombre de perfil a cadena "
             "de conexión. Consultá config.example.yaml para ver el formato "
             "esperado."
+        )
+
+
+class UnknownProfileError(ConfigError):
+    """Raised when a requested profile name is not in the config."""
+
+    @classmethod
+    def for_names(
+        cls, unknown: list[str], available: list[str]
+    ) -> "UnknownProfileError":
+        return cls(
+            f"Perfil(es) no encontrado(s) en la configuración: "
+            f"{', '.join(unknown)}. Perfiles disponibles: "
+            f"{', '.join(sorted(available)) or 'ninguno'}."
         )
 
 

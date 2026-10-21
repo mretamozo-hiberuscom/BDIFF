@@ -92,7 +92,7 @@ def test_tui_flag_on_tty_passes_run_tui_as_render_summary() -> None:
     # actions with no profiles to work with).
     render_summary(fake_result)
     m_run_tui.assert_called_once_with(
-        fake_result, profiles=_profiles(), exclude_patterns=[]
+        fake_result, profiles=_profiles(), exclude_patterns=[], exclude_routines=[]
     )
 
 

@@ -172,10 +172,9 @@ def test_only_unknown_keywords_raises_unrecognized_format_error() -> None:
 # --- Phase 4: driver auto-prepend and idempotency ---------------------------
 
 
-def test_driver_auto_prepended_when_absent() -> None:
+def test_driver_left_unset_when_absent_so_connect_can_pick_installed_one() -> None:
     result = translate("Data Source=srv1;Initial Catalog=CatalogDB;", name="x")
-    assert result.startswith("Driver={ODBC Driver 17 for SQL Server};")
-    assert result.count("Driver=") == 1
+    assert result == "Server=srv1;Database=CatalogDB;"
 
 
 @pytest.mark.parametrize("driver_kw", ["driver", "DRIVER", "Driver"])

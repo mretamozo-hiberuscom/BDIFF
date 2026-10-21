@@ -1,0 +1,258 @@
+{
+  "schema": "idd-state/v1",
+  "change": "tui-screens-refactor",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "refactor",
+    "summary": "decision_screen.py (820 líneas) mezcla lógica de dominio con widgets: fusión de hallazgos y construcción de resoluciones dentro del Screen, ramas muertas para MissingTable/MissingColumn sin fusionar, cálculo de destinos duplicado entre compose y handle_radio_change, BINDINGS declarado dos veces y reenvío de eventos con except: pass; el bucle conectar/enumerar/filtrar rutinas está triplicado en cli.py y procedure_screen.py",
+    "acceptance": "La fusión de hallazgos, los destinos por decisión y la construcción de resoluciones viven en un módulo puro probado sin Textual; el bucle de rutinas existe una vez; la suite existente sigue en verde sin cambiar sus expectativas"
+  },
+  "facts": {
+    "basis": "Refactor sin cambio de comportamiento: tests/unit/tui/test_decision_screen.py, test_procedure_screen.py y test_cli*.py fijan el comportamiento actual"
+  },
+  "plan": {
+    "paths": [
+      "idd/tui-screens-refactor/change.md",
+      "src/schema_comparator/cli.py",
+      "src/schema_comparator/infrastructure/providers/sqlserver/routine_runner.py",
+      "src/schema_comparator/tui/decision_model.py",
+      "src/schema_comparator/tui/decision_screen.py",
+      "src/schema_comparator/tui/procedure_screen.py",
+      "tests/unit/tui/test_decision_model.py"
+    ],
+    "work_units": 2,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "multi-unit-or-decision",
+      "reason": "declared 2 work units",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "components presentation, providers: ADR 0001, 0002, 0005, 0006, 0007 and quality scenario mutation-requires-confirmation, optional-drivers, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "conforms",
+      "reason": "La lógica de decisión sale de la presentación a un módulo puro y el bucle de rutinas al adaptador SQL Server"
+    },
+    {
+      "kind": "adr",
+      "id": "0002",
+      "impact": "none",
+      "reason": "Refactor sin cambio de reglas de esta ADR"
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "none",
+      "reason": "Refactor sin cambio de reglas de esta ADR"
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "conforms",
+      "reason": "La recompilación se sigue lanzando solo tras confirmación; el runner solo unifica el bucle"
+    },
+    {
+      "kind": "adr",
+      "id": "0007",
+      "impact": "none",
+      "reason": "Refactor sin cambio de reglas de esta ADR"
+    },
+    {
+      "kind": "scenario",
+      "id": "mutation-requires-confirmation",
+      "impact": "none",
+      "reason": "Refactor que preserva el comportamiento probado"
+    },
+    {
+      "kind": "scenario",
+      "id": "optional-drivers",
+      "impact": "none",
+      "reason": "Refactor que preserva el comportamiento probado"
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "none",
+      "reason": "Refactor que preserva el comportamiento probado"
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "none",
+      "reason": "Refactor que preserva el comportamiento probado"
+    }
+  ],
+  "attestations": [
+    {
+      "kind": "adr",
+      "id": "0006",
+      "evidence": "commit() solo en sp_validator.py:360; refresh_modules_mutating solo se pasa a run_routines desde rutas con --yes o tras ConfirmRefreshModal",
+      "recorded_at": "2026-10-21T11:34:25.695Z"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "living-doc",
+      "signal": "multi-unit-or-decision",
+      "status": "satisfied",
+      "evidence": [
+        "ev-4"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T11:31:47.110Z",
+      "detail": {
+        "tree": "sha256:af2501270231ce3bb3afd53fcad0f4c6f86e12b65dea6e26986888021ef59350",
+        "runs": [
+          "run-1",
+          "run-2"
+        ]
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T11:34:43.418Z",
+      "detail": {
+        "tree": "sha256:63121243662a57f82686ee0c4f4f3e56e11673b26c57aee29afee0bfdfa1fe46",
+        "runs": [
+          "run-4",
+          "run-5"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T11:34:43.418Z",
+      "detail": {
+        "refs": [
+          "adr:0001 conforms",
+          "adr:0002 none",
+          "adr:0005 none",
+          "adr:0006 conforms",
+          "adr:0007 none",
+          "scenario:mutation-requires-confirmation none",
+          "scenario:optional-drivers none",
+          "scenario:secret-safety none",
+          "scenario:windows-first-run none"
+        ],
+        "records": [],
+        "tree": "sha256:63121243662a57f82686ee0c4f4f3e56e11673b26c57aee29afee0bfdfa1fe46",
+        "fitness": [
+          "run-6"
+        ]
+      }
+    },
+    {
+      "id": "ev-4",
+      "kind": "living-doc-current",
+      "obligation": "living-doc",
+      "recorded_at": "2026-10-21T11:34:46.099Z"
+    }
+  ],
+  "base": "86d0df39e20907ea54ec9c0bcffd2f6c66ad480d",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:018e8edbcc015952b014afe78ba115b48170fc2c2cea5b9c1d8a4890948f11bf",
+      "tree": "sha256:af2501270231ce3bb3afd53fcad0f4c6f86e12b65dea6e26986888021ef59350",
+      "recorded_at": "2026-10-21T11:31:47.110Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:d0b46c272ac926261bce09a548a77a16f6b354e204765972d9cb234038f66341",
+      "tree": "sha256:af2501270231ce3bb3afd53fcad0f4c6f86e12b65dea6e26986888021ef59350",
+      "recorded_at": "2026-10-21T11:31:47.110Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f27130d6020e68802a370537b0d3f9a9bbbfdc8f4a6b63e9239adbe73bc04ec5",
+      "tree": "sha256:af2501270231ce3bb3afd53fcad0f4c6f86e12b65dea6e26986888021ef59350",
+      "recorded_at": "2026-10-21T11:31:47.110Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:3afd55762fc7841b7c010a821b9d6ad9c000b5a141bf17e3ab20e5024ced89b2",
+      "tree": "sha256:63121243662a57f82686ee0c4f4f3e56e11673b26c57aee29afee0bfdfa1fe46",
+      "recorded_at": "2026-10-21T11:34:43.418Z"
+    },
+    {
+      "id": "run-5",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:07a2e0ea53bd64f2c30282526992c95b6439032dad341b1a40acfe1885062656",
+      "tree": "sha256:63121243662a57f82686ee0c4f4f3e56e11673b26c57aee29afee0bfdfa1fe46",
+      "recorded_at": "2026-10-21T11:34:43.418Z"
+    },
+    {
+      "id": "run-6",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f9fd93d4bfe07fbc3f2ca83028355ce747308424b00ccac0298c99213e915731",
+      "tree": "sha256:63121243662a57f82686ee0c4f4f3e56e11673b26c57aee29afee0bfdfa1fe46",
+      "recorded_at": "2026-10-21T11:34:43.418Z"
+    }
+  ],
+  "closed_at": "2026-10-21T11:34:46.099Z"
+}

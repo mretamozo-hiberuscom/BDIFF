@@ -1,0 +1,120 @@
+{
+  "schema": "idd-state/v1",
+  "change": "pin-ruff-config",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "ruff sin configuración explícita: con ruff 0.17 (reglas y formateo de markdown por defecto ampliados) el lint del CI falla con 93 errores y 8 archivos",
+    "acceptance": "ruff check . y ruff format --check . pasan con ruff 0.17.1 y con 0.12-0.15, aplicando el mismo conjunto de reglas que el proyecto ya cumplía (E4,E7,E9,F) solo sobre archivos Python"
+  },
+  "facts": {
+    "basis": "Las versiones 0.12-0.15 (rango que el CI resolvía) pasan limpias con sus defaults E4,E7,E9,F; fijar esos defaults y limitar include a .py/.pyi preserva exactamente el contrato de lint vigente"
+  },
+  "plan": {
+    "paths": [
+      "pyproject.toml"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T10:13:47.692Z",
+      "detail": {
+        "red": "run-1",
+        "green": "run-2"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T10:18:33.163Z",
+      "detail": {
+        "tree": "sha256:f9e28047058e3813cebf9efa50c1b1ca74fedcdd6b97b3f8bd7e7835e833ab4f",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    }
+  ],
+  "base": "bc80ce5f1932a5a12b7ba4b5300d7d3eb21df077",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": ".venv/bin/ruff check . && .venv/bin/ruff format --check .",
+      "exit_code": 1,
+      "output_sha256": "sha256:bff6250b2c9e753a49d42cda030fbd9491fb456071900550d65af8a21e810086",
+      "tree": "sha256:0b1117dbc1f84f5ae7696721a866a5ff26e080c3da8ce8cd1a3501d7ad061b17",
+      "recorded_at": "2026-10-21T10:13:43.795Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": ".venv/bin/ruff check . && .venv/bin/ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:3761537aceaf847ad0dba17b399f834e3c94f3b51450350db8e03628e97a285e",
+      "tree": "sha256:ca09383ac63422805c56ce798c34a27148cf22318735b943a352ea37f27237d2",
+      "recorded_at": "2026-10-21T10:13:47.692Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:0b567434235ae9fec0bbb1e02f37e08c40a1450ca75057ac034b48703d88ae3a",
+      "tree": "sha256:f9e28047058e3813cebf9efa50c1b1ca74fedcdd6b97b3f8bd7e7835e833ab4f",
+      "recorded_at": "2026-10-21T10:18:33.163Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:3761537aceaf847ad0dba17b399f834e3c94f3b51450350db8e03628e97a285e",
+      "tree": "sha256:f9e28047058e3813cebf9efa50c1b1ca74fedcdd6b97b3f8bd7e7835e833ab4f",
+      "recorded_at": "2026-10-21T10:18:33.163Z"
+    }
+  ],
+  "closed_at": "2026-10-21T10:18:35.130Z"
+}

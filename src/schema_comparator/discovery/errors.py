@@ -7,8 +7,10 @@ pyodbc places first) — never `str(exc)` or `exc.args[1]` (the driver's
 free-text message, which can contain server/database fragments).
 """
 
+from schema_comparator.domain.errors import SchemaComparatorError
 
-class DiscoveryError(Exception):
+
+class DiscoveryError(SchemaComparatorError):
     """Base class for all schema-extraction failures."""
 
 
@@ -16,12 +18,14 @@ class DriverUnavailableError(DiscoveryError):
     """Raised when the required ODBC driver is not available."""
 
     @classmethod
-    def for_profile(cls, profile_name: str) -> "DriverUnavailableError":
+    def for_profile(
+        cls, profile_name: str, detail: str = ""
+    ) -> "DriverUnavailableError":
         return cls(
             f"La extracción de esquema para '{profile_name}' falló: el "
             "driver ODBC requerido no está disponible. Verificá que "
             "Microsoft ODBC Driver 17 o 18 para SQL Server esté instalado "
-            "en esta máquina."
+            f"en esta máquina.{f' {detail}' if detail else ''}"
         )
 
 
@@ -30,12 +34,14 @@ class ConnectionFailedError(DiscoveryError):
     including connection/query timeout expiry."""
 
     @classmethod
-    def for_profile(cls, profile_name: str) -> "ConnectionFailedError":
+    def for_profile(
+        cls, profile_name: str, detail: str = ""
+    ) -> "ConnectionFailedError":
         return cls(
             f"La extracción de esquema para '{profile_name}' falló: no se "
             "pudo establecer o mantener la conexión dentro del tiempo "
             "límite. Verificá la conectividad de red y que el servidor sea "
-            "accesible."
+            f"accesible.{f' {detail}' if detail else ''}"
         )
 
 
@@ -43,12 +49,12 @@ class MetadataAccessError(DiscoveryError):
     """Raised when the connection cannot read required catalog metadata."""
 
     @classmethod
-    def for_profile(cls, profile_name: str) -> "MetadataAccessError":
+    def for_profile(cls, profile_name: str, detail: str = "") -> "MetadataAccessError":
         return cls(
             f"La extracción de esquema para '{profile_name}' falló: la "
             "conexión no pudo leer los metadatos de catálogo requeridos. "
             "Verificá que el usuario del perfil tenga permisos de lectura "
-            "de metadatos."
+            f"de metadatos.{f' {detail}' if detail else ''}"
         )
 
 

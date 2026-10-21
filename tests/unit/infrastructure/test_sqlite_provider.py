@@ -167,3 +167,37 @@ def test_default_registry_has_sqlite() -> None:
     assert "sqlite" in registry.list_providers()
     assert "postgresql" in registry.list_providers()
     assert "sqlserver" in registry.list_providers()
+
+
+def test_missing_sqlite_file_fails_without_creating_it(tmp_path):
+    from schema_comparator.discovery.errors import ConnectionFailedError
+
+    missing = tmp_path / "typo.db"
+    profile = ConnectionProfile(
+        name="sqlite_typo", connection_string=str(missing), provider="sqlite"
+    )
+
+    with pytest.raises(ConnectionFailedError) as exc_info:
+        SqliteProvider().introspect(profile)
+
+    assert not missing.exists()
+    assert "sqlite_typo" in str(exc_info.value)
+    assert str(missing) not in str(exc_info.value)
+
+
+def test_existing_sqlite_file_is_opened_read_only(tmp_path):
+    from schema_comparator.infrastructure.providers.sqlite import connection
+
+    db = tmp_path / "polizas.db"
+    with sqlite3.connect(db) as setup:
+        setup.execute("CREATE TABLE poliza (id INTEGER)")
+    profile = ConnectionProfile(
+        name="sqlite_ro", connection_string=str(db), provider="sqlite"
+    )
+
+    conn = connection.connect(profile)
+    try:
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            conn.execute("INSERT INTO poliza VALUES (1)")
+    finally:
+        conn.close()

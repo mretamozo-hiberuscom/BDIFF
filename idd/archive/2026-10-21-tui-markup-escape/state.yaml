@@ -1,0 +1,192 @@
+{
+  "schema": "idd-state/v1",
+  "change": "tui-markup-escape",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "La TUI interpola nombres de tablas, columnas y perfiles en markup de Rich (widgets.py, decision_screen.py, etiquetas del árbol): un nombre con '[/' lanza MarkupError y 'precio[eur]' pierde texto; StatusLog muestra '[red]...[/red]' literal",
+    "acceptance": "Árbol, panel de detalle, registro de estado y pantalla de consolidación muestran identificadores y perfiles con corchetes tal cual, sin excepciones; los errores del registro se ven en rojo sin etiquetas literales"
+  },
+  "facts": {
+    "basis": "procedure_screen.py ya escapa identificadores con rich.markup.escape (procedure_screen.py:248); se aplica la misma convención"
+  },
+  "plan": {
+    "paths": [
+      "src/schema_comparator/tui/app.py",
+      "src/schema_comparator/tui/decision_screen.py",
+      "src/schema_comparator/tui/widgets.py",
+      "tests/unit/tui/test_markup_escaping.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "component presentation: ADR 0001, 0006 and quality scenario mutation-requires-confirmation, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "none",
+      "reason": "Solo cambia cómo la TUI muestra texto (escapado de markup)"
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "none",
+      "reason": "Solo cambia cómo la TUI muestra texto (escapado de markup)"
+    },
+    {
+      "kind": "scenario",
+      "id": "mutation-requires-confirmation",
+      "impact": "none",
+      "reason": "Solo cambia el escapado de texto en la TUI"
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "none",
+      "reason": "Solo cambia el escapado de texto en la TUI"
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "none",
+      "reason": "Solo cambia el escapado de texto en la TUI"
+    }
+  ],
+  "attestations": [
+    {
+      "kind": "adr",
+      "id": "0006",
+      "evidence": "commit() solo en sp_validator.py:360",
+      "recorded_at": "2026-10-21T11:28:36.021Z"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T11:28:35.600Z",
+      "detail": {
+        "red": "run-1",
+        "green": "run-2"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T11:28:53.372Z",
+      "detail": {
+        "tree": "sha256:fce2a437ce0de30dbf269f256849b1a07ce38f15e239122b9bc8aad8a610a4b5",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T11:28:53.372Z",
+      "detail": {
+        "refs": [
+          "adr:0001 none",
+          "adr:0006 none",
+          "scenario:mutation-requires-confirmation none",
+          "scenario:secret-safety none",
+          "scenario:windows-first-run none"
+        ],
+        "records": []
+      }
+    }
+  ],
+  "base": "5f908317d711246b9479cde49b1c32a1ab24cb57",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/tui/test_markup_escaping.py",
+      "exit_code": 1,
+      "output_sha256": "sha256:cc9a762fa770f9387e0186ed329d5766193cdb496b4650035fe2f25b27c668d4",
+      "tree": "sha256:daeba215c9723f8a98530a0ff63dccd51a550734bd1416a0e176c87c67a8593e",
+      "recorded_at": "2026-10-21T11:27:37.567Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/tui/test_markup_escaping.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:ae8006a7882a04bac2d72250e383391cda4fefa362c459d0a98ea0c42e5c90de",
+      "tree": "sha256:d098054a30028a6651bf9b9f1bb5b1e92efc531afee3f507f3cc07d5b627c53b",
+      "recorded_at": "2026-10-21T11:28:35.600Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:34da597aa83edfbf362deebe2aa8b0ab1f8b11a16c52e21fa58267838d67273c",
+      "tree": "sha256:fce2a437ce0de30dbf269f256849b1a07ce38f15e239122b9bc8aad8a610a4b5",
+      "recorded_at": "2026-10-21T11:28:53.372Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:9fe1ee47406dc8bbb95f2dcad9559f8edd522318494ca2a740a2dde2e01d0fef",
+      "tree": "sha256:fce2a437ce0de30dbf269f256849b1a07ce38f15e239122b9bc8aad8a610a4b5",
+      "recorded_at": "2026-10-21T11:28:53.372Z"
+    }
+  ],
+  "closed_at": "2026-10-21T11:28:57.005Z"
+}

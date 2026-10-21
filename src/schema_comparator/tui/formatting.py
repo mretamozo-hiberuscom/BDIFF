@@ -17,6 +17,7 @@ from schema_comparator.compare.models import (
     MissingTable,
     ProcedureMismatch,
 )
+from schema_comparator.domain.comparison.models import column_label, object_label
 from schema_comparator.report.attributes import format_attributes
 from schema_comparator.report.console import _TYPE_LABELS
 
@@ -32,7 +33,7 @@ class TableGroup:
 
     @property
     def qualified_label(self) -> str:
-        return f"{self.schema_name}.{self.table_name}"
+        return object_label(self.entries[0])
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +62,7 @@ def leaf_label(entry: DiffEntry) -> str:
         return f"tabla faltante (de {entry.missing_from_profile})"
     if isinstance(entry, MissingColumn):
         return (
-            f"{entry.column_name}: columna faltante (de {entry.missing_from_profile})"
+            f"{column_label(entry)}: columna faltante (de {entry.missing_from_profile})"
         )
     if isinstance(entry, MissingProcedure):
         return f"{entry.procedure_name}: rutina/SP faltante (de {entry.missing_from_profile})"
@@ -70,30 +71,34 @@ def leaf_label(entry: DiffEntry) -> str:
         return f"{entry.procedure_name}: discrepancia de código o parámetros entre {profiles}"
     if isinstance(entry, ColumnMismatch):
         profiles = ", ".join(p for p, _ in entry.values_by_profile)
-        return f"{entry.column_name}: discrepancia de atributos entre {profiles}"
+        return f"{column_label(entry)}: discrepancia de atributos entre {profiles}"
     return f"{type(entry).__name__}"
+
+
+def _column_heading(entry: MissingColumn | ColumnMismatch) -> str:
+    if entry.object_variants or entry.column_variants:
+        return f"{object_label(entry)} → {column_label(entry)}"
+    schema, table = entry.qualified_name
+    return f"{schema}.{table}.{entry.column_name}"
 
 
 def detail_text(entry: DiffEntry) -> str:
     """Single-dispatch detail-panel content for a selected finding."""
     if isinstance(entry, ColumnMismatch):
-        schema, table = entry.qualified_name
-        lines = [f"Columna: {schema}.{table}.{entry.column_name}", ""]
+        lines = [f"Columna: {_column_heading(entry)}", ""]
         for profile, attrs in entry.values_by_profile:
             lines.append(f"  {profile}: {format_attributes(attrs)}")
         return "\n".join(lines)
 
     if isinstance(entry, MissingColumn):
-        schema, table = entry.qualified_name
-        lines = [f"Columna: {schema}.{table}.{entry.column_name}", ""]
+        lines = [f"Columna: {_column_heading(entry)}", ""]
         lines.append(f"  Faltante en el perfil '{entry.missing_from_profile}'")
         for profile, attrs in entry.present_attributes:
             lines.append(f"  {profile}: {format_attributes(attrs)}")
         return "\n".join(lines)
 
     if isinstance(entry, MissingProcedure):
-        schema, proc = entry.qualified_name
-        lines = [f"Procedimiento Almacenado / Rutina: {schema}.{proc}", ""]
+        lines = [f"Procedimiento Almacenado / Rutina: {object_label(entry)}", ""]
         lines.append(f"  Faltante en el perfil '{entry.missing_from_profile}'")
         for profile, p_snap in entry.present_procedures:
             params_str = (
@@ -104,8 +109,7 @@ def detail_text(entry: DiffEntry) -> str:
         return "\n".join(lines)
 
     if isinstance(entry, ProcedureMismatch):
-        schema, proc = entry.qualified_name
-        lines = [f"Procedimiento Almacenado / Rutina: {schema}.{proc}", ""]
+        lines = [f"Procedimiento Almacenado / Rutina: {object_label(entry)}", ""]
         lines.append("Discrepancias detectadas entre perfiles:")
         for profile, p_snap in entry.values_by_profile:
             params_str = (
@@ -121,11 +125,9 @@ def detail_text(entry: DiffEntry) -> str:
         return "\n".join(lines)
 
     if isinstance(entry, MissingTable):
-        schema, table = entry.qualified_name
-        return f"{schema}.{table}: tabla faltante en el perfil '{entry.missing_from_profile}'"
+        return f"{object_label(entry)}: tabla faltante en el perfil '{entry.missing_from_profile}'"
 
-    schema, table = entry.qualified_name
-    return f"{schema}.{table}: {type(entry).__name__}"
+    return f"{object_label(entry)}: {type(entry).__name__}"
 
 
 def header_counts(result: ComparisonResult) -> dict[type, int]:

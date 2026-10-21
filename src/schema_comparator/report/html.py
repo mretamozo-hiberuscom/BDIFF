@@ -9,6 +9,7 @@ from schema_comparator.compare.models import (
     MissingColumn,
     MissingTable,
 )
+from schema_comparator.domain.comparison.models import object_label
 from schema_comparator.report.attributes import MISSING_MARKER, format_attributes
 from schema_comparator.report.presentation import present_finding
 from schema_comparator.report.rows import grouped_rows_by_table
@@ -62,7 +63,7 @@ def _row_for_group(entries: list[DiffEntry], profiles: tuple[str, ...]) -> dict:
                 }
             else:
                 cells[p] = None
-        detail = first.column_name
+        detail = view.detail_name
     elif isinstance(first, ColumnMismatch):
         values = dict(first.values_by_profile)
         for p in profiles:
@@ -70,7 +71,7 @@ def _row_for_group(entries: list[DiffEntry], profiles: tuple[str, ...]) -> dict:
                 cells[p] = {"kind": "value", "text": format_attributes(values[p])}
             else:
                 cells[p] = None
-        detail = first.column_name
+        detail = view.detail_name
     else:
         for p in profiles:
             text_val = view.cells_by_profile.get(p, "")
@@ -99,7 +100,14 @@ def build_context(result: ComparisonResult) -> dict:
         rows = [
             _row_for_group(group, result.compared_profiles) for group in rows_of_entries
         ]
-        groups.append({"schema_name": schema, "table_name": object_name, "rows": rows})
+        groups.append(
+            {
+                "schema_name": schema,
+                "table_name": object_name,
+                "label": object_label(rows_of_entries[0][0]),
+                "rows": rows,
+            }
+        )
     return {
         "compared_profiles": result.compared_profiles,
         "groups": groups,

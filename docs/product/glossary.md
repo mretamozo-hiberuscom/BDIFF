@@ -1,14 +1,19 @@
-# Glossary — SQL Server Schema Comparator
+# Glosario — BDIFF
 
-| Term | Meaning in this project |
+| Término | Significado en este proyecto |
 |---|---|
-| Microservice database | One SQL Server database belonging to a single microservice; the unit being compared. |
-| Schema drift | Any difference in table/column structure between two or more microservice databases that are expected to share structure. |
-| Schema snapshot | The extracted metadata (tables, columns, types, etc.) captured from one database at one point in time. |
-| Baseline database | Not a fixed database — the comparator treats the union of all objects seen across all configured databases as the reference set; any database missing an object relative to that union is flagged. |
-| Missing table/column | An object (table or column) present in at least one configured database but absent in another. |
-| Mismatch | A column present under the same name in two or more databases but differing in data type, size/precision/scale, or nullability. |
-| Likely rename | A heuristic match suggesting a column in one database and a differently-named column in another database represent the same business field. |
-| Discovery method | How the tool obtains schema metadata: live DB connection (v1) vs. exported DDL/snapshot files (later/optional). |
-| Connection profile | One entry in the local config describing how to reach one microservice's database (server, database name, auth method, driver options). |
-| Drift report | The generated output (HTML primary, console summary, optional CSV/Excel) presenting comparison results. |
+| Perfil de conexión | Entrada con nombre de `config.local.yaml`: `provider`, `connection_string` y `options`. El nombre del perfil es lo que aparece en reportes; la cadena nunca. |
+| Proveedor (provider) | Adaptador de un motor (`sqlserver`, `postgresql`, `mysql`, `mariadb`, `oracle`, `sqlite`) registrado en `ProviderRegistry`. |
+| Snapshot de esquema | Metadatos extraídos de una base en un momento: tablas, columnas, procedimientos y, cuando se extraigan, PK, FK e índices. |
+| Deriva de esquema (drift) | Cualquier diferencia estructural entre bases que deberían compartir estructura. |
+| Línea base (baseline) de comparación | No es una base fija: es la unión de todos los objetos vistos en las bases comparadas. Lo que falta respecto a esa unión se reporta. |
+| Identidad de objeto | Clave con la que se emparejan tablas y columnas entre bases. Se normaliza: insensible a mayúsculas, sin esquema en MySQL/MariaDB y con el owner por defecto normalizado en Oracle (decisión 2026-10-21). |
+| Tabla o columna faltante | Objeto presente en al menos una base y ausente en otra. |
+| Discrepancia (mismatch) | Objeto presente en varias bases con atributos distintos (tipo, tamaño, nulabilidad, default, identity, collation, PK, FK, índice o definición de rutina). |
+| Modo `native-strict` | Comparación por tipo nativo exacto; pensada para perfiles del mismo motor (ADR 0003). |
+| Modo `semantic` | Comparación por familia de tipo entre motores distintos; opt-in (ADR 0003). |
+| Consolidación | Pantalla de la TUI donde se decide, por hallazgo, qué estado debe quedar y en qué bases; produce scripts T-SQL que nadie ejecuta automáticamente. |
+| Mantenimiento de metadatos | Escritura acotada y confirmada sobre una base comparada que no cambia estructura ni datos; hoy `sp_refreshsqlmodule` (ADR 0006). |
+| Validación de rutinas | Comprobación de solo lectura de las dependencias de procedimientos y vistas en SQL Server. |
+| Reporte de deriva | Salidas de una ejecución: resumen de consola, HTML, PDF y Excel. |
+| Likely rename | Heurística (no implementada) para emparejar columnas con distinto nombre que representan el mismo campo. |

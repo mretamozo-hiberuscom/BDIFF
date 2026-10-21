@@ -1,0 +1,225 @@
+{
+  "schema": "idd-state/v1",
+  "change": "oracle-query-terminator",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "La consulta de catálogo Oracle termina en ';' (oracle/introspector.py:33) y python-oracledb rechaza el punto y coma final de una sentencia, así que toda extracción Oracle falla",
+    "acceptance": "Ninguna consulta que el proveedor Oracle ejecuta termina en punto y coma"
+  },
+  "facts": {
+    "basis": "python-oracledb documenta que una sentencia SQL única no debe llevar ';' final (ORA-00933/ORA-03048); la consulta de esquema actual ya sigue esa regla"
+  },
+  "plan": {
+    "paths": [
+      "src/schema_comparator/infrastructure/providers/oracle/introspector.py",
+      "tests/unit/infrastructure/test_oracle_provider.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "component providers: ADR 0001, 0002, 0005, 0006, 0007 and quality scenario optional-drivers, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "none",
+      "reason": "Solo se quita el punto y coma final de una consulta Oracle"
+    },
+    {
+      "kind": "adr",
+      "id": "0002",
+      "impact": "none",
+      "reason": "Solo se quita el punto y coma final de una consulta Oracle"
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "none",
+      "reason": "Solo se quita el punto y coma final de una consulta Oracle"
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "none",
+      "reason": "Solo se quita el punto y coma final de una consulta Oracle"
+    },
+    {
+      "kind": "adr",
+      "id": "0007",
+      "impact": "none",
+      "reason": "Solo se quita el punto y coma final de una consulta Oracle"
+    },
+    {
+      "kind": "scenario",
+      "id": "optional-drivers",
+      "impact": "none",
+      "reason": "Sin cambios de imports"
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "none",
+      "reason": "Sin cambios en mensajes"
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "none",
+      "reason": "Sin efecto"
+    }
+  ],
+  "attestations": [
+    {
+      "kind": "adr",
+      "id": "0006",
+      "evidence": "commit() solo en sp_validator.py:360",
+      "recorded_at": "2026-10-21T11:22:03.669Z"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T11:21:58.972Z",
+      "detail": {
+        "red": "run-1",
+        "green": "run-2"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T11:22:20.234Z",
+      "detail": {
+        "tree": "sha256:f08e379183e0d0feea93c728c9b1df394806eff6642c82f6caf7393c6816de56",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T11:22:20.234Z",
+      "detail": {
+        "refs": [
+          "adr:0001 none",
+          "adr:0002 none",
+          "adr:0005 none",
+          "adr:0006 none",
+          "adr:0007 none",
+          "scenario:optional-drivers none",
+          "scenario:secret-safety none",
+          "scenario:windows-first-run none"
+        ],
+        "records": [],
+        "tree": "sha256:f08e379183e0d0feea93c728c9b1df394806eff6642c82f6caf7393c6816de56",
+        "fitness": [
+          "run-5"
+        ]
+      }
+    }
+  ],
+  "base": "56fdea6548e9d60a1cd09b073f6c9636d57c971d",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/infrastructure/test_oracle_provider.py",
+      "exit_code": 1,
+      "output_sha256": "sha256:d5cd043b243cd42aa7234cc6378222bae22f76b270e5ba78623a4e0a674fe556",
+      "tree": "sha256:215aba9a21206bdf5e1875d95f2bfeb6efdc0a3638d6478b414f05d494bdf6cf",
+      "recorded_at": "2026-10-21T11:21:58.779Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/infrastructure/test_oracle_provider.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:7b3b0d5a921d7788afd5d0591f4f23616773499e68d52f759b0a65c29bc0ff2c",
+      "tree": "sha256:4672935339800055d35a910a10b6937f5872d1f771584f73c2f882677c281505",
+      "recorded_at": "2026-10-21T11:21:58.972Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:b46a7a788d5e4e79e60a6a26aa8e11ba872a3e5c7249b602a8c1cf6c48dd1a20",
+      "tree": "sha256:f08e379183e0d0feea93c728c9b1df394806eff6642c82f6caf7393c6816de56",
+      "recorded_at": "2026-10-21T11:22:20.234Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:4a163a5d90faa7d60d6392f52dc32056519ac4cf71a71a1f53c7bfe1369f6eeb",
+      "tree": "sha256:f08e379183e0d0feea93c728c9b1df394806eff6642c82f6caf7393c6816de56",
+      "recorded_at": "2026-10-21T11:22:20.234Z"
+    },
+    {
+      "id": "run-5",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f9fd93d4bfe07fbc3f2ca83028355ce747308424b00ccac0298c99213e915731",
+      "tree": "sha256:f08e379183e0d0feea93c728c9b1df394806eff6642c82f6caf7393c6816de56",
+      "recorded_at": "2026-10-21T11:22:20.234Z"
+    }
+  ],
+  "closed_at": "2026-10-21T11:22:23.230Z"
+}

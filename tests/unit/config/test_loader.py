@@ -374,7 +374,8 @@ def test_ado_net_connection_string_is_translated_to_odbc_form(
     assert "Database=CatalogDB" in connection_string
     assert "UID=u" in connection_string
     assert "PWD=p" in connection_string
-    assert "Driver=" in connection_string
+    # The driver is picked from the installed ones at connect time.
+    assert "Driver=" not in connection_string
     assert "Data Source=" not in connection_string
 
 

@@ -1,0 +1,227 @@
+{
+  "schema": "idd-state/v1",
+  "change": "lazy-driver-imports",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "Importar el CLI carga pyodbc en cadena (registry → discovery/__init__ → discovery/service; config → sqlserver/__init__ → provider), así que sin libodbc no arranca ni con proveedores no SQL Server; ADR 0002 promete carga diferida",
+    "acceptance": "Con pyodbc no importable, el CLI arranca y compara perfiles PostgreSQL/SQLite; solo un perfil SQL Server exige pyodbc y falla con DriverUnavailableError; los módulos heredados sin uso (discovery/service, discovery/queries, connectors) desaparecen"
+  },
+  "facts": {
+    "open": [
+      "¿pyodbc pasa a ser solo extra [sqlserver] o sigue siendo dependencia base (SQL Server es el motor principal en Windows)?",
+      "¿run.py debe instalar extras de drivers (p. ej. .[all]) o solo la base?"
+    ]
+  },
+  "plan": {
+    "paths": [
+      "docs/architecture/component-map.yaml",
+      "docs/architecture/technical-baseline.md",
+      "src/schema_comparator/connectors/__init__.py",
+      "src/schema_comparator/discovery/__init__.py",
+      "src/schema_comparator/discovery/queries.py",
+      "src/schema_comparator/discovery/service.py",
+      "src/schema_comparator/infrastructure/providers/registry.py",
+      "src/schema_comparator/infrastructure/providers/sqlserver/__init__.py",
+      "tests/integration/test_extraction_live.py",
+      "tests/integration/test_optional_drivers.py",
+      "tests/unit/connectors/test_connect.py",
+      "tests/unit/discovery/conftest.py",
+      "tests/unit/discovery/test_queries.py",
+      "tests/unit/discovery/test_service.py",
+      "tests/unit/infrastructure/test_sqlserver_provider.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "components legacy, providers: ADR 0001, 0002, 0005, 0006 and quality scenario optional-drivers, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "conforms",
+      "reason": "Elimina paquetes heredados (connectors, discovery/service, discovery/queries) que duplicaban el adaptador SQL Server fuera de infrastructure"
+    },
+    {
+      "kind": "adr",
+      "id": "0002",
+      "impact": "conforms",
+      "reason": "La carga de pyodbc pasa a ser realmente diferida: solo se importa al instanciar el proveedor SQL Server; un test lo verifica con pyodbc bloqueado"
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "none",
+      "reason": "No toca la generación de scripts"
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "none",
+      "reason": "No toca la recompilación"
+    },
+    {
+      "kind": "scenario",
+      "id": "optional-drivers",
+      "impact": "conforms",
+      "reason": "test_optional_drivers.py: con pyodbc no importable, SQLite compara y SQL Server falla con DriverUnavailableError sin traceback"
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "conforms",
+      "reason": "Los tests portados verifican que los errores del proveedor no incluyen la cadena de conexión"
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "none",
+      "reason": "En Windows pyodbc siempre importa; pyodbc sigue en la base"
+    }
+  ],
+  "attestations": [
+    {
+      "kind": "adr",
+      "id": "0006",
+      "evidence": "grep '.commit()' en src/: solo sp_validator.py:360; sin cambios en rutas mutantes",
+      "recorded_at": "2026-10-21T10:43:25.226Z"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "open-facts",
+      "status": "resolved",
+      "answer": "pyodbc se mantiene como dependencia base (solo se arreglan los imports); run.py instala solo la base y los demás motores reciben el pip install exacto en el error",
+      "source": "user"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T10:42:59.338Z",
+      "detail": {
+        "red": "run-1",
+        "green": "run-2"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T10:43:41.141Z",
+      "detail": {
+        "tree": "sha256:46067e13c981c01e4c34b7520c1297db0b973ed48a3b4141c0eeabca4ef7e6e4",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T10:43:41.141Z",
+      "detail": {
+        "refs": [
+          "adr:0001 conforms",
+          "adr:0002 conforms",
+          "adr:0005 none",
+          "adr:0006 none",
+          "scenario:optional-drivers conforms",
+          "scenario:secret-safety conforms",
+          "scenario:windows-first-run none"
+        ],
+        "records": []
+      }
+    }
+  ],
+  "base": "0245974e62395f22c1d73160c836b2a09dcba509",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/integration/test_optional_drivers.py",
+      "exit_code": 1,
+      "output_sha256": "sha256:b44cb4f514fda33ed17d88913e8f610fae13680f15f39c3bd0589eee246b3b2a",
+      "tree": "sha256:a80798b286645f2bd09ba35b189e408f549ac1d502d6ed9e44585a5cb1e90aad",
+      "recorded_at": "2026-10-21T10:42:06.156Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/integration/test_optional_drivers.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:121be70844b2ea14d78c67d84f42cbad9ccac1def1b6cf8503e99b8a6098878a",
+      "tree": "sha256:9927798adbe02616c84dfce896cf79bcb691669ba1fe985d1ff52127996c328d",
+      "recorded_at": "2026-10-21T10:42:59.338Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:e717f00cc61986875be349d21c832d5d073490b5a1062dedf59079606472d21d",
+      "tree": "sha256:46067e13c981c01e4c34b7520c1297db0b973ed48a3b4141c0eeabca4ef7e6e4",
+      "recorded_at": "2026-10-21T10:43:41.141Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:a0966fb1dc37c3f971b6536cf03fe45eddddca0f66640233ec1d51afaa1ac06a",
+      "tree": "sha256:46067e13c981c01e4c34b7520c1297db0b973ed48a3b4141c0eeabca4ef7e6e4",
+      "recorded_at": "2026-10-21T10:43:41.141Z"
+    }
+  ],
+  "closed_at": "2026-10-21T10:43:45.293Z"
+}

@@ -3,6 +3,7 @@
 from typing import Callable, Sequence
 
 from schema_comparator.compare.engine import compare_snapshots
+from schema_comparator.compare.errors import InsufficientSnapshotsError
 from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.discovery.filters import (
     filter_excluded_routines,
@@ -45,7 +46,10 @@ class CompareProfilesUseCase:
         """Extract schemas for `profiles`, apply table/routine filters, and compare.
 
         Returns a `ComparisonResult` containing normalized diff entries.
+        Fewer than 2 profiles is rejected before any extraction.
         """
+        if len(profiles) < 2:
+            raise InsufficientSnapshotsError.for_count(len(profiles))
         if isinstance(filters, ComparisonFilters):
             ex_tables = filters.excluded_tables
             ex_routines = filters.excluded_routines

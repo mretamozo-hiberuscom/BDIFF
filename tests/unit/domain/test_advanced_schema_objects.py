@@ -102,3 +102,36 @@ def test_comparison_engine_detects_pk_fk_index_drift():
 
     assert len(idx_mismatches) == 1
     assert idx_mismatches[0].index_name == "IX_users_id"
+
+
+def _users_table(pk, fks=(), indexes=()):
+    col = ColumnSnapshot("id", "int", None, 10, 0, False, 1)
+    return TableSnapshot(
+        "dbo", "users", (col,), primary_key=pk, foreign_keys=fks, indexes=indexes
+    )
+
+
+def _fk(name="FK_users_org"):
+    return ForeignKeySnapshot(name, ("org_id",), "orgs", ("id",), "dbo")
+
+
+def test_identical_pk_fk_and_indexes_produce_no_findings():
+    pk = PrimaryKeySnapshot("PK_users", ("id",))
+    idx = IndexSnapshot("IX_users_id", ("id",), is_unique=True)
+    s1 = SchemaSnapshot("prof1", (_users_table(pk, (_fk(),), (idx,)),))
+    s2 = SchemaSnapshot("prof2", (_users_table(pk, (_fk(),), (idx,)),))
+
+    assert compare_snapshots([s1, s2]).entries == ()
+
+
+def test_pk_and_fk_name_differences_are_drift():
+    s1 = SchemaSnapshot(
+        "prof1", (_users_table(PrimaryKeySnapshot("PK_a", ("id",)), (_fk("FK_a"),)),)
+    )
+    s2 = SchemaSnapshot(
+        "prof2", (_users_table(PrimaryKeySnapshot("PK_b", ("id",)), (_fk("FK_b"),)),)
+    )
+
+    kinds = sorted(type(e).__name__ for e in compare_snapshots([s1, s2]).entries)
+
+    assert kinds == ["ForeignKeyMismatch", "ForeignKeyMismatch", "PrimaryKeyMismatch"]

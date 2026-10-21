@@ -11,10 +11,12 @@
 #      Database=...;UID=...;PWD=...;
 #   2. ADO.NET/SqlClient style — Data Source=...;Initial Catalog=...;
 #      User Id=...;Password=...; — as commonly copied from a
-#      microservice's own appsettings.json/.env. `Driver={ODBC Driver 17
-#      for SQL Server}` is auto-prepended if missing, so you can start
-#      straight from `Data Source=...` and omit `Driver=...` entirely;
-#      mixed strings (some ODBC keywords + some ADO.NET keywords
+#      microservice's own appsettings.json/.env. You can omit `Driver=...`
+#      entirely: BDIFF then uses the installed ODBC Driver 17 for SQL
+#      Server, or Driver 18 when 17 is not installed. Driver 18 encrypts
+#      by default, so add `TrustServerCertificate=yes` for dev servers
+#      with self-signed certificates. An explicit `Driver=` is never
+#      changed. Mixed strings (some ODBC keywords + some ADO.NET keywords
 #      together) are also supported.
 databases:
   # ODBC, SQL Server authentication (username + password)
@@ -24,7 +26,7 @@ databases:
   example-windows-auth: "Driver={ODBC Driver 17 for SQL Server};Server=your-server;Database=YourOtherDb;Trusted_Connection=yes;"
 
   # ADO.NET/SqlClient style — copied as-is from an appsettings.json/.env,
-  # no Driver=... needed (auto-prepended). SQL Server authentication.
+  # no Driver=... needed (installed driver picked). SQL Server authentication.
   example-adonet-sql-auth: "Data Source=your-server;Initial Catalog=YourDb;User Id=your-user;Password=your-password;Encrypt=True;TrustServerCertificate=True;"
 
   # ADO.NET/SqlClient style, Windows integrated authentication.

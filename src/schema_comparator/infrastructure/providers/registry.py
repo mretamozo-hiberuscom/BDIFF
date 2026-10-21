@@ -4,9 +4,10 @@ from typing import Callable
 
 from schema_comparator.application.ports.database_provider import DatabaseProvider
 from schema_comparator.discovery.errors import DriverUnavailableError
+from schema_comparator.domain.errors import SchemaComparatorError
 
 
-class ProviderNotFoundError(KeyError):
+class ProviderNotFoundError(SchemaComparatorError, LookupError):
     """Raised when a requested provider_id is not registered."""
 
     pass
@@ -42,7 +43,7 @@ class ProviderRegistry:
             except ImportError as exc:
                 raise DriverUnavailableError(
                     f"El proveedor '{provider_id}' requiere dependencias adicionales no instaladas: {exc}. "
-                    f"Ejecuta 'pip install bdiff[{pid}]' para instalar las dependencias requeridas."
+                    f"Ejecutá 'pip install schema-comparator[{pid}]' para instalar las dependencias requeridas."
                 ) from exc
         return None
 
@@ -62,7 +63,9 @@ class ProviderRegistry:
 
 
 def _load_sqlserver_provider() -> DatabaseProvider:
-    from schema_comparator.infrastructure.providers.sqlserver import SqlServerProvider
+    from schema_comparator.infrastructure.providers.sqlserver.provider import (
+        SqlServerProvider,
+    )
 
     return SqlServerProvider()
 

@@ -10,9 +10,29 @@ from schema_comparator.domain.comparison.models import (
     NamedColumnAttributes,
 )
 from schema_comparator.config.models import ConnectionProfile
+from schema_comparator.domain.errors import SchemaComparatorError
 from schema_comparator.infrastructure.providers.sqlserver.ddl_renderer import (
     generate_ddl_for_profile,
 )
+
+
+class ConsolidationNotSupportedError(SchemaComparatorError):
+    """Raised when consolidation is asked for profiles of an engine other
+    than SQL Server: the scripts it renders are T-SQL only."""
+
+    @classmethod
+    def for_profiles(cls, names: list[str]) -> "ConsolidationNotSupportedError":
+        return cls(
+            "La consolidación genera T-SQL y solo está disponible para SQL "
+            f"Server; perfiles de otros motores: {', '.join(names)}."
+        )
+
+
+def unsupported_consolidation_profiles(
+    profiles: list[ConnectionProfile],
+) -> list[str]:
+    """Names of the profiles consolidation cannot render scripts for."""
+    return sorted(p.name for p in profiles if p.provider.casefold() != "sqlserver")
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,11 +88,43 @@ class ColumnDeletionResolution:
     profiles_to_update: tuple[str, ...]
 
 
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{i}" for i in range(1, 10)}
+    | {f"lpt{i}" for i in range(1, 10)}
+)
+
+
 def sanitize_profile_filename(profile_name: str) -> str:
-    """Sanitize connection profile name for cross-platform filesystem use."""
-    name = Path(profile_name).name
-    sanitized = "".join(c if c not in r'\/:*?"<>|' else "_" for c in name).strip()
-    return sanitized or "profile"
+    """Sanitize connection profile name for cross-platform filesystem use:
+    path separators and invalid characters become `_`, Windows strips
+    trailing dots and spaces, and reserved device names get a `_` suffix."""
+    sanitized = "".join(
+        "_" if c in r'\/:*?"<>|' or ord(c) < 32 else c for c in profile_name
+    )
+    sanitized = sanitized.strip().rstrip(". ")
+    if not sanitized:
+        return "profile"
+    if sanitized.split(".", 1)[0].casefold() in _WINDOWS_RESERVED_NAMES:
+        sanitized += "_"
+    return sanitized
+
+
+def assign_script_filenames(profile_names: list[str]) -> dict[str, str]:
+    """Map each profile to a script file stem, unique ignoring case (Windows
+    file systems are case-insensitive); later duplicates get `_1`, `_2`..."""
+    assigned: dict[str, str] = {}
+    used: set[str] = set()
+    for profile_name in sorted(profile_names):
+        base = sanitize_profile_filename(profile_name)
+        stem = base
+        counter = 1
+        while stem.casefold() in used:
+            stem = f"{base}_{counter}"
+            counter += 1
+        used.add(stem.casefold())
+        assigned[profile_name] = stem
+    return assigned
 
 
 def generate_impact_report(
@@ -82,9 +134,12 @@ def generate_impact_report(
     table_resolutions: list[TableResolution] | None = None,
     table_deletions: list[TableDeletionResolution] | None = None,
     column_deletions: list[ColumnDeletionResolution] | None = None,
+    script_filenames: dict[str, str] | None = None,
 ) -> str:
     """Generate an impact analysis report in Markdown detailing affected database objects,
     stored procedure check guidelines, and diagnostic T-SQL queries for each profile."""
+    if script_filenames is None:
+        script_filenames = assign_script_filenames(list(profiles_to_update))
     ts_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
     lines = [
         "# Reporte de Impacto en Procedimientos Almacenados y Objetos DB",
@@ -101,7 +156,7 @@ def generate_impact_report(
     for profile_name in sorted(profiles_to_update):
         lines.append(f"## Perfil / Base de Datos: `{profile_name}`")
         lines.append(
-            f"**Archivo de Script SQL:** `{sanitize_profile_filename(profile_name)}.sql`\n"
+            f"**Archivo de Script SQL:** `{script_filenames[profile_name]}.sql`\n"
         )
 
         prof_table_creations = [
@@ -240,6 +295,9 @@ def write_sql_scripts(
     column_deletions: list[ColumnDeletionResolution] | None = None,
 ) -> list[str]:
     """Create a timestamped directory inside 'scripts-db' and write transactional DDL files and impact report for all affected profiles."""
+    unsupported = unsupported_consolidation_profiles(profiles)
+    if unsupported:
+        raise ConsolidationNotSupportedError.for_profiles(unsupported)
     root_path = Path(repo_root)
     ts = timestamp or datetime.datetime.now()
     folder_name = ts.strftime("%Y%m%d_%H%M%S")
@@ -258,8 +316,8 @@ def write_sql_scripts(
         all_profiles_names.update(deletion.profiles_to_update)
 
     written_files = []
-    used_filenames: set[str] = set()
     sorted_profiles = sorted(all_profiles_names)
+    script_filenames = assign_script_filenames(sorted_profiles)
     for profile_name in sorted_profiles:
         profile = profile_map.get(
             profile_name,
@@ -275,15 +333,7 @@ def write_sql_scripts(
             table_deletions=table_deletions,
             column_deletions=column_deletions,
         )
-        base_filename = sanitize_profile_filename(profile_name)
-        safe_profile = base_filename
-        counter = 1
-        while safe_profile in used_filenames:
-            safe_profile = f"{base_filename}_{counter}"
-            counter += 1
-        used_filenames.add(safe_profile)
-
-        file_path = output_dir / f"{safe_profile}.sql"
+        file_path = output_dir / f"{script_filenames[profile_name]}.sql"
         file_path.write_text(ddl, encoding="utf-8")
         written_files.append(str(file_path.resolve()))
 
@@ -295,6 +345,7 @@ def write_sql_scripts(
             table_resolutions=table_resolutions,
             table_deletions=table_deletions,
             column_deletions=column_deletions,
+            script_filenames=script_filenames,
         )
         report_path = output_dir / "impact_report.md"
         report_path.write_text(report_content, encoding="utf-8")

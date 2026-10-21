@@ -6,9 +6,11 @@ import argparse
 import functools
 import sys
 
+from schema_comparator.config.errors import UnknownProfileError
 from schema_comparator.config.loader import load_profiles
+from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.domain.comparison.models import ComparisonFilters
-from schema_comparator.domain.errors import SchemaComparatorError
+from schema_comparator.domain.errors import SchemaComparatorError, describe_error
 from schema_comparator.report.write import write_reports
 from schema_comparator.tui import run_tui
 from schema_comparator.tui.actions import run_comparison
@@ -67,12 +69,16 @@ def _resolve_summary_renderer_and_generate_reports(
     use_tui: bool,
     profiles: list,
     exclude_patterns: list[str],
+    exclude_routines: list[str] | None = None,
 ) -> tuple:
     if not use_tui:
         return None, True
     if sys.stdout.isatty() and sys.stdin.isatty():
         bound_run_tui = functools.partial(
-            run_tui, profiles=profiles, exclude_patterns=exclude_patterns
+            run_tui,
+            profiles=profiles,
+            exclude_patterns=exclude_patterns,
+            exclude_routines=list(exclude_routines or []),
         )
         return bound_run_tui, False
     print(
@@ -87,68 +93,86 @@ def _run_routine_validation(
     exclude_routines: list[str] | None = None,
     read_only: bool = True,
 ) -> bool:
-    from schema_comparator.infrastructure.providers.sqlserver import connection
+    from schema_comparator.infrastructure.providers.sqlserver.routine_runner import (
+        run_routines,
+    )
     from schema_comparator.infrastructure.providers.sqlserver.sp_validator import (
-        enumerate_routines,
         refresh_modules_mutating,
         validate_routines_read_only,
     )
 
-    patterns = [p.lower() for p in (exclude_routines or [])]
     mode_str = (
         "solo lectura" if read_only else "recompilación mutante (sp_refreshsqlmodule)"
     )
-    print(f"\n🔍 Ejecutando validación de rutinas [{mode_str}]...")
+    print(f"\nEjecutando validación de rutinas [{mode_str}]...")
+    operation = validate_routines_read_only if read_only else refresh_modules_mutating
     has_errors = False
 
-    for profile in profiles:
-        provider_name = str(getattr(profile, "provider", "sqlserver")).lower()
-        if provider_name == "sqlserver":
-            try:
-                with connection.connect(profile) as conn:
-                    targets = enumerate_routines(conn)
-                    if patterns:
-                        targets = tuple(
-                            t
-                            for t in targets
-                            if not any(pat in t.object_name.lower() for pat in patterns)
-                        )
-                    if read_only:
-                        results = validate_routines_read_only(conn, targets)
-                    else:
-                        results = refresh_modules_mutating(conn, targets)
-
-                    failures = [r for r in results if not r.is_success]
-                    if failures:
-                        has_errors = True
-                        print(
-                            f"❌ Perfil '{profile.name}': {len(failures)} objeto(s) con fallos:"
-                        )
-                        for f in failures:
-                            proc_name = getattr(f, "routine", f).object_name
-                            err_msg = getattr(f, "error_message", "Error")
-                            print(
-                                f"   - [{getattr(f, 'routine', f).schema_name}].[{proc_name}]: {err_msg}"
-                            )
-                    else:
-                        print(
-                            f"✅ Perfil '{profile.name}': todas las rutinas evaluadas están correctas ({len(results)} verificadas)."
-                        )
-            except Exception as exc:
-                has_errors = True
-                print(
-                    f"⚠️ Perfil '{profile.name}': error al conectar o validar rutinas: {exc}"
-                )
+    for profile_name, run in run_routines(
+        profiles, exclude_routines or [], operation
+    ).items():
+        if run.error is not None:
+            has_errors = True
+            print(
+                f"[AVISO] Perfil '{profile_name}': error al conectar o validar rutinas: "
+                f"{run.error}"
+            )
+            continue
+        failures = [r for r in run.results if not r.is_success]
+        if failures:
+            has_errors = True
+            print(
+                f"[ERROR] Perfil '{profile_name}': {len(failures)} objeto(s) con fallos:"
+            )
+            for f in failures:
+                print(f"   - {f.routine.qualified_name}: {f.error_message or 'Error'}")
+        else:
+            print(
+                f"[OK] Perfil '{profile_name}': todas las rutinas evaluadas están correctas ({len(run.results)} verificadas)."
+            )
 
     return has_errors
 
 
+def _select_profiles(
+    profiles: list[ConnectionProfile], requested: list[str]
+) -> list[ConnectionProfile]:
+    """Profiles named in `requested`, ignoring case; any unknown name is an
+    error raised before connecting to anything."""
+    known = {p.name.casefold() for p in profiles}
+    unknown = [name for name in requested if name.casefold() not in known]
+    if unknown:
+        raise UnknownProfileError.for_names(unknown, [p.name for p in profiles])
+    wanted = {name.casefold() for name in requested}
+    return [p for p in profiles if p.name.casefold() in wanted]
+
+
+def _make_console_output_safe() -> None:
+    """Replace characters the console code page cannot encode (cp1252 on a
+    redirected Windows stdout, for instance) instead of aborting the run."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(errors="replace")
+
+
 def main(argv: list[str] | None = None) -> int:
+    _make_console_output_safe()
     try:
         args = build_arg_parser().parse_args(argv)
+        wants_refresh = args.refresh_modules or args.verify_sps
+        if wants_refresh and not args.yes:
+            # ADR 0006: confirmation is checked before touching any database.
+            print(
+                "\n[AVISO] ATENCIÓN: --refresh-modules ejecuta sp_refreshsqlmodule para recompilar metadatos en la BD. "
+                "Para confirmar esta acción mutante, incluye la bandera --yes.",
+                file=sys.stderr,
+            )
+            return 2
+
         profiles = load_profiles(args.config)
         if args.profiles:
-            profiles = [p for p in profiles if p.name in args.profiles]
+            profiles = _select_profiles(profiles, args.profiles)
 
         exclude_tables = list(args.exclude_tables or [])
         exclude_routines = list(args.exclude_routines or [])
@@ -161,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
         result = run_comparison(profiles, filters)
 
         render_summary, do_generate = _resolve_summary_renderer_and_generate_reports(
-            args.tui, profiles, exclude_tables
+            args.tui, profiles, exclude_tables, exclude_routines
         )
         if render_summary is not None:
             write_reports(
@@ -176,14 +200,7 @@ def main(argv: list[str] | None = None) -> int:
                 profiles, exclude_routines=exclude_routines, read_only=True
             )
 
-        if args.refresh_modules or args.verify_sps:
-            if not args.yes:
-                print(
-                    "\n⚠️ ATENCIÓN: --refresh-modules ejecuta sp_refreshsqlmodule para recompilar metadatos en la BD. "
-                    "Para confirmar esta acción mutante, incluye la bandera --yes.",
-                    file=sys.stderr,
-                )
-                return 1
+        if wants_refresh:
             v_fail = _run_routine_validation(
                 profiles, exclude_routines=exclude_routines, read_only=False
             )
@@ -194,10 +211,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     except SchemaComparatorError as exc:
-        print(f"[ERROR DE INFRAESTRUCTURA] {exc}", file=sys.stderr)
+        print(f"[ERROR] {exc}", file=sys.stderr)
         return 2
     except Exception as exc:
-        print(f"[ERROR INESPERADO] {exc}", file=sys.stderr)
+        print(f"[ERROR INESPERADO] {describe_error(exc)}", file=sys.stderr)
         return 2
 
 

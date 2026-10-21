@@ -1,50 +1,79 @@
-# Roadmap — BDIFF (Schema Drift Comparator)
+# Roadmap — BDIFF
 
-Este documento refleja el estado real del proyecto y el plan evolutivo hacia una arquitectura modular y multi-motor de bases de datos, detallado en [docs/architecture/analisis-roadmap-multitarget.md](file:///c:/Users/sn4ke/dev/activos/BDIFF/docs/architecture/analisis-roadmap-multitarget.md).
+> Único roadmap vigente desde el 2026-10-21. Sustituye a `roadmap_v2.md`,
+> `architecture/roadmap-multitarget-changes.md`,
+> `architecture/analisis-roadmap-multitarget.md` y
+> `architecture/decisions/pending-refactorings-issues.md` (siguen en el
+> historial de git). Estado verificado contra el código v1.2.5; cada
+> cambio se ejecuta con IDD y se cierra solo con evidencia de `ospec`.
 
-Para ver el desglose detallado de tareas y OpenSpec Changes por fase, consulta [docs/architecture/roadmap-multitarget-changes.md](file:///c:/Users/sn4ke/dev/activos/BDIFF/docs/architecture/roadmap-multitarget-changes.md).
+## Estado real (rama `refactor/baseline-hardening`, 2026-10-21)
 
----
+| Área | Estado |
+|---|---|
+| Config v1/v2, cadenas ODBC y ADO.NET; driver ODBC 17/18 elegido al conectar | Hecho |
+| Extracción SQL Server (tablas, columnas, procedimientos) | Hecho, sin default/identity/collation |
+| Proveedores PostgreSQL, MySQL, MariaDB, SQLite (solo lectura), Oracle | Funcionan; MySQL pierde parámetros de tipo |
+| Carga diferida de drivers (sin libodbc arranca para otros motores) | Hecho |
+| Comparación N-way con identidad normalizada (ADR 0007) | Hecho |
+| PK, FK, índices | Comparación correcta; sin extracción en ningún proveedor |
+| Modo semántico entre motores | En el motor, sin acceso desde CLI/TUI |
+| Reportes consola (segura en Windows), HTML, PDF, Excel | Hecho |
+| TUI: hallazgos, consolidación T-SQL (solo SQL Server), rutinas | Hecho |
+| Errores sin datos de conexión | Hecho |
+| CI Windows + Ubuntu, lint estable | Hecho (pendiente de la primera ejecución en GitHub) |
 
-## 🟢 Estado Actual (v0.1 - v0.2 / Completado)
+## Tanda de endurecimiento — cerrada (rama `refactor/baseline-hardening`)
 
-- [x] Configuración de perfiles de conexión (SQL Server, sintaxis ODBC y ADO.NET/SqlClient).
-- [x] Extracción de esquemas en vivo (tablas y columnas: nombre, tipo, tamaño/precisión/escala, nullability).
-- [x] Motor de comparación N-way (comparación de esquemas basada en unión de objetos baseline).
-- [x] Detección de drift (tablas faltantes, columnas faltantes, discrepancias de tipo/tamaño/nullability).
-- [x] Reportes exportables (HTML, PDF vía `xhtml2pdf`, Excel `.xlsx` vía `openpyxl`, salida por consola).
-- [x] Interfaz TUI interactiva (`textual`) con `--tui`.
-- [x] Consolidación interactiva de decisiones y generación de scripts de corrección T-SQL.
+Cada cambio se cerró con evidencia de `ospec` y está archivado en
+`idd/archive/2026-10-21-<cambio>/`.
 
----
+| # | Cambio IDD | Qué resolvió |
+|---|---|---|
+| 1 | `pin-ruff-config` | Lint estable con cualquier versión de ruff. |
+| 2 | `baseline-refresh` | Este baseline, ADR 0006, roadmap único. |
+| 3 | `ci-windows-matrix` | CI en Windows y Ubuntu. |
+| 4 | `console-encoding-windows` | Consola sin emojis y segura con cp1252. |
+| 5 | `odbc-driver-autodetect` | Driver ODBC 17/18 instalado elegido al conectar. |
+| 6 | `output-paths-and-filenames` | `scripts-db` en el directorio de trabajo; nombres válidos en Windows. |
+| 7 | `lazy-driver-imports` | pyodbc solo se carga con SQL Server; módulos heredados eliminados. |
+| 8 | `advanced-object-equality` | Sin falsos positivos de PK/FK/índices. |
+| 9 | `object-identity-normalization` | Identidad normalizada y variantes en reportes (ADR 0007). |
+| 10 | `cli-robustness` | `--yes` antes de conectar, `--profiles` estricto, errores limpios. |
+| 11 | `driver-error-redaction` | Mensajes sin texto libre del driver; pistas `schema-comparator[<motor>]`. |
+| 12 | `oracle-query-terminator` | Extracción Oracle operativa. |
+| 13 | `sqlite-read-only-open` | SQLite en solo lectura; ruta inexistente es error. |
+| 14 | `consolidation-sqlserver-only` | Consolidación limitada a SQL Server. |
+| 15 | `sp-repair-master-script` | Script maestro de reparación ejecutable y escapado. |
+| 16 | `tui-markup-escape` | Identificadores con corchetes mostrados literalmente. |
+| 17 | `tui-thread-safety` | Estado de la TUI coherente entre hilos y re-ejecuciones. |
+| 18 | `tui-screens-refactor` | Lógica de consolidación en módulo puro; bucle de rutinas único. |
 
-## 🚀 Versiones Objetivo & Roadmap Multibase de Datos (v0.3 — v1.0)
+## Siguiente — funcionalidad
 
-### Versión 0.3 — Arquitectura Limpia, Provider SQL Server & Config v2
-* **`docs-roadmap-and-adrs` (Fase 0):** ADRs iniciales, pruebas de caracterización y golden files para SQL Server.
-* **`architecture-layered-domain` (Fase 1.A):** Separación de capas `domain/schema` y `domain/comparison` neutras.
-* **`architecture-application-use-cases` (Fase 1.B):** Puertos de aplicación, `CompareProfilesUseCase` y `cli.py` como composition root.
-* **`provider-sqlserver-extraction` (Fase 2):** Extracción del proveedor de SQL Server a `infrastructure/providers/sqlserver/`.
-* **`config-v2-and-optional-dependencies` (Fase 3):** Configuración `profiles:` v2, drivers como extras opcionales en `pyproject.toml` (`sqlserver`, `postgresql`, etc.) y comandos `bdiff providers doctor`.
+| Prioridad | Cambio | Notas |
+|---|---|---|
+| P1 | Extracción SQL Server de default, identity, collation y precisión de fecha/hora | El motor ya compara esos atributos; hoy SQL Server no los extrae. |
+| P1 | Extracción de PK, FK e índices (SQL Server primero, luego el resto) | Requiere el cambio 8. |
+| P1 | Reportes con todos los atributos que difieren y conteos homogéneos entre formatos | Hoy un mismatch de default/identity se ve idéntico. |
+| P1 | Confirmación y aviso para `DROP` en la consolidación | Hoy se generan sin modal ni aviso en el script. |
+| P1 | Destinos de una discrepancia de columna limitados a los perfiles que la tienen | Hoy se ofrecen todos los perfiles y el UPDATE generado no compila donde falta la columna. |
+| P2 | Exclusión de esquemas Oracle por `ORACLE_MAINTAINED` en lugar de una lista fija | Hoy faltan owners de sistema (DVSYS, ORDSYS…). |
+| P1 | Sincronizar `openspec/specs/` con el comportamiento real | Ver divergencias `spec-*` en `docs/architecture/component-map.yaml`. |
+| P2 | Flag de CLI para el modo semántico y política de motores mezclados con aviso (ADR 0003) | |
+| P2 | Tipos MySQL con `COLUMN_TYPE` (UNSIGNED, ENUM, precisión) | |
+| P2 | Timeout de conexión PostgreSQL y opciones de timeout por perfil | |
+| P2 | Pruebas de arquitectura como fitness de las ADR 0001, 0002 y 0006 | |
+| P2 | Unificar `MySqlProvider`/`MariaDbProvider` y la plantilla de introspección | |
+| P2 | Deuda heredada de `pending-refactorings-issues.md` | Claves YAML duplicadas dentro de `options:` reportadas como perfil duplicado (`config/loader.py:27`); `translate` elimina claves con la grafía original (`sqlserver/profile_parser.py:100`); `SqlServerProvider.introspect` no traduce cadenas ADO.NET de perfiles creados fuera del loader; tipo `str | Path` en `ProfileRepository`; puertos `ReportSink`/`ScriptSink` sin implementación (implementar o retirar); más tests de `CompareProfilesUseCase`. |
+| P3 | Renderers DDL de PostgreSQL, MySQL, Oracle y SQLite corregidos y conectados a la consolidación | SQLite hoy reconstruye con pérdida; Oracle `MODIFY` repite nulabilidad. |
+| P3 | Plan de migración neutro con clasificación SAFE/DESTRUCTIVE (ADR 0005) | |
+| P3 | Matriz de tests de contrato contra motores reales | |
+| P3 | Detección de renombres, export CSV, descubrimiento desde DDL exportado | Capacidades del brief original nunca implementadas. |
 
-### Versión 0.4 — Proveedor PostgreSQL (Completado)
-* **`canonical-domain-models-and-capabilities` (Fase 4):** Modelos canónicos `QualifiedName`, `SqlType` y `ProviderCapabilities`.
-* **`provider-postgresql` (Fase 5):** [x] Adaptador PostgreSQL con `psycopg`, introspección de catalog/enums/arrays, quoting `"name"` y DDL PostgreSQL.
+## Decisiones diferidas
 
-### Versión 0.5 — Proveedor SQLite
-* **`provider-sqlite` (Fase 6):** [x] Adaptador SQLite con `sqlite3`, soporte para `main`/`temp`/attached DBs, type affinity y estrategia de reconstrucción de tablas (`table rebuild`).
-
-### Versión 0.6 — Proveedores MySQL y MariaDB (Completado)
-* **`provider-mysql-mariadb` (Fase 7):** [x] Adaptadores independientes para `mysql` y `mariadb` compartiendo utilidades bajo `mysql_family`, manejo de `AUTO_INCREMENT`, `UNSIGNED`, `ENUM`, `SET` y backticks.
-
-### Versión 0.7 — Proveedor Oracle (Completado)
-* **`provider-oracle` (Fase 8):** [x] Adaptador Oracle con `python-oracledb` (Thin mode), introspección `ALL_TAB_COLUMNS`, mapeo de `OWNER`, mayúsculas y tipos nativos (`NUMBER`, `VARCHAR2`).
-
-### Versión 0.8 — Objetos de Esquema Avanzados (Completado)
-* **`advanced-schema-objects-comparison` (Fase 9):** [x] Inspección y comparación de Primary Keys, Foreign Keys, Unique Constraints, Check Constraints e Índices.
-
-### Versión 0.9 — Comparación Semántica Cross-Provider (Completado)
-* **`cross-provider-semantic-comparison` (Fase 10):** [x] Modo `semantic` opt-in para comparación heterogénea entre distintos motores (ej. SQL Server vs PostgreSQL), matriz de equivalencias y reportes de portabilidad.
-
-### Versión 1.0 — Estabilización & API Pública (Completado)
-* [x] API de proveedores estable, suite completa de pruebas de contrato en CI y documentación consolidada.
+| Decisión | Responsable | Último momento responsable |
+|---|---|---|
+| Medidas de éxito (tiempo por ejecución, número de bases) | Autor | Antes de paralelizar la extracción |
+| Comando de diagnóstico de drivers (`providers doctor`) | Autor | Cuando se distribuya fuera del equipo |

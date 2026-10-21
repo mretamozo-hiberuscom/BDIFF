@@ -1,0 +1,184 @@
+{
+  "schema": "idd-state/v1",
+  "change": "ci-windows-matrix",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "request": "Sí, windows + ubuntu (Recommended): Matriz {windows-latest, ubuntu-latest} × Python 3.11-3.13. Windows no necesita unixodbc",
+    "kind": "feature",
+    "summary": "El CI solo ejecuta en ubuntu-latest aunque Windows es la plataforma principal; añadir windows-latest a la matriz",
+    "acceptance": "El workflow ejecuta los tests en windows-latest y ubuntu-latest para Python 3.11, 3.12 y 3.13; unixodbc solo se instala en Linux; el lint corre una vez en Linux"
+  },
+  "facts": {
+    "coverage": [
+      {
+        "category": "inputs",
+        "cite": {
+          "kind": "path",
+          "path": ".github/workflows/ci.yml",
+          "line": 11
+        }
+      },
+      {
+        "category": "uniqueness",
+        "cite": {
+          "kind": "path",
+          "path": ".github/workflows/ci.yml",
+          "line": 15
+        }
+      },
+      {
+        "category": "persistence",
+        "cite": {
+          "kind": "path",
+          "path": ".github/workflows/ci.yml",
+          "line": 1
+        }
+      },
+      {
+        "category": "copy",
+        "cite": {
+          "kind": "path",
+          "path": ".github/workflows/ci.yml",
+          "line": 3
+        }
+      },
+      {
+        "category": "url-state",
+        "cite": {
+          "kind": "path",
+          "path": ".github/workflows/ci.yml",
+          "line": 3
+        }
+      },
+      {
+        "category": "accessibility",
+        "cite": {
+          "kind": "path",
+          "path": ".github/workflows/ci.yml",
+          "line": 3
+        }
+      },
+      {
+        "category": "errors",
+        "cite": {
+          "kind": "path",
+          "path": ".github/workflows/ci.yml",
+          "line": 13
+        }
+      }
+    ]
+  },
+  "plan": {
+    "paths": [
+      ".github/workflows/ci.yml"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "component build: ADR 0004 and quality scenario optional-drivers, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0004",
+      "impact": "none",
+      "reason": "El CI no cambia el formato de config ni los extras; sigue instalando .[dev] como antes"
+    },
+    {
+      "kind": "scenario",
+      "id": "optional-drivers",
+      "impact": "none",
+      "reason": "Los extras de drivers no cambian; el CI sigue instalando solo .[dev]"
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "conforms",
+      "reason": "Añade evidencia automática en windows-latest para los tests unitarios e integración, incluido el arranque de run.py"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T10:30:32.781Z",
+      "detail": {
+        "tree": "sha256:9a1ad52b5432ea50b823f640bbae41b5285a3c2b7d8e89ba904ea3ed12b12986",
+        "runs": [
+          "run-1",
+          "run-2"
+        ]
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T10:30:32.781Z",
+      "detail": {
+        "refs": [
+          "adr:0004 none",
+          "scenario:optional-drivers none",
+          "scenario:windows-first-run conforms"
+        ],
+        "records": []
+      }
+    }
+  ],
+  "base": "a9b0ef33052daa77a7d4f5336fa3176c54817833",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:39f824bf6a225f784f7071c068a951851c09f29edcbce41f1be756c9789bbafd",
+      "tree": "sha256:9a1ad52b5432ea50b823f640bbae41b5285a3c2b7d8e89ba904ea3ed12b12986",
+      "recorded_at": "2026-10-21T10:30:32.781Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:4a163a5d90faa7d60d6392f52dc32056519ac4cf71a71a1f53c7bfe1369f6eeb",
+      "tree": "sha256:9a1ad52b5432ea50b823f640bbae41b5285a3c2b7d8e89ba904ea3ed12b12986",
+      "recorded_at": "2026-10-21T10:30:32.781Z"
+    }
+  ],
+  "closed_at": "2026-10-21T10:30:36.319Z"
+}

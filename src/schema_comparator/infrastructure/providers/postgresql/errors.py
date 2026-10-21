@@ -13,7 +13,7 @@ def translate_connect_error(profile_name: str, exc: Exception) -> DiscoveryError
     if isinstance(exc, ImportError):
         return DriverUnavailableError(
             f"La extracción de esquema para '{profile_name}' falló: el driver "
-            "PostgreSQL 'psycopg' no está instalado. Ejecutá 'pip install bdiff[postgresql]' "
+            "PostgreSQL 'psycopg' no está instalado. Ejecutá 'pip install schema-comparator[postgresql]' "
             "para instalar las dependencias requeridas."
         )
     return ConnectionFailedError.for_profile(profile_name)

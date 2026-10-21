@@ -8,6 +8,7 @@ import pytest
 from report.conftest import comparison_result_empty, comparison_result_with_findings
 
 from schema_comparator.config.models import ConnectionProfile
+from schema_comparator.domain.comparison.models import ComparisonFilters
 from schema_comparator.tui.app import SchemaComparatorApp, run_tui
 from schema_comparator.tui.widgets import (
     DetailPanel,
@@ -225,7 +226,7 @@ async def test_submitting_exclude_editor_updates_patterns_and_triggers_run() -> 
             await app.workers.wait_for_complete()
 
     assert app._exclude_patterns == ["LOG", "QRTZ"]
-    assert calls == [["LOG", "QRTZ"]]
+    assert calls == [ComparisonFilters(excluded_tables=("LOG", "QRTZ"))]
 
 
 @pytest.mark.asyncio
@@ -254,7 +255,7 @@ async def test_pressing_r_triggers_run_comparison_without_changing_excludes() ->
             await pilot.pause()
             await app.workers.wait_for_complete()
 
-    assert calls == [(_profiles(), ["LOG"])]
+    assert calls == [(_profiles(), ComparisonFilters(excluded_tables=("LOG",)))]
     assert app._exclude_patterns == ["LOG"]
     assert app._result is new_result
 
@@ -280,7 +281,10 @@ async def test_run_comparison_failure_leaves_previous_result_and_logs_error() ->
 
             assert app._result is original_result
             assert app._tree_data is original_tree_data
-            assert any("Falló la comparación: boom" in str(line) for line in log.lines)
+            assert any(
+                "Falló la comparación: RuntimeError" in str(line) for line in log.lines
+            )
+            assert not any("boom" in str(line) for line in log.lines)
 
 
 @pytest.mark.asyncio
@@ -345,19 +349,28 @@ def test_run_tui_forwards_profiles_and_exclude_patterns() -> None:
     captured = {}
 
     class _FakeApp:
-        def __init__(self, result, *, profiles=None, exclude_patterns=None) -> None:
+        def __init__(
+            self, result, *, profiles=None, exclude_patterns=None, exclude_routines=None
+        ) -> None:
             captured["result"] = result
             captured["profiles"] = profiles
             captured["exclude_patterns"] = exclude_patterns
+            captured["exclude_routines"] = exclude_routines
 
         def run(self) -> None:
             pass
 
     with patch("schema_comparator.tui.app.SchemaComparatorApp", _FakeApp):
-        run_tui(result, profiles=profiles, exclude_patterns=["LOG"])
+        run_tui(
+            result,
+            profiles=profiles,
+            exclude_patterns=["LOG"],
+            exclude_routines=["tmp"],
+        )
 
     assert captured["profiles"] == profiles
     assert captured["exclude_patterns"] == ["LOG"]
+    assert captured["exclude_routines"] == ["tmp"]
 
 
 @pytest.mark.asyncio
@@ -375,3 +388,19 @@ async def test_app_opens_decision_screen() -> None:
 
         # Verify that DecisionScreen is now the active screen
         assert isinstance(app.screen, DecisionScreen)
+
+
+@pytest.mark.asyncio
+async def test_decision_screen_writes_scripts_under_the_working_directory(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    app = SchemaComparatorApp(comparison_result_with_findings(), profiles=_profiles())
+
+    async with app.run_test() as pilot:
+        app.query_one(FindingsTree).focus()
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+
+        assert app.screen.repo_root == tmp_path

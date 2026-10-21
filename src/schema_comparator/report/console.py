@@ -11,8 +11,14 @@ from schema_comparator.compare.models import (
     PrimaryKeyMismatch,
     ProcedureMismatch,
 )
+from schema_comparator.domain.comparison.models import object_label
+from schema_comparator.report.attributes import MISSING_MARKER
 from schema_comparator.report.presentation import present_finding
 from schema_comparator.report.rows import grouped_rows_by_table
+
+# The HTML/Excel missing marker is an emoji a Windows console code page
+# (cp1252) cannot encode; the console summary spells it out instead.
+_CONSOLE_MISSING_MARKER = "FALTA"
 
 _TYPE_LABELS = {
     MissingTable: "Tablas faltantes",
@@ -55,13 +61,15 @@ def render_console(result: ComparisonResult) -> str:
     lines.append("")
 
     lines.append("Detalle por objeto/tabla/procedimiento:")
-    for (schema, object_name), rows_of_entries in grouped_rows_by_table(result):
-        lines.append(f"  {schema}.{object_name}: {len(rows_of_entries)} hallazgo(s)")
+    for _, rows_of_entries in grouped_rows_by_table(result):
+        label = object_label(rows_of_entries[0][0])
+        lines.append(f"  {label}: {len(rows_of_entries)} hallazgo(s)")
         for entries in rows_of_entries:
             view = present_finding(entries, result.compared_profiles)
             detail_str = f" [{view.detail_name}]" if view.detail_name else ""
             profile_summary = ", ".join(
-                f"{p}={val}" for p, val in view.cells_by_profile.items()
+                f"{p}={_CONSOLE_MISSING_MARKER if val == MISSING_MARKER else val}"
+                for p, val in view.cells_by_profile.items()
             )
             lines.append(
                 f"    - [{view.object_kind}] {view.finding_type}{detail_str}: {profile_summary}"

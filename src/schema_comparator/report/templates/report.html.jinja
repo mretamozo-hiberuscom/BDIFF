@@ -36,7 +36,7 @@
       <p class="no-drift">No se detectaron diferencias entre los perfiles comparados.</p>
     {% else %}
       {% for group in groups %}
-        <h2>{{ group.schema_name }}.{{ group.table_name }}</h2>
+        <h2>{{ group.label }}</h2>
         <table>
           <thead>
             <tr>

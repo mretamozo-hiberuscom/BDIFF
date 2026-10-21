@@ -47,6 +47,8 @@ class OracleProvider:
                     with conn.cursor() as cursor:
                         cursor.execute(introspector.ORACLE_CATALOG_QUERY_SQL)
                         rows = cursor.fetchall()
+                        cursor.execute(introspector.ORACLE_CURRENT_SCHEMA_SQL)
+                        (current_schema,) = cursor.fetchone()
                 except Exception as exc:
                     raise translate_query_error(profile.name, exc) from exc
         except DiscoveryError:
@@ -54,4 +56,6 @@ class OracleProvider:
         except Exception as exc:
             raise translate_connect_error(profile.name, exc) from exc
 
-        return introspector.build_snapshot(profile.name, rows)
+        return introspector.build_snapshot(
+            profile.name, rows, default_schema=current_schema
+        )

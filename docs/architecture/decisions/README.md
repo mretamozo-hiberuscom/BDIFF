@@ -1,38 +1,38 @@
 # Architecture Decision Records
 
-This project uses lightweight ADRs for decisions that need durable
-rationale beyond what fits in `docs/architecture/technical-baseline.md`.
+Decisiones estructurales de BDIFF. Una ADR aceptada no se reescribe: se
+amplía o sustituye con otra. Las divergencias entre una ADR y el código
+están en `docs/architecture/component-map.yaml`.
 
-For the foundation phase, all initial technical decisions (driver, auth,
-discovery method, report format, dependency manager) were resolved
-directly in `technical-baseline.md`'s Decisions table, since they were
-made together as a single coherent baseline with clear rationale and did
-not warrant separate ADR files yet.
+| Id | Decisión | Estado |
+|---|---|---|
+| [0001](0001-hexagonal-architecture-and-dependency-rules.md) | Arquitectura hexagonal ligera y regla de dependencias | accepted |
+| [0002](0002-internal-provider-registry.md) | Registro interno de proveedores con carga diferida | accepted |
+| [0003](0003-canonical-type-system-and-comparison-modes.md) | Sistema de tipos canónico y modos `native-strict` / `semantic` | accepted |
+| [0004](0004-configuration-v2-and-backwards-compatibility.md) | Configuración v2 (`profiles:`) y retrocompatibilidad | accepted |
+| [0005](0005-decoupled-write-only-script-generation.md) | Generación de scripts sin ejecución automática | accepted, ampliada por 0006 |
+| [0006](0006-mantenimiento-de-metadatos-con-confirmacion.md) | Mantenimiento de metadatos con confirmación explícita | accepted |
+| [0007](0007-identidad-normalizada-de-objetos.md) | Identidad normalizada de objetos entre bases | accepted |
 
-## When to add an ADR here
+Las decisiones tecnológicas (drivers, librerías) viven en el registro
+tecnológico de `docs/architecture/technical-baseline.md`; las decisiones de
+desarrollo de un cambio, en `idd/<cambio>/change.md`.
 
-Add a new `NNNN-title.md` file in this directory when a future decision:
+## Plantilla para nuevas ADR
 
-- Reverses or significantly changes a baseline decision (e.g. switching
-  from pyodbc to another driver, or adding DDL-export discovery as a
-  first-class mode).
-- Involves a non-obvious tradeoff worth preserving for future readers
-  (e.g. choosing a specific rename-detection heuristic algorithm).
-- Is made during `sdd-design` for a specific change and should outlive
-  that change's folder once archived.
-
-## Format
+`NNNN-<titulo-kebab>.md`, numeradas en orden:
 
 ```markdown
-# NNNN. Title
+# NNNN. <Título>
 
-Status: proposed | accepted | superseded by NNNN
-Date: YYYY-MM-DD
+- Status: proposed | accepted | superseded by NNNN
+- Date: YYYY-MM-DD
+- Evidence: path:line
 
-## Context
+## Context and drivers
+## Options considered
 ## Decision
 ## Consequences
+## Fitness function
+## Review trigger
 ```
-
-No ADRs exist yet — this is the first entry point, created empty during
-`sdd-foundation`.

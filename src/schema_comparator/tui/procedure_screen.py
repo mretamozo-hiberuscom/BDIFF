@@ -10,16 +10,23 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, DataTable, Footer, Header, Label, Static
 
-from schema_comparator.compare.consolidation import sanitize_profile_filename
+from schema_comparator.compare.consolidation import assign_script_filenames
 from schema_comparator.config.models import ConnectionProfile
-from schema_comparator.infrastructure.providers.sqlserver import connection
+from schema_comparator.infrastructure.providers.sqlserver.ddl_renderer import (
+    extract_database_name,
+)
+from schema_comparator.infrastructure.providers.sqlserver.routine_runner import (
+    run_routines,
+)
+from schema_comparator.infrastructure.providers.sqlserver.repair_script import (
+    CONNECTION_FAILURE_ROUTINE,
+    render_repair_scripts,
+)
 from schema_comparator.infrastructure.providers.sqlserver.sp_validator import (
     ModuleRefreshResult,
-    RoutineIdentity,
     RoutineValidationResult,
     RoutineValidationStatus,
     SignatureStatus,
-    enumerate_routines,
     refresh_modules_mutating,
     validate_routines_read_only,
 )
@@ -142,6 +149,9 @@ class ProcedureVerificationScreen(Screen):
         self._exclude_patterns = [p.lower() for p in (exclude_patterns or [])]
         self._validation_results: dict[str, tuple[RoutineValidationResult, ...]] = {}
         self._refresh_results: dict[str, tuple[ModuleRefreshResult, ...]] = {}
+        # One validation or refresh at a time: results of a mutating refresh
+        # must never be overwritten by a validation started meanwhile.
+        self._busy = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -173,51 +183,58 @@ class ProcedureVerificationScreen(Screen):
         table.cursor_type = "row"
         self.action_validate_read_only()
 
-    def action_validate_read_only(self) -> None:
-        """Run read-only dependency validation across profiles without mutating DB."""
+    def _set_status(self, markup: str) -> None:
         status_labels = self.query("#sp-status")
         if status_labels:
-            status_labels.first().update(
-                "🔍 Ejecutando validación de dependencias (solo lectura)..."
-            )
-        self.run_worker(self._do_validate_read_only, exclusive=True, thread=True)
+            status_labels.first().update(markup)
 
-    def _do_validate_read_only(
-        self,
-    ) -> tuple[dict[str, tuple[RoutineValidationResult, ...]], int]:
+    def _refuse_if_busy(self) -> bool:
+        if self._busy:
+            self._set_status(
+                "[bold yellow]⏳ Hay una operación en curso; espera a que termine.[/bold yellow]"
+            )
+        return self._busy
+
+    def _start(self, work, status: str) -> None:
+        if self._refuse_if_busy():
+            return
+        self._busy = True
+        self._set_status(status)
+        self.run_worker(work, exclusive=True, thread=True)
+
+    def action_validate_read_only(self) -> None:
+        """Run read-only dependency validation across profiles without mutating DB."""
+        self._start(
+            self._do_validate_read_only,
+            "🔍 Ejecutando validación de dependencias (solo lectura)...",
+        )
+
+    def _do_validate_read_only(self) -> None:
         results_map: dict[str, tuple[RoutineValidationResult, ...]] = {}
-        total_count = 0
-        for profile in self._profiles:
-            provider_name = str(getattr(profile, "provider", "sqlserver")).lower()
-            if provider_name == "sqlserver":
-                try:
-                    with connection.connect(profile) as conn:
-                        targets = enumerate_routines(conn)
-                        if self._exclude_patterns:
-                            targets = tuple(
-                                t
-                                for t in targets
-                                if not any(
-                                    pat in t.object_name.lower()
-                                    for pat in self._exclude_patterns
-                                )
-                            )
-                        total_count += len(targets)
-                        res = validate_routines_read_only(conn, targets)
-                        results_map[profile.name] = res
-                except Exception as exc:
-                    dummy = RoutineIdentity(schema_name="SYSTEM", object_name="CONNECT")
-                    results_map[profile.name] = (
-                        RoutineValidationResult(
-                            routine=dummy,
-                            status=RoutineValidationStatus.UNVERIFIABLE,
-                            signature_status=SignatureStatus.UNKNOWN,
-                            error_message=f"Error de conexión: {exc}",
-                        ),
-                    )
-        self._validation_results = results_map
-        self.app.call_from_thread(self._update_table_view_validation)
-        return results_map, total_count
+        runs = run_routines(
+            self._profiles, self._exclude_patterns, validate_routines_read_only
+        )
+        for profile_name, run in runs.items():
+            results_map[profile_name] = (
+                run.results
+                if run.error is None
+                else (
+                    RoutineValidationResult(
+                        routine=CONNECTION_FAILURE_ROUTINE,
+                        status=RoutineValidationStatus.UNVERIFIABLE,
+                        signature_status=SignatureStatus.UNKNOWN,
+                        error_message=f"Error de conexión: {run.error}",
+                    ),
+                )
+            )
+        self.app.call_from_thread(self._apply_validation, results_map)
+
+    def _apply_validation(
+        self, results: dict[str, tuple[RoutineValidationResult, ...]]
+    ) -> None:
+        self._validation_results = results
+        self._busy = False
+        self._update_table_view_validation()
 
     def _update_table_view_validation(self) -> None:
         tables = self.query(DataTable)
@@ -264,6 +281,8 @@ class ProcedureVerificationScreen(Screen):
 
     def action_request_module_refresh(self) -> None:
         """Prompt confirmation modal before executing mutating sp_refreshsqlmodule."""
+        if self._refuse_if_busy():
+            return
         total_targets = sum(len(res) for res in self._validation_results.values())
         if total_targets == 0:
             status_labels = self.query("#sp-status")
@@ -280,43 +299,36 @@ class ProcedureVerificationScreen(Screen):
         self.app.push_screen(ConfirmRefreshModal(total_targets), _on_modal_result)
 
     def _execute_module_refresh(self) -> None:
-        status_labels = self.query("#sp-status")
-        if status_labels:
-            status_labels.first().update(
-                "🔄 Recompilando metadatos en bases de datos con confirmación..."
-            )
-        self.run_worker(self._do_refresh_modules, exclusive=True, thread=True)
+        self._start(
+            self._do_refresh_modules,
+            "🔄 Recompilando metadatos en bases de datos con confirmación...",
+        )
 
     def _do_refresh_modules(self) -> None:
         results_map: dict[str, tuple[ModuleRefreshResult, ...]] = {}
-        for profile in self._profiles:
-            provider_name = str(getattr(profile, "provider", "sqlserver")).lower()
-            if provider_name == "sqlserver":
-                try:
-                    with connection.connect(profile) as conn:
-                        targets = enumerate_routines(conn)
-                        if self._exclude_patterns:
-                            targets = tuple(
-                                t
-                                for t in targets
-                                if not any(
-                                    pat in t.object_name.lower()
-                                    for pat in self._exclude_patterns
-                                )
-                            )
-                        res = refresh_modules_mutating(conn, targets)
-                        results_map[profile.name] = res
-                except Exception as exc:
-                    dummy = RoutineIdentity(schema_name="SYSTEM", object_name="CONNECT")
-                    results_map[profile.name] = (
-                        ModuleRefreshResult.failure(
-                            dummy,
-                            error_message=f"Error de conexión: {exc}",
-                            signature_status=SignatureStatus.UNKNOWN,
-                        ),
-                    )
-        self._refresh_results = results_map
-        self.app.call_from_thread(self._update_table_view_refresh)
+        runs = run_routines(
+            self._profiles, self._exclude_patterns, refresh_modules_mutating
+        )
+        for profile_name, run in runs.items():
+            results_map[profile_name] = (
+                run.results
+                if run.error is None
+                else (
+                    ModuleRefreshResult.failure(
+                        CONNECTION_FAILURE_ROUTINE,
+                        error_message=f"Error de conexión: {run.error}",
+                        signature_status=SignatureStatus.UNKNOWN,
+                    ),
+                )
+            )
+        self.app.call_from_thread(self._apply_refresh, results_map)
+
+    def _apply_refresh(
+        self, results: dict[str, tuple[ModuleRefreshResult, ...]]
+    ) -> None:
+        self._refresh_results = results
+        self._busy = False
+        self._update_table_view_refresh()
 
     def _update_table_view_refresh(self) -> None:
         tables = self.query(DataTable)
@@ -359,6 +371,8 @@ class ProcedureVerificationScreen(Screen):
 
     def action_generate_script(self) -> None:
         """Generate repair T-SQL scripts in scripts-db/<folder>/repair_sps/ separated per database profile."""
+        if self._refuse_if_busy():
+            return
         status_labels = self.query("#sp-status")
 
         if not self._validation_results and not self._refresh_results:
@@ -375,143 +389,28 @@ class ProcedureVerificationScreen(Screen):
         repair_dir.mkdir(parents=True, exist_ok=True)
 
         source_map = self._refresh_results or self._validation_results
-        master_lines = [
-            "-- ============================================================================",
-            "-- Script Maestro de Reparación y Recompilación de Procedimientos Almacenados y Vistas",
-            f"-- Generado el {ts.strftime('%Y-%m-%d %H:%M:%S')}",
-            "-- NOTA: Excluye automáticamente objetos con firma digital criptográfica.",
-            "-- NOTA: Cada perfil de base de datos dispone de su propio archivo en la carpeta 'repair_sps/'.",
-            "-- ============================================================================",
-            "",
-            "SET NOCOUNT ON;",
-            "GO",
-            "",
-        ]
+        databases = {
+            p.name: extract_database_name(p.connection_string) for p in self._profiles
+        }
+        scripts = render_repair_scripts(source_map, databases, ts)
+        script_filenames = assign_script_filenames(list(scripts.per_profile))
 
         written_profile_files: list[str] = []
-
-        for profile_name, res_list in sorted(source_map.items()):
-            safe_filename = sanitize_profile_filename(profile_name) + ".sql"
-            prof_file_path = repair_dir / safe_filename
-
-            prof_lines = [
-                "-- ============================================================================",
-                f"-- Script de Recompilación de Rutinas - Perfil / Base de Datos: {profile_name}",
-                f"-- Generado el {ts.strftime('%Y-%m-%d %H:%M:%S')}",
-                "-- NOTA: Excluye automáticamente objetos con firma digital criptográfica.",
-                "-- ============================================================================",
-                "",
-                "SET NOCOUNT ON;",
-                "GO",
-                "",
-                "IF OBJECT_ID('tempdb..#RefreshSummary') IS NOT NULL DROP TABLE #RefreshSummary;",
-                "CREATE TABLE #RefreshSummary (",
-                "    Esquema NVARCHAR(128),",
-                "    Objeto NVARCHAR(128),",
-                "    Estado NVARCHAR(20),",
-                "    ErrorDetalle NVARCHAR(MAX)",
-                ");",
-                "GO",
-                "",
-                "PRINT '============================================================================';",
-                f"PRINT '  INICIANDO RECOMPILACIÓN DE RUTINAS EN PERFIL: {profile_name}';",
-                "PRINT '============================================================================';",
-                "GO",
-                "",
-            ]
-
-            master_lines.append(
-                "-- ============================================================================"
-            )
-            master_lines.append(f"-- Perfil / Base de Datos: {profile_name}")
-            master_lines.append(
-                "-- ============================================================================"
-            )
-            master_lines.append(
-                "PRINT '============================================================================';"
-            )
-            master_lines.append(
-                f"PRINT '  INICIANDO RECOMPILACIÓN DE RUTINAS EN PERFIL: {profile_name}';"
-            )
-            master_lines.append(
-                "PRINT '============================================================================';"
-            )
-            master_lines.append("GO")
-            master_lines.append("")
-
-            proc_idx = 0
-            for r in res_list:
-                routine = getattr(r, "routine", None)
-                if (
-                    not routine
-                    or routine.schema_name == "SYSTEM"
-                    or routine.object_name == "CONNECT"
-                ):
-                    continue
-                if (
-                    getattr(r, "signature_status", SignatureStatus.UNSIGNED)
-                    != SignatureStatus.UNSIGNED
-                ):
-                    comment_line = f"-- OMITIDO (Firmado): [{routine.schema_name}].[{routine.object_name}]"
-                    prof_lines.append(comment_line)
-                    master_lines.append(comment_line)
-                    continue
-
-                proc_idx += 1
-                safe_sch = routine.schema_name.replace("'", "''")
-                safe_obj = routine.object_name.replace("'", "''")
-                qname = f"[{safe_sch}].[{safe_obj}]"
-                var_err = f"@err_{proc_idx}"
-
-                tsql_block = [
-                    f"PRINT 'Recompilando {qname}...';",
-                    "BEGIN TRY",
-                    f"    EXEC sys.sp_refreshsqlmodule @name = N'{qname}';",
-                    f"    INSERT INTO #RefreshSummary VALUES (N'{safe_sch}', N'{safe_obj}', N'[OK]', NULL);",
-                    "    PRINT '  -> [OK] Recompilado correctamente.';",
-                    "END TRY",
-                    "BEGIN CATCH",
-                    f"    DECLARE {var_err} NVARCHAR(MAX) = ERROR_MESSAGE() + N' (Error ' + CAST(ERROR_NUMBER() AS NVARCHAR) + N')';",
-                    f"    INSERT INTO #RefreshSummary VALUES (N'{safe_sch}', N'{safe_obj}', N'[ERROR]', {var_err});",
-                    f"    PRINT '  -> [ERROR] en {qname}: ' + {var_err};",
-                    "END CATCH;",
-                    "GO",
-                    "",
-                ]
-                prof_lines.extend(tsql_block)
-                master_lines.extend(tsql_block)
-
-            summary_grid_block = [
-                "PRINT '============================================================================';",
-                f"PRINT '  RESUMEN FINAL DE RECOMPILACIÓN PARA PERFIL: {profile_name}';",
-                "PRINT '============================================================================';",
-                "SELECT ",
-                "    Esquema AS [Esquema],",
-                "    Objeto AS [Rutina / Objeto],",
-                "    Estado AS [Resultado],",
-                "    ISNULL(ErrorDetalle, '-') AS [Mensaje de Error / Diagnostico]",
-                "FROM #RefreshSummary",
-                "ORDER BY CASE WHEN Estado = '[ERROR]' THEN 0 ELSE 1 END, Esquema, Objeto;",
-                "DROP TABLE #RefreshSummary;",
-                "GO",
-                "",
-            ]
-            prof_lines.extend(summary_grid_block)
-            master_lines.extend(summary_grid_block)
-
+        for profile_name, content in scripts.per_profile.items():
+            safe_filename = script_filenames[profile_name] + ".sql"
             try:
-                prof_file_path.write_text("\n".join(prof_lines), encoding="utf-8")
+                (repair_dir / safe_filename).write_text(content, encoding="utf-8")
                 written_profile_files.append(safe_filename)
             except Exception as exc:
                 if status_labels:
                     status_labels.first().update(
-                        f"[bold red]❌ Error al escribir el script para {profile_name}: {exc}[/bold red]"
+                        f"[bold red]❌ Error al escribir el script para {escape(profile_name)}: {escape(str(exc))}[/bold red]"
                     )
                 return
 
         master_script_path = output_dir / "repair_sps.sql"
         try:
-            master_script_path.write_text("\n".join(master_lines), encoding="utf-8")
+            master_script_path.write_text(scripts.master, encoding="utf-8")
             if status_labels:
                 status_labels.first().update(
                     f"✅ Scripts generados en: scripts-db/{folder_name}/repair_sps/ ({len(written_profile_files)} archivo(s) por BD + repair_sps.sql)"
@@ -519,7 +418,7 @@ class ProcedureVerificationScreen(Screen):
         except Exception as exc:
             if status_labels:
                 status_labels.first().update(
-                    f"[bold red]❌ Error al escribir el script maestro de reparación: {exc}[/bold red]"
+                    f"[bold red]❌ Error al escribir el script maestro de reparación: {escape(str(exc))}[/bold red]"
                 )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

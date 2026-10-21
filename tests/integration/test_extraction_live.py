@@ -9,7 +9,9 @@ import os
 import pytest
 
 from schema_comparator.config.models import ConnectionProfile
-from schema_comparator.discovery.service import extract_schema
+from schema_comparator.infrastructure.providers.sqlserver.provider import (
+    SqlServerProvider,
+)
 
 _TEST_DSN = os.environ.get("SCHEMA_COMPARATOR_TEST_DSN")
 
@@ -21,6 +23,6 @@ _TEST_DSN = os.environ.get("SCHEMA_COMPARATOR_TEST_DSN")
 def test_extract_schema_against_live_database() -> None:
     profile = ConnectionProfile(name="integration-test", connection_string=_TEST_DSN)
 
-    snapshot = extract_schema(profile)
+    snapshot = SqlServerProvider().introspect(profile)
 
     assert snapshot.profile_name == "integration-test"

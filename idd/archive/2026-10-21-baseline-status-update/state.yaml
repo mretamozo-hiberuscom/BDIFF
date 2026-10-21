@@ -1,0 +1,83 @@
+{
+  "schema": "idd-state/v1",
+  "change": "baseline-status-update",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "docs",
+    "summary": "Tras la tanda de endurecimiento, el roadmap, el alcance funcional, el baseline técnico y el component-map aún describen como pendientes o rotos puntos ya resueltos, y el CHANGELOG no los recoge",
+    "acceptance": "roadmap, functional-scope, technical-baseline y component-map reflejan el estado tras los 18 cambios; CHANGELOG tiene una sección [Unreleased] con los cambios; el bug de destinos de ColumnMismatch queda en el roadmap"
+  },
+  "facts": {
+    "basis": "Cambios cerrados y archivados en idd/archive/2026-10-21-*; la versión y la fecha de release las decide el usuario, por eso [Unreleased]"
+  },
+  "plan": {
+    "paths": [
+      "CHANGELOG.md",
+      "docs/architecture/component-map.yaml",
+      "docs/architecture/technical-baseline.md",
+      "docs/product/functional-scope.md",
+      "docs/roadmap.md"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T11:35:46.878Z",
+      "detail": {
+        "tree": "sha256:9781832ab0818775aa06829a3187c9c771f9fa1c4e1f4fe309f560d9e2138678",
+        "runs": [
+          "run-1",
+          "run-2"
+        ]
+      }
+    }
+  ],
+  "base": "e5bffc5ec9ff02843349d4b2a61d6632d8c0d035",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:97e14ed7c2d889509f10a6fbb5c61a5405091770c2a455e3051fac4873e38750",
+      "tree": "sha256:9781832ab0818775aa06829a3187c9c771f9fa1c4e1f4fe309f560d9e2138678",
+      "recorded_at": "2026-10-21T11:35:46.878Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:07a2e0ea53bd64f2c30282526992c95b6439032dad341b1a40acfe1885062656",
+      "tree": "sha256:9781832ab0818775aa06829a3187c9c771f9fa1c4e1f4fe309f560d9e2138678",
+      "recorded_at": "2026-10-21T11:35:46.878Z"
+    }
+  ],
+  "closed_at": "2026-10-21T11:35:51.278Z"
+}

@@ -1,14 +1,17 @@
 schema: spec-driven
 
 context: |
-  Project: schema-drift comparator for SQL Server microservices (dominio seguros).
-  Tech stack: Python (local CLI), execution is local-only, no server component.
-  Purpose: compare SQL Server schemas across several microservices that share
-  data structure, detect drift (missing tables/columns, mismatched
-  types/sizes, renamed fields) and generate diff reports.
-  Architecture: not yet defined — greenfield project, no code exists yet.
-  Testing: not yet defined — no test runner detected (empty project).
-  Style: not yet defined — to be established during sdd-foundation.
+  Project: BDIFF, schema-drift comparator for microservice databases (dominio seguros).
+  Tech stack: Python 3.11+ local CLI with optional Textual TUI; Windows is the
+  primary platform, Linux supported. No server component.
+  Purpose: compare N database schemas (SQL Server primary; PostgreSQL, MySQL,
+  MariaDB, Oracle, SQLite) against the union of their objects, detect drift and
+  generate console/HTML/PDF/Excel reports plus T-SQL consolidation scripts.
+  Architecture: lightweight hexagonal (ADR 0001) with an internal provider
+  registry (ADR 0002). Baseline: docs/architecture/technical-baseline.md.
+  Testing: pytest (tests/unit, tests/integration); ruff for lint and format.
+  Workflow: IDD by default (idd/config.yaml); openspec/specs are stale since
+  2026-10-21 (see docs/architecture/component-map.yaml divergences).
 
 scale: team
 
@@ -22,12 +25,12 @@ project:
     languages: [python]
     frameworks: []
     package_managers: [pip, venv]
-    architecture: "modular monolith CLI (config -> connectors -> discovery -> compare -> report)"
+    architecture: "lightweight hexagonal CLI (presentation -> application -> domain; infrastructure providers)"
   commands:
-    install: ["python -m venv .venv", "pip install -e ."]
+    install: ["python -m venv .venv", "pip install -e .[dev,all]"]
     build: []
-    test: ["pytest"]
-    lint: []
+    test: ["python -m pytest -q"]
+    lint: ["python -m ruff check .", "python -m ruff format --check ."]
     format: []
     typecheck: []
 
@@ -38,10 +41,13 @@ foundation:
   technical_baseline: docs/architecture/technical-baseline.md
   decisions: docs/architecture/decisions/README.md
   roadmap: docs/roadmap.md
+  knowledge_map: docs/architecture/knowledge-map.yaml
+  component_map: docs/architecture/component-map.yaml
   references_raw: docs/references/raw/README.md
   references_processed: docs/references/processed/README.md
   open_questions:
-    - "Approx. number of microservice databases to compare is unknown; assumed 3-20 for v1 design (see docs/architecture/technical-baseline.md decision #5). Revisit if real count is much larger."
+    - "Approx. number of databases per run is still an unvalidated assumption (3-20). Revisit before parallelizing extraction."
+    - "No numeric success measures agreed (see docs/architecture/knowledge-map.yaml business.goals)."
 
 capabilities:
   - name: python
@@ -53,7 +59,7 @@ testing:
   strict_tdd_mode: disabled
   detected: 2026-07-21
   test_runner:
-    command: ".venv\\Scripts\\pytest.exe"
+    command: "python -m pytest -q"
     framework: "pytest"
   test_layers:
     unit: true
@@ -61,32 +67,25 @@ testing:
     e2e: false
   coverage:
     available: true
-    command: ".venv\\Scripts\\pytest.exe --cov=src"
+    command: "python -m pytest -q --cov=src"
   quality_tools:
     linter:
-      available: false
-      command: ""
+      available: true
+      command: "python -m ruff check ."
     type_checker:
       available: false
       command: ""
     formatter:
-      available: false
-      command: ""
+      available: true
+      command: "python -m ruff format --check ."
   notes: >
-    Testing fully configured with pytest and pytest-cov. All 350 unit and integration tests passing.
+    pytest + pytest-cov; 406 tests passing on 2026-10-21. On Linux the SQL Server
+    tests need the system ODBC manager (unixodbc).
 
 rules:
   foundation:
-    - Ask one blocking question at a time
-    - Do not generate application code before scaffold/project setup is approved
-    - >-
-      RESOLVED: SQL Server connectivity approach decided as pyodbc (direct),
-      supporting both SQL auth and Windows integrated auth per connection
-      profile. See docs/architecture/technical-baseline.md decisions #1-#2.
-    - >-
-      RESOLVED: schema discovery method decided as live DB connection
-      (INFORMATION_SCHEMA / sys.* catalog views) for v1; DDL-export mode
-      deferred. See docs/architecture/technical-baseline.md decision #3.
+    - Ask at most four questions per round, each with a recommended answer
+    - Record divergences between docs and code in docs/architecture/component-map.yaml
   proposal:
     - Include rollback plan for risky changes
   specs:
@@ -99,11 +98,12 @@ rules:
     - Group by phase, use hierarchical numbering
     - Keep tasks completable in one session
   apply:
-    - Follow existing code patterns
-    tdd: false           # Set to true to enable RED-GREEN-REFACTOR once a test runner is set up
-    test_command: ""
+    patterns:
+      - Follow existing code patterns
+    tdd: false
+    test_command: "python -m pytest -q"
   verify:
-    test_command: ""
+    test_command: "python -m pytest -q"
     build_command: ""
     coverage_threshold: 0
   archive:

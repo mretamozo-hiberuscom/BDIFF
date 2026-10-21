@@ -1,86 +1,94 @@
-# Product Brief — SQL Server Schema Comparator
+# Product Brief — BDIFF (schema-comparator)
 
-## Decision
+> Baseline brownfield revisado el 2026-10-21 contra el código v1.2.5. El
+> brief original (2026-07, solo SQL Server) queda resumido al final en
+> "Cambios respecto al brief original".
 
-Build a local-only Python **TUI** (terminal UI) tool that lets developers
-save and manage SQL Server connection strings, browse the saved connections
-by database name, check which ones to include in a run, then extracts
-schema metadata (tables and columns as the priority; PK/FK/indexes as
-best-effort), compares the checked N databases against each other, and
-generates human-readable drift reports so developers can quickly answer
-"which database differs from the rest, and where?"
+## Decisión
 
-## Problem
+BDIFF es una herramienta local en Python, **pensada sobre todo para
+Windows**, que extrae el esquema de N bases de datos (2 o más), las compara
+todas contra la unión de sus objetos y responde rápido a "¿qué base difiere
+del resto y dónde?". Produce reportes legibles (consola, HTML, PDF, Excel)
+y, para SQL Server, scripts T-SQL de consolidación y de reparación de
+rutinas que una persona revisa y ejecuta por su cuenta.
 
-The team runs several microservices, each with its own SQL Server database,
-in the insurance domain. The databases are supposed to share overlapping
-data structures (many tables/columns represent the same business concepts),
-but because several developers evolve each database independently, drift
-accumulates silently:
+## Problema
 
-- A column exists in one service's database but not in another's.
-- A table is missing entirely in one database.
-- The same concept is named differently across databases (e.g. `client_id`
-  vs `customer_id`) and nobody notices they are "the same field."
-- The same column name exists everywhere but with different data type,
-  size/precision/scale, or nullability.
+Varios microservicios del dominio seguros tienen cada uno su base de datos
+y deberían compartir estructura (tablas y columnas que representan los
+mismos conceptos). Como cada base evoluciona por separado, la deriva se
+acumula sin que nadie la vea:
 
-There is currently no tooling to detect this drift. It is discovered
-reactively, usually when something breaks in integration or a migration.
+- Una columna o tabla existe en una base y falta en otra.
+- La misma columna tiene distinto tipo, tamaño, precisión o nulabilidad.
+- Procedimientos almacenados difieren o tienen dependencias rotas.
 
-## Who
+Hoy se descubre tarde, cuando algo falla en integración o en una migración.
 
-- **Primary user**: the requesting developer/team lead, running the tool
-  locally against local or dev-environment SQL Server instances.
-- **Secondary users**: other developers on the same team who read the
-  generated reports to understand where their service's schema diverges.
+## Usuarios
 
-This is an internal developer tool, not a product for the insurance
-business itself, and not a production/customer-facing system.
+| Usuario | Uso |
+|---|---|
+| Autor y responsable (desarrollador del equipo) | Ejecuta BDIFF en su máquina Windows contra bases locales o de desarrollo, mantiene y versiona la herramienta. |
+| Otros desarrolladores del equipo | Leen los reportes generados para ver dónde diverge el esquema de su servicio. |
 
-## Outcome
+Es una herramienta interna de desarrollo, no un producto para el negocio
+de seguros ni un sistema productivo.
 
-A developer opens the TUI locally, sees the list of previously saved
-database connections (added once, persisted for reuse), checks which ones
-should be part of this run (not necessarily all of them every time), runs
-the comparison from within the TUI, and gets a report that clearly shows,
-per table/column:
+## Resultado esperado
 
-- Which databases have it and which don't.
-- Likely renames (same-shape column present under a different name).
-- Type/size/nullability mismatches for columns that exist in more than one
-  database under the same name.
-- A quick way to see "which database is the outlier" across the whole set.
+El desarrollador ejecuta `python run.py --config config.local.yaml` (o con
+`--tui`) y obtiene, por tabla y columna:
 
-## Explicit Non-Goals (v1)
+- En qué bases existe cada objeto y en cuáles falta.
+- Discrepancias de tipo, tamaño/precisión/escala, nulabilidad, default,
+  identity y collation para columnas presentes en más de una base.
+- Diferencias de procedimientos almacenados (SQL Server).
+- Una forma rápida de ver qué base es la atípica.
 
-- Not a schema migration tool — it does not write/alter any database.
-- Not a continuously running service — single local execution, on demand
-  (the TUI runs interactively in a terminal session, not as a background
-  process).
-- No web UI/server component in the initial scope — terminal-only.
-- No automatic reconciliation/merge of schemas — humans decide what to do
-  with the reported drift.
-- Not focused on data-level comparison (row counts, data content) — schema
-  (structure) only.
+## Objetivos
 
-## Constraints (known)
+| Id | Objetivo |
+|---|---|
+| G1 | Detectar la deriva estructural entre bases del mismo motor sin falsos positivos. |
+| G2 | Funcionar sin fricción en Windows: instalación con un Python del sistema, drivers ODBC 17/18, salida legible en consola. |
+| G3 | Nunca alterar la estructura ni los datos de una base comparada (ver ADR 0005 y 0006). |
+| G4 | Soportar varios motores (SQL Server, PostgreSQL, MySQL, MariaDB, Oracle, SQLite) instalando solo el driver que se usa. |
 
-| Constraint | Value | Source |
+Medidas de éxito: no hay medidas numéricas acordadas; se registran como
+`unknown` en `docs/architecture/knowledge-map.yaml`.
+
+## No objetivos
+
+- No es una herramienta de migración: no ejecuta DDL contra ninguna base
+  (ADR 0005). La única escritura permitida es el mantenimiento de metadatos
+  con confirmación explícita (ADR 0006).
+- No es un servicio continuo: ejecución local bajo demanda.
+- Sin interfaz web ni componente servidor.
+- Sin reconciliación automática: las personas deciden qué hacer con la
+  deriva y ejecutan los scripts.
+- Sin comparación de datos (filas, contenido): solo estructura.
+- La gestión de conexiones (alta, edición, borrado) no está en la TUI: los
+  perfiles se editan en el YAML local.
+
+## Restricciones
+
+| Restricción | Valor | Fuente |
 |---|---|---|
-| Execution mode | Local only, on-demand interactive TUI run | User instruction |
-| Connection management | Connection strings entered once, persisted locally, reused across runs; user selects (checks) which saved connections to include per comparison run | User instruction |
-| Target DB engine | SQL Server (multiple instances/databases) | User instruction |
-| Domain | Insurance microservices sharing overlapping schema | User instruction |
-| Credentials | Must be local config, never hardcoded in source | User instruction |
-| Team size context | Multiple developers touching separate DBs independently | User instruction |
-| Approx. number of databases to compare | Unknown — assumed small-to-medium (roughly 3-20) for a local, non-distributed comparison run | Assumption, see Open Questions |
+| Plataforma principal | Windows (Linux soportado para desarrollo y CI) | Usuario, 2026-10-21 |
+| Ejecución | Local, bajo demanda, CLI con TUI opcional | Usuario (brief original) |
+| Credenciales | Solo en config local ignorada por git; nunca en código, logs ni reportes | Usuario (brief original) |
+| Motores | SQL Server (principal) + PostgreSQL, MySQL, MariaDB, Oracle, SQLite | Código: `infrastructure/providers/registry.py:100` |
+| Escritura en BD | Solo mantenimiento de metadatos confirmado | ADR 0006 |
+| Número de bases | Supuesto 3-20 por ejecución, sin validar | Brief original (supuesto) |
 
-## Open Questions
+## Cambios respecto al brief original (2026-07)
 
-None blocking at this stage — see `docs/architecture/technical-baseline.md`
-for the technical decisions taken with reasonable defaults where the user
-had no strong preference. The one soft-unknown (exact number of databases)
-is documented as an assumption above and should be validated against the
-real environment before performance-sensitive design choices (e.g.
-parallelizing extraction) are finalized.
+| El brief original decía | Hoy |
+|---|---|
+| Solo SQL Server | 6 motores registrados; SQL Server sigue siendo el principal y el único con rutinas y scripts. |
+| La TUI es la entrada y gestiona conexiones | La entrada es el CLI; `--tui` abre un navegador de hallazgos con consolidación y rutinas. Las conexiones viven en el YAML. |
+| "No escribe en ninguna base" | Escribe solo para recompilar metadatos de rutinas, con confirmación (ADR 0006). |
+| Detección de renombres (Should v1) | No implementada; queda en el roadmap. |
+| Excel en v2 | Implementado. CSV no. |
