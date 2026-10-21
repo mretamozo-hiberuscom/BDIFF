@@ -329,7 +329,10 @@ def test_generate_ddl_for_profile_column_deletion() -> None:
         in ddl_b
     )
 
-    assert "JOIN sys.schemas s ON o.schema_id = s.schema_id" in ddl_b
+    assert (
+        "INTO [bdiff_respaldo].[bdiff_bak_20260714_120000_legacy_products_obsolete_code]"
+        in ddl_b
+    )
     assert "DROP COLUMN [obsolete_code];" in ddl_b
     assert (
         "Columna [obsolete_code] eliminada con exito de [dbo].[legacy_products]."
@@ -589,3 +592,29 @@ def test_impact_report_warns_that_a_clustered_rebuild_is_slow() -> None:
     )
 
     assert "reconstruye la tabla completa" in report
+
+
+def test_impact_report_lists_the_backups_and_how_to_clean_them() -> None:
+    report = generate_impact_report(
+        [],
+        ["p"],
+        timestamp=datetime.datetime(2026, 10, 21, 12, 0, 0),
+        table_deletions=[
+            TableDeletionResolution(
+                schema_name="dbo", table_name="viejas", profiles_to_update=("p",)
+            )
+        ],
+        column_deletions=[
+            ColumnDeletionResolution(
+                schema_name="dbo",
+                table_name="stock",
+                column_name="cantidad",
+                profiles_to_update=("p",),
+            )
+        ],
+    )
+
+    assert "[bdiff_respaldo].[bdiff_bak_20261021_120000_viejas]" in report
+    assert "[bdiff_respaldo].[bdiff_bak_20261021_120000_stock_cantidad]" in report
+    assert "[bdiff_respaldo].[bdiff_diario_20261021_120000]" in report
+    assert "DROP TABLE" in report

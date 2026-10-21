@@ -67,10 +67,11 @@ def test_generate_ddl_column_deletion_cleans_fks_and_default_constraints() -> No
     assert "sys.check_constraints" in ddl
     assert "sys.sql_expression_dependencies" in ddl
     assert "ALTER TABLE [dbo].[Customers] DROP COLUMN [StatusId];" in ddl
-    assert "@col_fk_sql_1" in ddl
-    assert "@idx_sql_1" in ddl
-    assert "@chk_sql_1" in ddl
-    assert "@def_sql_1" in ddl
+    # Every dependent is collected with its drop and recreate statements,
+    # journaled for undo, and dropped before the column.
+    assert "DECLARE @deps_1 TABLE" in ddl
+    assert "INSERT [bdiff_respaldo].[bdiff_diario_" in ddl
+    assert "DECLARE bdiff_dep_drop_1 CURSOR" in ddl
 
 
 def test_generate_ddl_escapes_single_quotes_in_print_statements() -> None:

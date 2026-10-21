@@ -74,7 +74,7 @@ def _columns(server, database: str, table: str) -> dict[str, tuple[str, ...]]:
 def _tables(server, database: str) -> set[str]:
     rows = server.query(
         "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES "
-        "WHERE TABLE_TYPE = 'BASE TABLE'",
+        "WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA <> N'bdiff_respaldo'",
         database=database,
     )
     return {row[0] for row in rows}
@@ -1149,4 +1149,162 @@ def test_creates_tables_and_columns_with_every_attribute(
     )
     assert mssql_server.query("SELECT estado FROM dbo.pedidos", database=mssql_db) == [
         ("7",)
+    ]
+
+
+_BACKUP = "bdiff_respaldo"
+_TS = "20261021_120000"
+
+
+def _journal(server, database: str) -> list[str]:
+    return [
+        row[0]
+        for row in server.query(
+            f"SELECT objeto FROM {_BACKUP}.bdiff_diario_{_TS} ORDER BY seq",
+            database=database,
+        )
+    ]
+
+
+def test_backs_up_a_dropped_table_and_journals_the_foreign_keys_to_it(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.paises (id int NOT NULL PRIMARY KEY, nombre nvarchar(20));"
+        " CREATE TABLE dbo.ciudades (pais_id int NOT NULL"
+        " CONSTRAINT FK_ciudades_paises REFERENCES dbo.paises (id));"
+        " INSERT dbo.paises VALUES (34, N'España'), (33, N'Francia');",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        table_deletions=[
+            TableDeletionResolution(
+                schema_name="dbo", table_name="paises", profiles_to_update=(_PROFILE,)
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    assert mssql_server.query(
+        f"SELECT id, nombre FROM {_BACKUP}.bdiff_bak_{_TS}_paises ORDER BY id",
+        database=mssql_db,
+    ) == [("33", "Francia"), ("34", "España")]
+    assert _journal(mssql_server, mssql_db) == ["FK_ciudades_paises"]
+    assert "paises" not in _tables(mssql_server, mssql_db)
+
+
+def test_backs_up_the_key_and_values_of_a_dropped_column(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.stock (id int NOT NULL CONSTRAINT PK_stock PRIMARY KEY,"
+        " almacen int NOT NULL, cantidad int NOT NULL CONSTRAINT DF_stock_cantidad DEFAULT 0);"
+        " CREATE INDEX IX_stock_almacen_cantidad ON dbo.stock (almacen, cantidad);"
+        " INSERT dbo.stock VALUES (1, 10, 5), (2, 10, 7);",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        column_deletions=[
+            ColumnDeletionResolution(
+                schema_name="dbo",
+                table_name="stock",
+                column_name="cantidad",
+                profiles_to_update=(_PROFILE,),
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    backup = f"{_BACKUP}.bdiff_bak_{_TS}_stock_cantidad"
+    assert _columns_of(
+        mssql_server, mssql_db, _BACKUP, f"bdiff_bak_{_TS}_stock_cantidad"
+    ) == [
+        "id",
+        "cantidad",
+    ]
+    assert mssql_server.query(
+        f"SELECT id, cantidad FROM {backup} ORDER BY id", database=mssql_db
+    ) == [("1", "5"), ("2", "7")]
+    assert sorted(_journal(mssql_server, mssql_db)) == [
+        "DF_stock_cantidad",
+        "IX_stock_almacen_cantidad",
+    ]
+
+
+def test_backs_up_the_whole_table_when_a_dropped_column_has_no_key(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.log (msg varchar(20), nivel int); INSERT dbo.log VALUES ('a', 1);",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        column_deletions=[
+            ColumnDeletionResolution(
+                schema_name="dbo",
+                table_name="log",
+                column_name="nivel",
+                profiles_to_update=(_PROFILE,),
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    assert result.returncode == 0, result.stdout
+    assert "sin PK" in result.stdout
+    assert _columns_of(
+        mssql_server, mssql_db, _BACKUP, f"bdiff_bak_{_TS}_log_nivel"
+    ) == [
+        "msg",
+        "nivel",
+    ]
+
+
+def test_aborts_when_the_backup_already_exists(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.viejas (id int NOT NULL);\nGO\n"
+        f"CREATE SCHEMA {_BACKUP};\nGO\n"
+        f"CREATE TABLE {_BACKUP}.bdiff_bak_{_TS}_viejas (id int);",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        table_deletions=[
+            TableDeletionResolution(
+                schema_name="dbo", table_name="viejas", profiles_to_update=(_PROFILE,)
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    _assert_aborted(result, f"bdiff_bak_{_TS}_viejas", "ya existe")
+    assert "viejas" in _tables(mssql_server, mssql_db)
+
+
+def _columns_of(server, database: str, schema: str, table: str) -> list[str]:
+    return [
+        row[0]
+        for row in server.query(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS"
+            f" WHERE TABLE_SCHEMA = N'{schema}' AND TABLE_NAME = N'{table}'"
+            " ORDER BY ORDINAL_POSITION",
+            database=database,
+        )
     ]

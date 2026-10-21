@@ -82,8 +82,9 @@ validación, `2` error o uso incorrecto (p. ej. `--refresh-modules` sin
   `impact_report.md` (solo SQL Server). Cada script aplica todos sus cambios
   en una transacción: comprueba antes que cada objeto sigue como se comparó y
   que no se pierden datos, recrea índices y restricciones afectados y, ante
-  cualquier error, lo deshace todo. Ejecútalo con `sqlcmd -b -i <archivo>.sql`
-  o completo desde SSMS.
+  cualquier error, lo deshace todo. Antes de cada eliminación copia los datos
+  al esquema `bdiff_respaldo`, que BDIFF nunca borra. Ejecútalo con
+  `sqlcmd -b -i <archivo>.sql` o completo desde SSMS.
 
 ## Instalación manual
 

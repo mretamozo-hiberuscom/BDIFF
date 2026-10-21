@@ -1,6 +1,7 @@
 """T-SQL DDL script generator for SQL Server microservice schema consolidation."""
 
 import datetime
+import hashlib
 import re
 from dataclasses import dataclass, replace
 
@@ -231,6 +232,60 @@ def _escape_literal(literal: str) -> str:
     return literal.replace("'", "''")
 
 
+# Data copied before every DROP, and the journal of the constraints and
+# indexes the script drops with their definitions, to undo it.
+BACKUP_SCHEMA = "bdiff_respaldo"
+
+
+def _bounded(name: str) -> str:
+    """`name` within SQL Server's 128 characters, kept unique by a hash."""
+    if len(name) <= 128:
+        return name
+    digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:8]
+    return f"{name[:119]}_{digest}"
+
+
+def backup_table_name(
+    timestamp: datetime.datetime, table: str, column: str | None = None
+) -> str:
+    stamp = timestamp.strftime("%Y%m%d_%H%M%S")
+    suffix = f"_{column}" if column is not None else ""
+    return _bounded(f"bdiff_bak_{stamp}_{table}{suffix}")
+
+
+def journal_table_name(timestamp: datetime.datetime) -> str:
+    return f"bdiff_diario_{timestamp.strftime('%Y%m%d_%H%M%S')}"
+
+
+def _backup_qualified(name: str) -> str:
+    return f"[{BACKUP_SCHEMA}].[{_escape_ident(name)}]"
+
+
+def _ensure_backup_storage(journal: str) -> str:
+    """Create the backup schema and the journal when missing (each via
+    sp_executesql: CREATE SCHEMA must be alone in its batch)."""
+    create_journal = (
+        f"CREATE TABLE {journal} (seq int IDENTITY(1, 1) PRIMARY KEY, paso int NOT NULL,"
+        " objeto sysname NOT NULL, sql nvarchar(max) NOT NULL);"
+    )
+    return (
+        f"IF SCHEMA_ID(N'{BACKUP_SCHEMA}') IS NULL\n"
+        f"    EXEC sys.sp_executesql N'CREATE SCHEMA [{BACKUP_SCHEMA}];';\n"
+        f"IF OBJECT_ID(N'{_escape_literal(journal)}', N'U') IS NULL\n"
+        f"    {_dynamic(create_journal)}\n"
+    )
+
+
+def _backup_must_not_exist(label: str, backup: str) -> str:
+    return (
+        f"IF OBJECT_ID(N'{_escape_literal(backup)}', N'U') IS NOT NULL\n    "
+        + _throw(
+            50007,
+            f"{label}: ya existe el respaldo {backup}; renombralo o eliminalo antes de aplicar.",
+        )
+    )
+
+
 @dataclass(frozen=True)
 class _Position:
     """Where a step sits in the script; names its label and skip flag."""
@@ -381,112 +436,107 @@ def _create_table_step(tres, pos: _Position) -> _Step:
     )
 
 
-def _drop_table_step(tdel, pos: _Position) -> _Step:
+def _drop_table_step(tdel, pos: _Position, ts: datetime.datetime) -> _Step:
     table = _qualified(tdel.schema_name, tdel.table_name)
     table_lit = _escape_literal(table)
+    label = pos.label(f"eliminar la tabla {table}")
     exists = _table_exists(tdel.schema_name, tdel.table_name)
-    var = f"@fk_sql_{pos.number}"
+    backup = _backup_qualified(backup_table_name(ts, tdel.table_name))
+    journal = _backup_qualified(journal_table_name(ts))
+    n = pos.number
     return _Step(
-        label=pos.label(f"eliminar la tabla {table}"),
-        check=f"IF NOT ({exists})\n    SET {pos.skip} = 1;",
+        label=label,
+        check=(
+            f"IF NOT ({exists})\n    SET {pos.skip} = 1;"
+            + _data_checks([_backup_must_not_exist(label, backup)], pos.skip)
+        ),
         apply=(
-            f"DECLARE {var} NVARCHAR(MAX) = N'';\n"
-            f"SELECT {var} += N'ALTER TABLE ' + QUOTENAME(s.name) + N'.' + QUOTENAME(o.name) + N' DROP CONSTRAINT ' + QUOTENAME(fk.name) + N';' + CHAR(13)\n"
-            "FROM sys.foreign_keys fk\n"
-            "JOIN sys.objects o ON fk.parent_object_id = o.object_id\n"
-            "JOIN sys.schemas s ON o.schema_id = s.schema_id\n"
-            f"WHERE fk.referenced_object_id = OBJECT_ID(N'{table_lit}');\n"
-            f"IF {var} <> N'' EXEC sp_executesql {var};\n"
-            f"DROP TABLE {table};\n"
-            f"PRINT N'Tabla {table_lit} eliminada con exito.';"
+            _ensure_backup_storage(journal)
+            + f"{_dynamic(f'SELECT * INTO {backup} FROM {table};')}\n"
+            + f"PRINT N'Datos respaldados en {_escape_literal(backup)}.';\n"
+            # Keys of other tables pointing at it: journaled, then dropped.
+            + f"DECLARE @fk_{n} TABLE (name sysname, drop_sql nvarchar(max), create_sql nvarchar(max));\n"
+            + f"DECLARE @fk_sql_{n} nvarchar(max);\n"
+            + f"INSERT @fk_{n} (name, drop_sql, create_sql)\n"
+            + f"SELECT fk.name, {_FK_DROP_SQL},\n    {_fk_create_sql()}\n"
+            + f"FROM sys.foreign_keys fk WHERE fk.referenced_object_id = OBJECT_ID(N'{table_lit}');\n"
+            + f"INSERT {journal} (paso, objeto, sql) SELECT {n}, name, create_sql FROM @fk_{n};\n"
+            + _run_each(
+                f"bdiff_fk_drop_{n}", f"@fk_sql_{n}", f"SELECT drop_sql FROM @fk_{n}"
+            )
+            + f"\nDROP TABLE {table};\n"
+            + f"PRINT N'Tabla {table_lit} eliminada con exito.';"
         ),
         verify=f"NOT ({exists})",
     )
 
 
-def _drop_column_step(cdel, pos: _Position) -> _Step:
+def _drop_column_step(cdel, pos: _Position, ts: datetime.datetime) -> _Step:
     table = _qualified(cdel.schema_name, cdel.table_name)
     table_lit = _escape_literal(table)
     col_esc = _escape_ident(cdel.column_name)
     col_lit = _escape_literal(cdel.column_name)
+    label = pos.label(
+        f"eliminar la columna {_qualified(cdel.schema_name, cdel.table_name, cdel.column_name)}"
+    )
     exists = _column_exists(cdel.schema_name, cdel.table_name, cdel.column_name)
-    v = pos.number
+    backup = _backup_qualified(backup_table_name(ts, cdel.table_name, cdel.column_name))
+    backup_lit = _escape_literal(backup)
+    journal = _backup_qualified(journal_table_name(ts))
+    n = pos.number
+    pk_columns = _list_sql(
+        "SELECT N', ' + QUOTENAME(c.name) FROM sys.indexes i "
+        "JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id "
+        "JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id "
+        f"WHERE i.object_id = @obj_{n} AND i.is_primary_key = 1 ORDER BY ic.key_ordinal"
+    )
+    no_key = _escape_literal(
+        f"{label}: aviso: la tabla no tiene una PK sin esta columna (sin PK); se respalda"
+        " completa y al deshacer no se podran emparejar las filas."
+    )
     return _Step(
-        label=pos.label(
-            f"eliminar la columna {_qualified(cdel.schema_name, cdel.table_name, cdel.column_name)}"
+        label=label,
+        check=(
+            f"DECLARE @obj_{n} int = OBJECT_ID(N'{table_lit}');\n"
+            f"DECLARE @col_{n} int = COLUMNPROPERTY(@obj_{n}, N'{col_lit}', 'ColumnId');\n"
+            f"DECLARE @tbl_{n} nvarchar(400) = N'{table_lit}';\n"
+            f"IF NOT {exists}\n    SET {pos.skip} = 1;"
+            + _data_checks(
+                [
+                    _blockers_check(pos, label, widen_only=False),
+                    _backup_must_not_exist(label, backup),
+                ],
+                pos.skip,
+            )
         ),
-        check=f"IF NOT {exists}\n    SET {pos.skip} = 1;",
         apply=(
-            f"DECLARE @col_fk_sql_{v} NVARCHAR(MAX) = N'';\n"
-            f"SELECT @col_fk_sql_{v} += N'ALTER TABLE ' + QUOTENAME(s.name) + N'.' + QUOTENAME(o.name) + N' DROP CONSTRAINT ' + QUOTENAME(fk.name) + N';' + CHAR(13)\n"
-            "FROM (\n"
-            "    SELECT DISTINCT fk.object_id, fk.name, fk.parent_object_id\n"
-            "    FROM sys.foreign_keys fk\n"
-            "    JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id\n"
-            "    JOIN sys.columns c ON ((c.object_id = fkc.parent_object_id AND c.column_id = fkc.parent_column_id) OR (c.object_id = fkc.referenced_object_id AND c.column_id = fkc.referenced_column_id))\n"
-            f"    WHERE (fkc.parent_object_id = OBJECT_ID(N'{table_lit}') OR fkc.referenced_object_id = OBJECT_ID(N'{table_lit}'))\n"
-            f"      AND c.object_id = OBJECT_ID(N'{table_lit}')\n"
-            f"      AND c.name = N'{col_lit}'\n"
-            ") fk\n"
-            "JOIN sys.objects o ON fk.parent_object_id = o.object_id\n"
-            "JOIN sys.schemas s ON o.schema_id = s.schema_id;\n"
-            f"IF @col_fk_sql_{v} <> N'' EXEC sp_executesql @col_fk_sql_{v};\n"
-            "\n"
-            f"DECLARE @key_sql_{v} NVARCHAR(MAX) = N'';\n"
-            f"SELECT @key_sql_{v} += N'ALTER TABLE ' + QUOTENAME(s.name) + N'.' + QUOTENAME(t.name) + N' DROP CONSTRAINT ' + QUOTENAME(kc.name) + N';' + CHAR(13)\n"
-            "FROM sys.key_constraints kc\n"
-            "JOIN sys.tables t ON kc.parent_object_id = t.object_id\n"
-            "JOIN sys.schemas s ON t.schema_id = s.schema_id\n"
-            "JOIN sys.index_columns ic ON kc.parent_object_id = ic.object_id AND kc.unique_index_id = ic.index_id\n"
-            "JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id\n"
-            f"WHERE t.object_id = OBJECT_ID(N'{table_lit}')\n"
-            f"  AND c.name = N'{col_lit}';\n"
-            f"IF @key_sql_{v} <> N'' EXEC sp_executesql @key_sql_{v};\n"
-            "\n"
-            f"DECLARE @idx_sql_{v} NVARCHAR(MAX) = N'';\n"
-            f"SELECT @idx_sql_{v} += N'DROP INDEX ' + QUOTENAME(i.name) + N' ON ' + QUOTENAME(s.name) + N'.' + QUOTENAME(t.name) + N';' + CHAR(13)\n"
-            "FROM (\n"
-            "    SELECT DISTINCT i.object_id, i.name\n"
-            "    FROM sys.indexes i\n"
-            "    JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id\n"
-            "    JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id\n"
-            "    WHERE i.is_primary_key = 0 AND i.is_unique_constraint = 0 AND i.name IS NOT NULL\n"
-            f"      AND i.object_id = OBJECT_ID(N'{table_lit}')\n"
-            f"      AND c.name = N'{col_lit}'\n"
-            ") i\n"
-            "JOIN sys.tables t ON i.object_id = t.object_id\n"
-            "JOIN sys.schemas s ON t.schema_id = s.schema_id;\n"
-            f"IF @idx_sql_{v} <> N'' EXEC sp_executesql @idx_sql_{v};\n"
-            "\n"
-            f"DECLARE @chk_sql_{v} NVARCHAR(MAX) = N'';\n"
-            f"SELECT @chk_sql_{v} += N'ALTER TABLE ' + QUOTENAME(s.name) + N'.' + QUOTENAME(t.name) + N' DROP CONSTRAINT ' + QUOTENAME(cc.name) + N';' + CHAR(13)\n"
-            "FROM (\n"
-            "    SELECT DISTINCT cc.object_id, cc.name, cc.parent_object_id\n"
-            "    FROM sys.check_constraints cc\n"
-            "    LEFT JOIN sys.columns c ON cc.parent_object_id = c.object_id AND cc.parent_column_id = c.column_id\n"
-            "    LEFT JOIN sys.sql_expression_dependencies sed ON cc.object_id = sed.referencing_id AND sed.referenced_id = cc.parent_object_id\n"
-            "    LEFT JOIN sys.columns c2 ON sed.referenced_id = c2.object_id AND sed.referenced_minor_id = c2.column_id\n"
-            f"    WHERE cc.parent_object_id = OBJECT_ID(N'{table_lit}')\n"
-            f"      AND (c.name = N'{col_lit}' OR c2.name = N'{col_lit}')\n"
-            ") cc\n"
-            "JOIN sys.tables t ON cc.parent_object_id = t.object_id\n"
-            "JOIN sys.schemas s ON t.schema_id = s.schema_id;\n"
-            f"IF @chk_sql_{v} <> N'' EXEC sp_executesql @chk_sql_{v};\n"
-            "\n"
-            f"DECLARE @def_sql_{v} NVARCHAR(MAX) = N'';\n"
-            f"SELECT @def_sql_{v} += N'ALTER TABLE ' + QUOTENAME(s.name) + N'.' + QUOTENAME(t.name) + N' DROP CONSTRAINT ' + QUOTENAME(dc.name) + N';' + CHAR(13)\n"
-            "FROM sys.default_constraints dc\n"
-            "JOIN sys.tables t ON dc.parent_object_id = t.object_id\n"
-            "JOIN sys.schemas s ON t.schema_id = s.schema_id\n"
-            "JOIN sys.columns c ON dc.parent_object_id = c.object_id AND dc.parent_column_id = c.column_id\n"
-            f"WHERE t.object_id = OBJECT_ID(N'{table_lit}')\n"
-            f"  AND c.name = N'{col_lit}';\n"
-            f"IF @def_sql_{v} <> N'' EXEC sp_executesql @def_sql_{v};\n"
-            "\n"
-            f"ALTER TABLE {table} DROP COLUMN [{col_esc}];\n"
-            f"PRINT N'Columna [{_escape_literal(col_esc)}] eliminada con exito de {table_lit}.';"
+            _ensure_backup_storage(journal)
+            # The primary key and the column, so undoing can put each value
+            # back in its row; the whole table when the key is missing or
+            # includes the column.
+            + f"DECLARE @pk_{n} nvarchar(max) = CASE WHEN EXISTS (SELECT 1 FROM sys.indexes i\n"
+            + "    JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id\n"
+            + f"    WHERE i.object_id = @obj_{n} AND i.is_primary_key = 1 AND ic.column_id = @col_{n})\n"
+            + f"    THEN NULL ELSE {pk_columns} END;\n"
+            + f"DECLARE @bak_sql_{n} nvarchar(max) = N'SELECT * INTO {backup_lit} FROM ' + @tbl_{n};\n"
+            + f"IF @pk_{n} IS NULL\n"
+            + f"    PRINT N'{no_key}';\n"
+            + "ELSE\n"
+            + f"    SET @bak_sql_{n} = N'SELECT ' + @pk_{n} + N', [{_escape_literal(col_esc)}] INTO {backup_lit} FROM ' + @tbl_{n};\n"
+            + f"EXEC sys.sp_executesql @bak_sql_{n};\n"
+            + f"PRINT N'Datos respaldados en {_escape_literal(backup)}.';\n"
+            + _collect_dependents(
+                n, widen_only=False, keep_default=True, recreate_fks=False
+            )
+            + f"INSERT {journal} (paso, objeto, sql)\n"
+            + f"SELECT {n}, name, create_sql FROM @deps_{n} WHERE create_sql IS NOT NULL\n"
+            + f"UNION ALL SELECT {n}, name, create_sql FROM @bdiff_fk WHERE step = {n};\n"
+            + _drop_dependents(n, label)
+            + f"\nALTER TABLE {table} DROP COLUMN [{col_esc}];\n"
+            + f"PRINT N'Columna [{_escape_literal(col_esc)}] eliminada con exito de {table_lit}.';"
         ),
         verify=f"NOT {exists}",
+        uses_fk_table=True,
     )
 
 
@@ -768,7 +818,35 @@ def _run_each(cursor: str, var: str, select: str) -> str:
 _KIND_NONCLUSTERED, _KIND_CLUSTERED, _KIND_CONSTRAINT = 1, 2, 3
 
 
-def _collect_dependents(n: int, widen_only: bool, keep_default: bool) -> str:
+_FK_PARENT = "QUOTENAME(OBJECT_SCHEMA_NAME(fk.parent_object_id)) + N'.' + QUOTENAME(OBJECT_NAME(fk.parent_object_id))"
+_FK_DROP_SQL = (
+    f"N'ALTER TABLE ' + {_FK_PARENT} + N' DROP CONSTRAINT ' + QUOTENAME(fk.name)"
+)
+
+
+def _fk_create_sql() -> str:
+    """T-SQL expression, over `sys.foreign_keys fk`, that recreates the key
+    with its columns, actions and trusted or disabled state."""
+    referenced = (
+        "QUOTENAME(OBJECT_SCHEMA_NAME(fk.referenced_object_id)) + N'.' "
+        "+ QUOTENAME(OBJECT_NAME(fk.referenced_object_id))"
+    )
+    return (
+        f"N'ALTER TABLE ' + {_FK_PARENT}\n"
+        "    + CASE WHEN fk.is_not_trusted = 1 THEN N' WITH NOCHECK' ELSE N' WITH CHECK' END\n"
+        f"    + N' ADD CONSTRAINT ' + QUOTENAME(fk.name) + N' FOREIGN KEY (' + {_fk_columns_sql('parent')} + N')'\n"
+        f"    + N' REFERENCES ' + {referenced} + N' (' + {_fk_columns_sql('referenced')} + N')'\n"
+        "    + N' ON DELETE ' + REPLACE(fk.delete_referential_action_desc COLLATE DATABASE_DEFAULT, N'_', N' ')\n"
+        "    + N' ON UPDATE ' + REPLACE(fk.update_referential_action_desc COLLATE DATABASE_DEFAULT, N'_', N' ')\n"
+        "    + CASE WHEN fk.is_not_for_replication = 1 THEN N' NOT FOR REPLICATION' ELSE N'' END\n"
+        "    + CASE WHEN fk.is_disabled = 1\n"
+        f"        THEN N'; ALTER TABLE ' + {_FK_PARENT} + N' NOCHECK CONSTRAINT ' + QUOTENAME(fk.name) ELSE N'' END"
+    )
+
+
+def _collect_dependents(
+    n: int, widen_only: bool, keep_default: bool, recreate_fks: bool = True
+) -> str:
     """Fill `@deps_<n>` with the drop and recreate statements of the
     column's indexes, statistics, DEFAULT and CHECK, and `@bdiff_fk` with
     its foreign keys (recreated once every step has run)."""
@@ -843,21 +921,11 @@ def _collect_dependents(n: int, widen_only: bool, keep_default: bool) -> str:
         f"  AND (cc.parent_column_id = {col} OR EXISTS (SELECT 1 FROM sys.sql_expression_dependencies d\n"
         f"      WHERE d.referencing_id = cc.object_id AND d.referenced_id = {obj} AND d.referenced_minor_id = {col}));\n"
     )
-    qualified = "QUOTENAME(OBJECT_SCHEMA_NAME(fk.{0}_object_id)) + N'.' + QUOTENAME(OBJECT_NAME(fk.{0}_object_id))"
-    parent, referenced = qualified.format("parent"), qualified.format("referenced")
     fk_sql = (
-        "INSERT @bdiff_fk (fk_id, step, name, drop_sql, create_sql)\n"
-        f"SELECT fk.object_id, {n}, fk.name,\n"
-        f"    N'ALTER TABLE ' + {parent} + N' DROP CONSTRAINT ' + QUOTENAME(fk.name),\n"
-        f"    N'ALTER TABLE ' + {parent}\n"
-        "    + CASE WHEN fk.is_not_trusted = 1 THEN N' WITH NOCHECK' ELSE N' WITH CHECK' END\n"
-        f"    + N' ADD CONSTRAINT ' + QUOTENAME(fk.name) + N' FOREIGN KEY (' + {_fk_columns_sql('parent')} + N')'\n"
-        f"    + N' REFERENCES ' + {referenced} + N' (' + {_fk_columns_sql('referenced')} + N')'\n"
-        "    + N' ON DELETE ' + REPLACE(fk.delete_referential_action_desc COLLATE DATABASE_DEFAULT, N'_', N' ')\n"
-        "    + N' ON UPDATE ' + REPLACE(fk.update_referential_action_desc COLLATE DATABASE_DEFAULT, N'_', N' ')\n"
-        "    + CASE WHEN fk.is_not_for_replication = 1 THEN N' NOT FOR REPLICATION' ELSE N'' END\n"
-        "    + CASE WHEN fk.is_disabled = 1\n"
-        f"        THEN N'; ALTER TABLE ' + {parent} + N' NOCHECK CONSTRAINT ' + QUOTENAME(fk.name) ELSE N'' END\n"
+        "INSERT @bdiff_fk (fk_id, step, recreate, name, drop_sql, create_sql)\n"
+        f"SELECT fk.object_id, {n}, {1 if recreate_fks else 0}, fk.name,\n"
+        f"    {_FK_DROP_SQL},\n"
+        f"    {_fk_create_sql()}\n"
         "FROM sys.foreign_keys fk\n"
         "WHERE fk.object_id NOT IN (SELECT fk_id FROM @bdiff_fk)\n"
         f"  AND ((fk.parent_object_id = {obj} AND EXISTS (SELECT 1 FROM sys.foreign_key_columns fkc\n"
@@ -1074,7 +1142,7 @@ def _render_steps(steps: list[_Step]) -> list[str]:
     if uses_fk_table:
         lines += [
             "    -- Claves foraneas eliminadas por los pasos; se recrean al final.",
-            "    DECLARE @bdiff_fk TABLE (fk_id int PRIMARY KEY, step int NOT NULL, name sysname NOT NULL,",
+            "    DECLARE @bdiff_fk TABLE (fk_id int PRIMARY KEY, step int NOT NULL, recreate bit NOT NULL, name sysname NOT NULL,",
             "        drop_sql nvarchar(max) NOT NULL, create_sql nvarchar(max) NOT NULL);",
             "    DECLARE @bdiff_fk_sql nvarchar(max);",
         ]
@@ -1104,7 +1172,7 @@ def _render_steps(steps: list[_Step]) -> list[str]:
                 _run_each(
                     "bdiff_fk_create",
                     "@bdiff_fk_sql",
-                    "SELECT create_sql FROM @bdiff_fk ORDER BY fk_id",
+                    "SELECT create_sql FROM @bdiff_fk WHERE recreate = 1 ORDER BY fk_id",
                 ),
                 4,
             ),
@@ -1120,6 +1188,7 @@ def _render_steps(steps: list[_Step]) -> list[str]:
 
 
 def _steps_for(
+    ts: datetime.datetime,
     profile_name: str,
     resolutions: list,
     table_resolutions: list,
@@ -1133,12 +1202,12 @@ def _steps_for(
             if profile_name in t.profiles_to_update
         ]
         + [
-            lambda pos, t=t: _drop_table_step(t, pos)
+            lambda pos, t=t: _drop_table_step(t, pos, ts)
             for t in table_deletions
             if profile_name in t.profiles_to_update
         ]
         + [
-            lambda pos, c=c: _drop_column_step(c, pos)
+            lambda pos, c=c: _drop_column_step(c, pos, ts)
             for c in column_deletions
             if profile_name in c.profiles_to_update
         ]
@@ -1178,6 +1247,7 @@ def generate_ddl_for_profile(
     db_name = _escape_ident(raw_db)
     db_lit = _escape_literal(raw_db)
     steps = _steps_for(
+        ts,
         profile.name,
         resolutions or [],
         table_resolutions or [],

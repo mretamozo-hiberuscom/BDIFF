@@ -12,9 +12,12 @@ from schema_comparator.domain.comparison.models import (
 from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.domain.errors import SchemaComparatorError
 from schema_comparator.infrastructure.providers.sqlserver.ddl_renderer import (
+    BACKUP_SCHEMA,
     SQL_SCRIPT_ENCODING,
+    backup_table_name,
     extract_database_name,
     generate_ddl_for_profile,
+    journal_table_name,
 )
 
 
@@ -308,6 +311,27 @@ def generate_impact_report(
             safe_tbl = tbl.replace("'", "''").replace("]", "]]")
             lines.append(f"EXEC sp_recompile '[{safe_sch}].[{safe_tbl}]';")
         lines.append("```\n")
+
+        if prof_table_deletions or prof_col_deletions:
+            backups = [
+                backup_table_name(timestamp, t.table_name) for t in prof_table_deletions
+            ] + [
+                backup_table_name(timestamp, c.table_name, c.column_name)
+                for c in prof_col_deletions
+            ]
+            journal = journal_table_name(timestamp)
+            lines.append(f"### 5. Respaldos en el esquema `{BACKUP_SCHEMA}`")
+            lines.append(
+                "Antes de cada eliminación el script copia los datos (la PK y la columna"
+                " al eliminar una columna) y anota en el diario la definición de cada"
+                " índice y restricción que elimina. BDIFF no los borra: tras validar el"
+                " cambio, elimínelos así:"
+            )
+            lines.append("```sql")
+            for name in [*backups, journal]:
+                quoted = name.replace("]", "]]")
+                lines.append(f"DROP TABLE [{BACKUP_SCHEMA}].[{quoted}];")
+            lines.append("```\n")
         lines.append("---\n")
 
     return "\n".join(lines)
