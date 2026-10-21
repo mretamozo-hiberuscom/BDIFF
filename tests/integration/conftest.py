@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import time
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
@@ -32,9 +33,33 @@ class MssqlServer:
     def run(
         self, sql: str, *, database: str = "master", stop_on_error: bool = True
     ) -> subprocess.CompletedProcess[str]:
-        """Run `sql` as a file would run: `GO` splits batches. With
-        `stop_on_error` sqlcmd exits at the first error (`-b`); without it,
-        it keeps going like SSMS does."""
+        """Run `sql` (UTF-8, `GO` splits batches) from stdin."""
+        return self._sqlcmd(
+            ["-f", "65001", "-d", database, "-i", "/dev/stdin"],
+            stop_on_error=stop_on_error,
+            stdin=sql,
+        )
+
+    def run_file(
+        self, path: Path, *, stop_on_error: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        """Run a script file as people do: `sqlcmd -i <file>`, reading it
+        with the Windows ANSI code page (1252) unless the file has a BOM.
+        With `stop_on_error` sqlcmd exits at the first error (`-b`);
+        without it, it keeps going like SSMS does."""
+        target = f"/tmp/{secrets.token_hex(6)}.sql"
+        copied = subprocess.run(
+            ["docker", "cp", str(path), f"{self.container}:{target}"],
+            capture_output=True,
+            text=True,
+        )
+        if copied.returncode != 0:
+            raise AssertionError(f"docker cp failed: {copied.stderr}")
+        return self._sqlcmd(["-f", "1252", "-i", target], stop_on_error=stop_on_error)
+
+    def _sqlcmd(
+        self, args: list[str], *, stop_on_error: bool, stdin: str | None = None
+    ) -> subprocess.CompletedProcess[str]:
         command = [
             "docker",
             "exec",
@@ -48,18 +73,13 @@ class MssqlServer:
             "-U",
             "sa",
             "-C",
-            "-f",
-            "65001",
-            "-d",
-            database,
-            "-i",
-            "/dev/stdin",
+            *args,
         ]
         if stop_on_error:
             command.append("-b")
         return subprocess.run(
             command,
-            input=sql,
+            input=stdin,
             capture_output=True,
             text=True,
             encoding="utf-8",

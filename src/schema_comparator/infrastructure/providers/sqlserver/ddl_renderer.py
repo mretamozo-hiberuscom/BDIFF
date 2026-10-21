@@ -7,6 +7,14 @@ from dataclasses import replace
 from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.domain.comparison.models import ColumnAttributes
 
+# UTF-8 with BOM: SSMS and sqlcmd on Windows detect it without `-f 65001`
+# and do not misread accented identifiers as the ANSI code page.
+SQL_SCRIPT_ENCODING = "utf-8-sig"
+
+# A schema change waiting for a lock queues every later query on the table;
+# past this wait the script aborts and rolls back instead.
+LOCK_TIMEOUT_MS = 30000
+
 _NON_PARAMETRIC_TYPES = {
     "bit",
     "int",
@@ -134,22 +142,43 @@ def generate_ddl_for_profile(
 ) -> str:
     """Generate transactional, idempotent, enterprise-grade T-SQL scripts for a profile."""
     ts = timestamp or datetime.datetime.now()
-    raw_db = extract_database_name(profile.connection_string) or profile.name
+    raw_db = extract_database_name(profile.connection_string)
+    if not raw_db:
+        raise ValueError(f"profile {profile.name!r} names no database")
     db_name = _escape_ident(raw_db)
+    db_lit = _escape_literal(raw_db)
 
     lines = [
         f"-- Script de corrección para la base de datos del perfil: {profile.name}",
         f"-- Generado por BDIFF el {ts.strftime('%Y-%m-%d %H:%M:%S')}",
+        "--",
+        "-- Todos los cambios van en una única transacción: ante cualquier error",
+        "-- se deshacen completos y la base queda como estaba.",
+        "-- Ejecución:",
+        '--   sqlcmd -S <servidor> -E -b -i "<este archivo>.sql"',
+        "--     (-b detiene sqlcmd en el primer error y devuelve código de salida <> 0)",
+        "--   SSMS: abrir el archivo y ejecutarlo completo (F5).",
+        "-- Si la base activa no es la esperada, el script no ejecuta nada.",
         "",
         f"USE [{db_name}];",
         "GO",
         "",
+        f"IF DB_NAME() <> N'{db_lit}'",
+        "BEGIN",
+        f"    RAISERROR(N'La base activa no es %s; no se aplica ningun cambio.', 16, 1, N'{db_lit}');",
+        "    SET NOEXEC ON;",
+        "END",
+        "GO",
+        "",
+        "SET NOCOUNT ON;",
+        "SET XACT_ABORT ON;",
+        f"SET LOCK_TIMEOUT {LOCK_TIMEOUT_MS};",
         "SET NUMERIC_ROUNDABORT OFF;",
         "SET ANSI_PADDING, ANSI_WARNINGS, CONCAT_NULL_YIELDS_NULL, ARITHABORT, QUOTED_IDENTIFIER, ANSI_NULLS ON;",
         "GO",
         "",
-        "BEGIN TRANSACTION;",
         "BEGIN TRY",
+        "    BEGIN TRANSACTION;",
     ]
 
     statements_added = False
@@ -175,13 +204,13 @@ def generate_ddl_for_profile(
                 f"        SELECT 1\n"
                 f"        FROM sys.objects o\n"
                 f"        JOIN sys.schemas s ON o.schema_id = s.schema_id\n"
-                f"        WHERE s.name = '{schema_lit}' AND o.name = '{table_lit}' AND o.type = 'U'\n"
+                f"        WHERE s.name = N'{schema_lit}' AND o.name = N'{table_lit}' AND o.type = 'U'\n"
                 f"    )\n"
                 f"    BEGIN\n"
                 f"        CREATE TABLE [{schema_esc}].[{table_esc}] (\n"
                 f"{col_list}\n"
                 f"        );\n"
-                f"        PRINT 'Tabla [{schema_print}].[{table_print}] creada con exito.';\n"
+                f"        PRINT N'Tabla [{schema_print}].[{table_print}] creada con exito.';\n"
                 f"    END"
             )
             lines.append(sql)
@@ -195,6 +224,7 @@ def generate_ddl_for_profile(
             table_lit = _escape_literal(tdel.table_name)
             schema_print = _escape_literal(schema_esc)
             table_print = _escape_literal(table_esc)
+            qualified_lit = _escape_literal(f"[{schema_esc}].[{table_esc}]")
             var_suffix = f"t_{idx}"
 
             sql = (
@@ -202,7 +232,7 @@ def generate_ddl_for_profile(
                 f"        SELECT 1\n"
                 f"        FROM sys.objects o\n"
                 f"        JOIN sys.schemas s ON o.schema_id = s.schema_id\n"
-                f"        WHERE s.name = '{schema_lit}' AND o.name = '{table_lit}' AND o.type = 'U'\n"
+                f"        WHERE s.name = N'{schema_lit}' AND o.name = N'{table_lit}' AND o.type = 'U'\n"
                 f"    )\n"
                 f"    BEGIN\n"
                 f"        DECLARE @fk_sql_{var_suffix} NVARCHAR(MAX) = N'';\n"
@@ -210,10 +240,10 @@ def generate_ddl_for_profile(
                 f"        FROM sys.foreign_keys fk\n"
                 f"        JOIN sys.objects o ON fk.parent_object_id = o.object_id\n"
                 f"        JOIN sys.schemas s ON o.schema_id = s.schema_id\n"
-                f"        WHERE fk.referenced_object_id = OBJECT_ID(N'[{schema_lit}].[{table_lit}]');\n"
+                f"        WHERE fk.referenced_object_id = OBJECT_ID(N'{qualified_lit}');\n"
                 f"        IF @fk_sql_{var_suffix} <> N'' EXEC sp_executesql @fk_sql_{var_suffix};\n"
                 f"        DROP TABLE [{schema_esc}].[{table_esc}];\n"
-                f"        PRINT 'Tabla [{schema_print}].[{table_print}] eliminada con exito.';\n"
+                f"        PRINT N'Tabla [{schema_print}].[{table_print}] eliminada con exito.';\n"
                 f"    END"
             )
             lines.append(sql)
@@ -230,6 +260,7 @@ def generate_ddl_for_profile(
             schema_print = _escape_literal(schema_esc)
             table_print = _escape_literal(table_esc)
             col_print = _escape_literal(col_esc)
+            qualified_lit = _escape_literal(f"[{schema_esc}].[{table_esc}]")
             var_suffix = f"c_{idx}"
 
             sql = (
@@ -238,7 +269,7 @@ def generate_ddl_for_profile(
                 f"        FROM sys.columns c\n"
                 f"        JOIN sys.objects o ON c.object_id = o.object_id\n"
                 f"        JOIN sys.schemas s ON o.schema_id = s.schema_id\n"
-                f"        WHERE s.name = '{schema_lit}' AND o.name = '{table_lit}' AND c.name = '{col_lit}'\n"
+                f"        WHERE s.name = N'{schema_lit}' AND o.name = N'{table_lit}' AND c.name = N'{col_lit}'\n"
                 f"    )\n"
                 f"    BEGIN\n"
                 f"        DECLARE @col_fk_sql_{var_suffix} NVARCHAR(MAX) = N'';\n"
@@ -248,9 +279,9 @@ def generate_ddl_for_profile(
                 f"            FROM sys.foreign_keys fk\n"
                 f"            JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id\n"
                 f"            JOIN sys.columns c ON ((c.object_id = fkc.parent_object_id AND c.column_id = fkc.parent_column_id) OR (c.object_id = fkc.referenced_object_id AND c.column_id = fkc.referenced_column_id))\n"
-                f"            WHERE (fkc.parent_object_id = OBJECT_ID(N'[{schema_lit}].[{table_lit}]') OR fkc.referenced_object_id = OBJECT_ID(N'[{schema_lit}].[{table_lit}]'))\n"
-                f"              AND c.object_id = OBJECT_ID(N'[{schema_lit}].[{table_lit}]')\n"
-                f"              AND c.name = '{col_lit}'\n"
+                f"            WHERE (fkc.parent_object_id = OBJECT_ID(N'{qualified_lit}') OR fkc.referenced_object_id = OBJECT_ID(N'{qualified_lit}'))\n"
+                f"              AND c.object_id = OBJECT_ID(N'{qualified_lit}')\n"
+                f"              AND c.name = N'{col_lit}'\n"
                 f"        ) fk\n"
                 f"        JOIN sys.objects o ON fk.parent_object_id = o.object_id\n"
                 f"        JOIN sys.schemas s ON o.schema_id = s.schema_id;\n"
@@ -263,8 +294,8 @@ def generate_ddl_for_profile(
                 f"        JOIN sys.schemas s ON t.schema_id = s.schema_id\n"
                 f"        JOIN sys.index_columns ic ON kc.parent_object_id = ic.object_id AND kc.unique_index_id = ic.index_id\n"
                 f"        JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id\n"
-                f"        WHERE t.object_id = OBJECT_ID(N'[{schema_lit}].[{table_lit}]')\n"
-                f"          AND c.name = '{col_lit}';\n"
+                f"        WHERE t.object_id = OBJECT_ID(N'{qualified_lit}')\n"
+                f"          AND c.name = N'{col_lit}';\n"
                 f"        IF @key_sql_{var_suffix} <> N'' EXEC sp_executesql @key_sql_{var_suffix};\n"
                 f"\n"
                 f"        DECLARE @idx_sql_{var_suffix} NVARCHAR(MAX) = N'';\n"
@@ -275,8 +306,8 @@ def generate_ddl_for_profile(
                 f"            JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id\n"
                 f"            JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id\n"
                 f"            WHERE i.is_primary_key = 0 AND i.is_unique_constraint = 0 AND i.name IS NOT NULL\n"
-                f"              AND i.object_id = OBJECT_ID(N'[{schema_lit}].[{table_lit}]')\n"
-                f"              AND c.name = '{col_lit}'\n"
+                f"              AND i.object_id = OBJECT_ID(N'{qualified_lit}')\n"
+                f"              AND c.name = N'{col_lit}'\n"
                 f"        ) i\n"
                 f"        JOIN sys.tables t ON i.object_id = t.object_id\n"
                 f"        JOIN sys.schemas s ON t.schema_id = s.schema_id;\n"
@@ -290,8 +321,8 @@ def generate_ddl_for_profile(
                 f"            LEFT JOIN sys.columns c ON cc.parent_object_id = c.object_id AND cc.parent_column_id = c.column_id\n"
                 f"            LEFT JOIN sys.sql_expression_dependencies sed ON cc.object_id = sed.referencing_id AND sed.referenced_id = cc.parent_object_id\n"
                 f"            LEFT JOIN sys.columns c2 ON sed.referenced_id = c2.object_id AND sed.referenced_minor_id = c2.column_id\n"
-                f"            WHERE cc.parent_object_id = OBJECT_ID(N'[{schema_lit}].[{table_lit}]')\n"
-                f"              AND (c.name = '{col_lit}' OR c2.name = '{col_lit}')\n"
+                f"            WHERE cc.parent_object_id = OBJECT_ID(N'{qualified_lit}')\n"
+                f"              AND (c.name = N'{col_lit}' OR c2.name = N'{col_lit}')\n"
                 f"        ) cc\n"
                 f"        JOIN sys.tables t ON cc.parent_object_id = t.object_id\n"
                 f"        JOIN sys.schemas s ON t.schema_id = s.schema_id;\n"
@@ -303,12 +334,12 @@ def generate_ddl_for_profile(
                 f"        JOIN sys.tables t ON dc.parent_object_id = t.object_id\n"
                 f"        JOIN sys.schemas s ON t.schema_id = s.schema_id\n"
                 f"        JOIN sys.columns c ON dc.parent_object_id = c.object_id AND dc.parent_column_id = c.column_id\n"
-                f"        WHERE t.object_id = OBJECT_ID(N'[{schema_lit}].[{table_lit}]')\n"
-                f"          AND c.name = '{col_lit}';\n"
+                f"        WHERE t.object_id = OBJECT_ID(N'{qualified_lit}')\n"
+                f"          AND c.name = N'{col_lit}';\n"
                 f"        IF @def_sql_{var_suffix} <> N'' EXEC sp_executesql @def_sql_{var_suffix};\n"
                 f"\n"
                 f"        ALTER TABLE [{schema_esc}].[{table_esc}] DROP COLUMN [{col_esc}];\n"
-                f"        PRINT 'Columna [{col_print}] eliminada con exito de [{schema_print}].[{table_print}].';\n"
+                f"        PRINT N'Columna [{col_print}] eliminada con exito de [{schema_print}].[{table_print}].';\n"
                 f"    END"
             )
             lines.append(sql)
@@ -354,12 +385,12 @@ def generate_ddl_for_profile(
                     f"        FROM sys.columns c\n"
                     f"        JOIN sys.objects o ON c.object_id = o.object_id\n"
                     f"        JOIN sys.schemas s ON o.schema_id = s.schema_id\n"
-                    f"        WHERE s.name = '{schema_lit}' AND o.name = '{table_lit}' AND c.name = '{col_lit}'\n"
+                    f"        WHERE s.name = N'{schema_lit}' AND o.name = N'{table_lit}' AND c.name = N'{col_lit}'\n"
                     f"    )\n"
                     f"    BEGIN\n"
                     f"{add_column_action}"
                     f"{add_column_follow_up}"
-                    f"        PRINT 'Columna [{col_print}] agregada con exito a [{schema_print}].[{table_print}].';\n"
+                    f"        PRINT N'Columna [{col_print}] agregada con exito a [{schema_print}].[{table_print}].';\n"
                     f"    END"
                 )
             else:
@@ -372,7 +403,7 @@ def generate_ddl_for_profile(
                         f"            UPDATE [{schema_esc}].[{table_esc}]\n"
                         f"            SET [{col_esc}] = {backfill_val}\n"
                         f"            WHERE [{col_esc}] IS NULL;\n"
-                        f"            PRINT 'Valores NULL en [{schema_print}].[{table_print}].[{col_print}] actualizados pre-ALTER.';\n"
+                        f"            PRINT N'Valores NULL en [{schema_print}].[{table_print}].[{col_print}] actualizados pre-ALTER.';\n"
                         f"        END\n"
                     )
 
@@ -382,37 +413,35 @@ def generate_ddl_for_profile(
                     f"        FROM sys.columns c\n"
                     f"        JOIN sys.objects o ON c.object_id = o.object_id\n"
                     f"        JOIN sys.schemas s ON o.schema_id = s.schema_id\n"
-                    f"        WHERE s.name = '{schema_lit}' AND o.name = '{table_lit}' AND c.name = '{col_lit}'\n"
+                    f"        WHERE s.name = N'{schema_lit}' AND o.name = N'{table_lit}' AND c.name = N'{col_lit}'\n"
                     f"    )\n"
                     f"    BEGIN\n"
                     f"{backfill_block}"
                     f"        ALTER TABLE [{schema_esc}].[{table_esc}] ALTER COLUMN [{col_esc}] {col_def};\n"
-                    f"        PRINT 'Columna [{col_print}] de [{schema_print}].[{table_print}] modificada con exito.';\n"
+                    f"        PRINT N'Columna [{col_print}] de [{schema_print}].[{table_print}] modificada con exito.';\n"
                     f"    END"
                 )
             lines.append(sql)
             statements_added = True
 
     if not statements_added:
-        lines.append("    PRINT 'No se requieren cambios para este perfil.';")
+        lines.append("    PRINT N'No se requieren cambios para este perfil.';")
 
     lines.extend(
         [
             "",
             "    COMMIT TRANSACTION;",
-            "    PRINT 'Transaccion confirmada con exito.';",
+            "    PRINT N'Transaccion confirmada con exito.';",
             "END TRY",
             "BEGIN CATCH",
             "    IF @@TRANCOUNT > 0",
-            "    BEGIN",
             "        ROLLBACK TRANSACTION;",
-            "        PRINT 'Transaccion abortada debido a un error.';",
-            "    END",
-            "    DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();",
-            "    DECLARE @ErrorSeverity INT = ERROR_SEVERITY();",
-            "    DECLARE @ErrorState INT = ERROR_STATE();",
-            "    RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);",
+            "    PRINT N'Transaccion abortada debido a un error; no se aplico ningun cambio.';",
+            "    THROW;",
             "END CATCH;",
+            "GO",
+            "",
+            "SET NOEXEC OFF;",
             "GO",
             "",
         ]

@@ -4,8 +4,11 @@ import datetime
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from schema_comparator.compare.consolidation import (
     ColumnResolution,
+    ConsolidationDatabaseUnknownError,
     ColumnDeletionResolution,
     TableDeletionResolution,
     TableResolution,
@@ -401,3 +404,113 @@ def test_write_sql_scripts_with_table_resolution() -> None:
         assert file_b.exists()
         content_b = file_b.read_text(encoding="utf-8")
         assert "CREATE TABLE [dbo].[products] (" in content_b
+
+
+def _envelope_script(database_part: str = "Database=real_db;") -> str:
+    attrs = ColumnAttributes(
+        data_type="int",
+        character_maximum_length=None,
+        numeric_precision=None,
+        numeric_scale=None,
+        is_nullable=True,
+    )
+    return generate_ddl_for_profile(
+        [
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="users",
+                column_name="age",
+                target_attributes=attrs,
+                profiles_to_update=("p",),
+                is_missing_column=True,
+            )
+        ],
+        ConnectionProfile(name="p", connection_string=f"Server=s;{database_part}"),
+        timestamp=datetime.datetime(2026, 10, 21, 12, 0, 0),
+    )
+
+
+def test_script_runs_nothing_unless_the_active_database_is_the_target() -> None:
+    script = _envelope_script()
+
+    guard = script.index("IF DB_NAME() <> N'real_db'")
+    assert script.index("USE [real_db];") < guard < script.index("BEGIN TRANSACTION;")
+    assert "SET NOEXEC ON;" in script[guard:]
+    assert script.rstrip().endswith("SET NOEXEC OFF;\nGO")
+
+
+def test_script_aborts_whole_on_any_error_and_rethrows_the_original() -> None:
+    script = _envelope_script()
+
+    assert "SET XACT_ABORT ON;" in script
+    assert "SET LOCK_TIMEOUT 30000;" in script
+    assert "    THROW;" in script
+    assert "RAISERROR(@ErrorMessage" not in script
+
+
+def test_script_header_says_how_to_run_it() -> None:
+    header = _envelope_script().split("USE [", 1)[0]
+
+    assert "sqlcmd" in header and "-b" in header
+    assert "SSMS" in header
+
+
+def test_write_sql_scripts_refuses_a_profile_without_database(tmp_path) -> None:
+    attrs = ColumnAttributes(
+        data_type="int",
+        character_maximum_length=None,
+        numeric_precision=None,
+        numeric_scale=None,
+        is_nullable=True,
+    )
+    resolution = ColumnResolution(
+        schema_name="dbo",
+        table_name="users",
+        column_name="age",
+        target_attributes=attrs,
+        profiles_to_update=("con_base", "sin_base"),
+        is_missing_column=True,
+    )
+    profiles = [
+        ConnectionProfile(name="con_base", connection_string="Server=s;Database=a;"),
+        ConnectionProfile(
+            name="sin_base", connection_string="Server=s;Password=secreto;"
+        ),
+    ]
+
+    with pytest.raises(ConsolidationDatabaseUnknownError) as excinfo:
+        write_sql_scripts([resolution], tmp_path, profiles)
+
+    assert "sin_base" in str(excinfo.value)
+    assert "con_base" not in str(excinfo.value)
+    assert "secreto" not in str(excinfo.value)
+    assert not (tmp_path / "scripts-db").exists()
+
+
+def test_write_sql_scripts_writes_utf8_with_bom(tmp_path) -> None:
+    attrs = ColumnAttributes(
+        data_type="int",
+        character_maximum_length=None,
+        numeric_precision=None,
+        numeric_scale=None,
+        is_nullable=True,
+    )
+    written = write_sql_scripts(
+        [
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="Año",
+                column_name="número",
+                target_attributes=attrs,
+                profiles_to_update=("p",),
+                is_missing_column=True,
+            )
+        ],
+        tmp_path,
+        [ConnectionProfile(name="p", connection_string="Database=a;")],
+    )
+
+    script = next(Path(f) for f in written if f.endswith(".sql"))
+    raw = script.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf")
+    assert "[Año]" in raw.decode("utf-8-sig")

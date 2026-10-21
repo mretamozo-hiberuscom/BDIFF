@@ -12,6 +12,8 @@ from schema_comparator.domain.comparison.models import (
 from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.domain.errors import SchemaComparatorError
 from schema_comparator.infrastructure.providers.sqlserver.ddl_renderer import (
+    SQL_SCRIPT_ENCODING,
+    extract_database_name,
     generate_ddl_for_profile,
 )
 
@@ -25,6 +27,19 @@ class ConsolidationNotSupportedError(SchemaComparatorError):
         return cls(
             "La consolidación genera T-SQL y solo está disponible para SQL "
             f"Server; perfiles de otros motores: {', '.join(names)}."
+        )
+
+
+class ConsolidationDatabaseUnknownError(SchemaComparatorError):
+    """Raised when a profile's connection string names no database: its
+    script would have to guess which database to change."""
+
+    @classmethod
+    def for_profiles(cls, names: list[str]) -> "ConsolidationDatabaseUnknownError":
+        return cls(
+            "No se generó ningún script: la cadena de conexión de estos "
+            "perfiles no indica la base de datos (Database= o Initial "
+            f"Catalog=): {', '.join(names)}. Añádela y vuelve a generar."
         )
 
 
@@ -300,9 +315,6 @@ def write_sql_scripts(
         raise ConsolidationNotSupportedError.for_profiles(unsupported)
     root_path = Path(repo_root)
     ts = timestamp or datetime.datetime.now()
-    folder_name = ts.strftime("%Y%m%d_%H%M%S")
-    output_dir = root_path / "scripts-db" / folder_name
-    output_dir.mkdir(parents=True, exist_ok=True)
     profile_map = {p.name: p for p in profiles}
 
     all_profiles_names = set()
@@ -315,26 +327,37 @@ def write_sql_scripts(
     for deletion in column_deletions or []:
         all_profiles_names.update(deletion.profiles_to_update)
 
-    written_files = []
     sorted_profiles = sorted(all_profiles_names)
+    unknown_database = [
+        name
+        for name in sorted_profiles
+        if name not in profile_map
+        or not extract_database_name(profile_map[name].connection_string)
+    ]
+    if unknown_database:
+        raise ConsolidationDatabaseUnknownError.for_profiles(unknown_database)
+
+    # Render every script before writing any, so a failure leaves no
+    # partial set of files behind.
     script_filenames = assign_script_filenames(sorted_profiles)
-    for profile_name in sorted_profiles:
-        profile = profile_map.get(
-            profile_name,
-            ConnectionProfile(
-                name=profile_name, connection_string=f"Database={profile_name};"
-            ),
-        )
-        ddl = generate_ddl_for_profile(
+    scripts = {
+        profile_name: generate_ddl_for_profile(
             resolutions,
-            profile,
+            profile_map[profile_name],
             timestamp=ts,
             table_resolutions=table_resolutions,
             table_deletions=table_deletions,
             column_deletions=column_deletions,
         )
+        for profile_name in sorted_profiles
+    }
+
+    output_dir = root_path / "scripts-db" / ts.strftime("%Y%m%d_%H%M%S")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    written_files = []
+    for profile_name, ddl in scripts.items():
         file_path = output_dir / f"{script_filenames[profile_name]}.sql"
-        file_path.write_text(ddl, encoding="utf-8")
+        file_path.write_text(ddl, encoding=SQL_SCRIPT_ENCODING)
         written_files.append(str(file_path.resolve()))
 
     if sorted_profiles:

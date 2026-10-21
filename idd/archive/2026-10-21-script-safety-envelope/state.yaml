@@ -1,0 +1,419 @@
+{
+  "schema": "idd-state/v1",
+  "change": "script-safety-envelope",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "kind": "bug",
+    "summary": "Envoltorio de seguridad del script de consolidación T-SQL: no ejecutarse en otra base si USE falla, XACT_ABORT, THROW con el error original, LOCK_TIMEOUT, literales N'' y nombres escapados en OBJECT_ID, cabecera con instrucciones de ejecución",
+    "acceptance": "Si la base del script no existe, ni sqlcmd ni el modo SSMS cambian nada en otra base; un error se relanza con su número original y la transacción se deshace; nombres no representables en la intercalación de la base o con ']' se crean, modifican y eliminan correctamente; el script incluye XACT_ABORT ON, LOCK_TIMEOUT y cómo ejecutarlo"
+  },
+  "facts": {
+    "open": [
+      "Cuando la cadena de conexión del perfil no indica Database/Initial Catalog, hoy se usa el nombre del perfil (ddl_renderer.py:140): ¿error al generar ese perfil, script que se niega a ejecutarse hasta editarlo, o mantener el nombre del perfil (la guarda de DB_NAME evitaría tocar otra base)?",
+      "¿Qué LOCK_TIMEOUT usa el script antes de abortar por bloqueo: 30000 ms, 10000 ms u otro valor (o ninguno)?",
+      "¿Se escriben los .sql en UTF-8 con BOM para que SSMS y sqlcmd en Windows los lean como UTF-8 sin -f 65001 (hoy sin BOM)?"
+    ]
+  },
+  "plan": {
+    "paths": [
+      "src/schema_comparator/compare/consolidation.py",
+      "src/schema_comparator/infrastructure/providers/sqlserver/ddl_renderer.py",
+      "src/schema_comparator/tui/procedure_screen.py",
+      "tests/integration/test_consolidation_scripts_live.py",
+      "tests/unit/compare/test_consolidation.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "bug-fix",
+      "reason": "the intent is a bug fix",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "components compare, presentation, providers: ADR 0001, 0002, 0003, 0005, 0006, 0007 and quality scenario mutation-requires-confirmation, no-false-drift, optional-drivers, secret-safety, windows-first-run",
+      "source": "declaration"
+    },
+    {
+      "id": "persistent-data",
+      "reason": "persistent data: touches tests/fixtures/golden/sqlserver/expected_add_column.sql and 1 more (matches **/*.sql)",
+      "source": "diff"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "none",
+      "reason": "Añade dos nombres a la importación existente de compare al renderer T-SQL; no crea una dirección de dependencia nueva."
+    },
+    {
+      "kind": "adr",
+      "id": "0002",
+      "impact": "none",
+      "reason": "No toca el registro de proveedores."
+    },
+    {
+      "kind": "adr",
+      "id": "0003",
+      "impact": "none",
+      "reason": "No cambia tipos canónicos ni modos de comparación."
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "conforms",
+      "reason": "Los scripts se siguen escribiendo y nunca se ejecutan; solo endurece su contenido (transacción, guarda de base, THROW)."
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "none",
+      "reason": "BDIFF no ejecuta los scripts de consolidación; solo cambia la codificación de los de recompilación."
+    },
+    {
+      "kind": "adr",
+      "id": "0007",
+      "impact": "none",
+      "reason": "No cambia la identidad de objetos; los nombres se escapan igual que llegan."
+    },
+    {
+      "kind": "scenario",
+      "id": "mutation-requires-confirmation",
+      "impact": "none",
+      "reason": "No añade ninguna escritura en bases comparadas."
+    },
+    {
+      "kind": "scenario",
+      "id": "no-false-drift",
+      "impact": "none",
+      "reason": "No cambia la comparación."
+    },
+    {
+      "kind": "scenario",
+      "id": "optional-drivers",
+      "impact": "none",
+      "reason": "No importa drivers."
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "conforms",
+      "reason": "El error de base desconocida solo nombra perfiles, nunca la cadena de conexión (test_write_sql_scripts_refuses_a_profile_without_database)."
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "conforms",
+      "reason": "Scripts en UTF-8 con BOM: sqlcmd con la página 1252 lee bien los nombres con tildes (prueba en vivo)."
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-6"
+      ]
+    },
+    {
+      "id": "repro-test",
+      "signal": "bug-fix",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-7"
+      ]
+    },
+    {
+      "id": "migration-compat-and-test",
+      "signal": "persistent-data",
+      "status": "satisfied",
+      "evidence": [
+        "ev-5"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "open-facts",
+      "status": "resolved",
+      "answer": "Sin base en la cadena: error al generar. LOCK_TIMEOUT: 30 s. .sql en UTF-8 con BOM.",
+      "source": "user"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "repro-run-pair",
+      "obligation": "repro-test",
+      "recorded_at": "2026-10-21T13:15:28.435Z",
+      "detail": {
+        "red": "run-2",
+        "green": "run-3"
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T13:16:45.911Z",
+      "detail": {
+        "refs": [
+          "adr:0001 none",
+          "adr:0002 none",
+          "adr:0003 none",
+          "adr:0005 conforms",
+          "adr:0006 none",
+          "adr:0007 none",
+          "scenario:mutation-requires-confirmation none",
+          "scenario:no-false-drift none",
+          "scenario:optional-drivers none",
+          "scenario:secret-safety conforms",
+          "scenario:windows-first-run conforms"
+        ],
+        "records": [],
+        "tree": "sha256:cf2e4d2e7cfbddc95923feb1ff6a979beff75664bec8b896c993e491cd15e62d",
+        "fitness": [
+          "run-6"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T13:19:08.602Z",
+      "detail": {
+        "tree": "sha256:4b787f5052e72b20ae3c9e8c85146ada10122897eca18fd99e50568bdb5ce3be",
+        "runs": [
+          "run-7",
+          "run-8"
+        ]
+      }
+    },
+    {
+      "id": "ev-4",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T13:19:08.602Z",
+      "detail": {
+        "refs": [
+          "adr:0001 none",
+          "adr:0002 none",
+          "adr:0003 none",
+          "adr:0005 conforms",
+          "adr:0006 none",
+          "adr:0007 none",
+          "scenario:mutation-requires-confirmation none",
+          "scenario:no-false-drift none",
+          "scenario:optional-drivers none",
+          "scenario:secret-safety conforms",
+          "scenario:windows-first-run conforms"
+        ],
+        "records": [],
+        "tree": "sha256:4b787f5052e72b20ae3c9e8c85146ada10122897eca18fd99e50568bdb5ce3be",
+        "fitness": [
+          "run-9"
+        ]
+      }
+    },
+    {
+      "id": "ev-5",
+      "kind": "migration-test",
+      "obligation": "migration-compat-and-test",
+      "recorded_at": "2026-10-21T13:19:29.168Z",
+      "detail": {
+        "run": "run-10",
+        "tree": "sha256:c6df2492fbea4690d38803641c0bad88576a771aeb5030a602ec13be4345c99d",
+        "plan": "Los .sql son scripts generados (golden files de caracterización), no migraciones del esquema de BDIFF. Compatibilidad: los scripts ya generados siguen siendo válidos; los nuevos aplican todo en una transacción y ante error hacen ROLLBACK + THROW, comprobado en SQL Server 2022 real con sqlcmd -b y en modo SSMS."
+      }
+    },
+    {
+      "id": "ev-6",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-21T13:19:54.799Z",
+      "detail": {
+        "tree": "sha256:4b787f5052e72b20ae3c9e8c85146ada10122897eca18fd99e50568bdb5ce3be",
+        "runs": [
+          "run-11",
+          "run-12"
+        ]
+      }
+    },
+    {
+      "id": "ev-7",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-21T13:19:54.799Z",
+      "detail": {
+        "refs": [
+          "adr:0001 none",
+          "adr:0002 none",
+          "adr:0003 none",
+          "adr:0005 conforms",
+          "adr:0006 none",
+          "adr:0007 none",
+          "scenario:mutation-requires-confirmation none",
+          "scenario:no-false-drift none",
+          "scenario:optional-drivers none",
+          "scenario:secret-safety conforms",
+          "scenario:windows-first-run conforms"
+        ],
+        "records": [],
+        "tree": "sha256:4b787f5052e72b20ae3c9e8c85146ada10122897eca18fd99e50568bdb5ce3be",
+        "fitness": [
+          "run-13"
+        ]
+      }
+    }
+  ],
+  "base": "6cd045dfa0162886496c2b9bd3c2956bdebe2069",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/compare/test_consolidation.py tests/integration/test_consolidation_scripts_live.py",
+      "exit_code": 2,
+      "output_sha256": "sha256:2870c64e99b6800ea5057d1f87cc4d159bf862f4224aadf86f8616c38768b30b",
+      "tree": "sha256:cd6970c950488eb483af07bd3572aa77785009ad54519b4c73a621ca8613077c",
+      "recorded_at": "2026-10-21T13:11:33.929Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/compare/test_consolidation.py tests/integration/test_consolidation_scripts_live.py",
+      "exit_code": 1,
+      "output_sha256": "sha256:7355f4e96b152a0880eed9300a6be5cafbc2f1383c8196c64d92f6c87a99470a",
+      "tree": "sha256:a51bbeb9e3651d06bc54dba2a8c6d0a97fb05cfca8df50e38a6fe03067b6bd7f",
+      "recorded_at": "2026-10-21T13:11:54.864Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "repro-test",
+      "command": "python -m pytest -q tests/unit/compare/test_consolidation.py tests/integration/test_consolidation_scripts_live.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:6ca10e53782fadf98539d2852803084eec0b98832a8383c5625bf6eaf5242d0c",
+      "tree": "sha256:2ccb653a55585c75e9dd61a39c55513267b37bf28c6177c82a0eec32a0fe52f7",
+      "recorded_at": "2026-10-21T13:15:28.435Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 1,
+      "output_sha256": "sha256:e580f82b08009f3d91285c50b67d4ebd803eebbe1ec97a64807a4839e7d063c1",
+      "tree": "sha256:cf2e4d2e7cfbddc95923feb1ff6a979beff75664bec8b896c993e491cd15e62d",
+      "recorded_at": "2026-10-21T13:16:45.911Z"
+    },
+    {
+      "id": "run-5",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:2e4d14f1aef1a55c1d0d01157c835bb12a52c188adce900ddc8ecc0b839b05fb",
+      "tree": "sha256:cf2e4d2e7cfbddc95923feb1ff6a979beff75664bec8b896c993e491cd15e62d",
+      "recorded_at": "2026-10-21T13:16:45.911Z"
+    },
+    {
+      "id": "run-6",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f9fd93d4bfe07fbc3f2ca83028355ce747308424b00ccac0298c99213e915731",
+      "tree": "sha256:cf2e4d2e7cfbddc95923feb1ff6a979beff75664bec8b896c993e491cd15e62d",
+      "recorded_at": "2026-10-21T13:16:45.911Z"
+    },
+    {
+      "id": "run-7",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:573be7512c33297fe5997ca521be865fc0e0d4c8af9ef318012d310acd2b5e03",
+      "tree": "sha256:4b787f5052e72b20ae3c9e8c85146ada10122897eca18fd99e50568bdb5ce3be",
+      "recorded_at": "2026-10-21T13:19:08.602Z"
+    },
+    {
+      "id": "run-8",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:2e4d14f1aef1a55c1d0d01157c835bb12a52c188adce900ddc8ecc0b839b05fb",
+      "tree": "sha256:4b787f5052e72b20ae3c9e8c85146ada10122897eca18fd99e50568bdb5ce3be",
+      "recorded_at": "2026-10-21T13:19:08.602Z"
+    },
+    {
+      "id": "run-9",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f9fd93d4bfe07fbc3f2ca83028355ce747308424b00ccac0298c99213e915731",
+      "tree": "sha256:4b787f5052e72b20ae3c9e8c85146ada10122897eca18fd99e50568bdb5ce3be",
+      "recorded_at": "2026-10-21T13:19:08.602Z"
+    },
+    {
+      "id": "run-10",
+      "purpose": "migration-test",
+      "command": "python -m pytest -q tests/integration/test_consolidation_scripts_live.py tests/unit/sqlserver/test_characterization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:367ff23efa4f450b36c3a3a1d406266e45fcdd65baee97180c89f64fd0f9d954",
+      "tree": "sha256:c6df2492fbea4690d38803641c0bad88576a771aeb5030a602ec13be4345c99d",
+      "recorded_at": "2026-10-21T13:19:29.168Z"
+    },
+    {
+      "id": "run-11",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:454e70f717c90aede267da9a87eab9b015eff6dfc173224b58b4969c1becbadb",
+      "tree": "sha256:4b787f5052e72b20ae3c9e8c85146ada10122897eca18fd99e50568bdb5ce3be",
+      "recorded_at": "2026-10-21T13:19:54.799Z"
+    },
+    {
+      "id": "run-12",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:2e4d14f1aef1a55c1d0d01157c835bb12a52c188adce900ddc8ecc0b839b05fb",
+      "tree": "sha256:4b787f5052e72b20ae3c9e8c85146ada10122897eca18fd99e50568bdb5ce3be",
+      "recorded_at": "2026-10-21T13:19:54.799Z"
+    },
+    {
+      "id": "run-13",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:f9fd93d4bfe07fbc3f2ca83028355ce747308424b00ccac0298c99213e915731",
+      "tree": "sha256:4b787f5052e72b20ae3c9e8c85146ada10122897eca18fd99e50568bdb5ce3be",
+      "recorded_at": "2026-10-21T13:19:54.799Z"
+    }
+  ],
+  "closed_at": "2026-10-21T13:20:04.593Z"
+}

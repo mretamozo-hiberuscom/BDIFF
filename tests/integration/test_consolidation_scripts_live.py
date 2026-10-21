@@ -43,8 +43,8 @@ def _attrs(
     )
 
 
-def _script(tmp_path: Path, database: str, **resolutions) -> str:
-    """The profile's generated script for `database`."""
+def _script(tmp_path: Path, database: str, **resolutions) -> Path:
+    """The profile's generated script file for `database`."""
     profile = ConnectionProfile(
         name=_PROFILE, connection_string=f"Server=localhost;Database={database};"
     )
@@ -56,7 +56,7 @@ def _script(tmp_path: Path, database: str, **resolutions) -> str:
         **resolutions,
     )
     script = next(path for path in written if path.endswith(f"{_PROFILE}.sql"))
-    return Path(script).read_text(encoding="utf-8")
+    return Path(script)
 
 
 def _columns(server, database: str, table: str) -> dict[str, tuple[str, ...]]:
@@ -84,8 +84,8 @@ def _setup(server, database: str, sql: str) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def _apply(server, script: str) -> None:
-    result = server.run(script)
+def _apply(server, script: Path) -> None:
+    result = server.run_file(script)
     assert result.returncode == 0, result.stdout + result.stderr
 
 
@@ -342,7 +342,7 @@ def test_a_failing_step_leaves_the_database_unchanged(
         ],
     )
 
-    result = mssql_server.run(script, stop_on_error=stop_on_error)
+    result = mssql_server.run_file(script, stop_on_error=stop_on_error)
 
     assert "Transaccion abortada" in result.stdout
     if stop_on_error:
@@ -356,3 +356,115 @@ def test_a_failing_step_leaves_the_database_unchanged(
         " JOIN sys.dm_tran_database_transactions d ON t.transaction_id = d.transaction_id"
         f" WHERE d.database_id = DB_ID(N'{mssql_db}')"
     ) == [("0",)]
+
+
+@pytest.mark.parametrize("stop_on_error", [True, False], ids=["sqlcmd-b", "ssms"])
+def test_changes_nothing_elsewhere_when_the_database_does_not_exist(
+    mssql_server, tmp_path, stop_on_error
+) -> None:
+    table = f"huerfana_{'b' if stop_on_error else 's'}"
+    script = _script(
+        tmp_path,
+        "bdiff_no_existe",
+        table_resolutions=[
+            TableResolution(
+                schema_name="dbo",
+                table_name=table,
+                columns=(NamedColumnAttributes("id", _attrs("int")),),
+                profiles_to_update=(_PROFILE,),
+            )
+        ],
+    )
+
+    try:
+        result = mssql_server.run_file(script, stop_on_error=stop_on_error)
+
+        if stop_on_error:
+            assert result.returncode != 0
+        assert table not in _tables(mssql_server, "master")
+    finally:
+        mssql_server.run(f"DROP TABLE IF EXISTS dbo.{table};\nGO\n")
+
+
+def test_a_failure_reports_the_original_error_number(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.ventas (codigo varchar(20) NOT NULL);"
+        " INSERT dbo.ventas VALUES ('no-numerico');",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="ventas",
+                column_name="codigo",
+                target_attributes=_attrs("int", nullable=False),
+                profiles_to_update=(_PROFILE,),
+                is_missing_column=False,
+            )
+        ],
+    )
+
+    result = mssql_server.run_file(script)
+
+    assert result.returncode != 0
+    # 245: conversion failed; a re-raise through RAISERROR would say 50000.
+    assert "Msg 245," in result.stdout
+
+
+def test_modifies_a_column_whose_names_fall_outside_the_code_page(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    # The database's default collation is Latin1: '注文' as a varchar
+    # literal becomes '??' and would match nothing.
+    _setup(mssql_server, mssql_db, "CREATE TABLE dbo.[注文] ([数量] varchar(10) NULL);")
+    script = _script(
+        tmp_path,
+        mssql_db,
+        columns=[
+            ColumnResolution(
+                schema_name="dbo",
+                table_name="注文",
+                column_name="数量",
+                target_attributes=_attrs("varchar", length=40),
+                profiles_to_update=(_PROFILE,),
+                is_missing_column=False,
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    assert _columns(mssql_server, mssql_db, "注文") == {
+        "数量": ("varchar", "40", "YES")
+    }
+
+
+def test_drops_a_referenced_table_whose_name_has_a_bracket(
+    mssql_server, mssql_db, tmp_path
+) -> None:
+    _setup(
+        mssql_server,
+        mssql_db,
+        "CREATE TABLE dbo.[pa]]ises] (id int NOT NULL PRIMARY KEY);"
+        " CREATE TABLE dbo.ciudades (pais_id int NOT NULL"
+        " CONSTRAINT FK_ciudades_paises REFERENCES dbo.[pa]]ises] (id));",
+    )
+    script = _script(
+        tmp_path,
+        mssql_db,
+        table_deletions=[
+            TableDeletionResolution(
+                schema_name="dbo", table_name="pa]ises", profiles_to_update=(_PROFILE,)
+            )
+        ],
+    )
+
+    _apply(mssql_server, script)
+
+    assert _tables(mssql_server, mssql_db) == {"ciudades"}

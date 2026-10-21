@@ -13,6 +13,7 @@ from textual.widgets import Button, DataTable, Footer, Header, Label, Static
 from schema_comparator.compare.consolidation import assign_script_filenames
 from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.infrastructure.providers.sqlserver.ddl_renderer import (
+    SQL_SCRIPT_ENCODING,
     extract_database_name,
 )
 from schema_comparator.infrastructure.providers.sqlserver.routine_runner import (
@@ -399,7 +400,9 @@ class ProcedureVerificationScreen(Screen):
         for profile_name, content in scripts.per_profile.items():
             safe_filename = script_filenames[profile_name] + ".sql"
             try:
-                (repair_dir / safe_filename).write_text(content, encoding="utf-8")
+                (repair_dir / safe_filename).write_text(
+                    content, encoding=SQL_SCRIPT_ENCODING
+                )
                 written_profile_files.append(safe_filename)
             except Exception as exc:
                 if status_labels:
@@ -410,7 +413,7 @@ class ProcedureVerificationScreen(Screen):
 
         master_script_path = output_dir / "repair_sps.sql"
         try:
-            master_script_path.write_text(scripts.master, encoding="utf-8")
+            master_script_path.write_text(scripts.master, encoding=SQL_SCRIPT_ENCODING)
             if status_labels:
                 status_labels.first().update(
                     f"✅ Scripts generados en: scripts-db/{folder_name}/repair_sps/ ({len(written_profile_files)} archivo(s) por BD + repair_sps.sql)"

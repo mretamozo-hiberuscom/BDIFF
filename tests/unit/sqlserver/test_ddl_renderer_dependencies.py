@@ -107,8 +107,8 @@ def test_generate_ddl_escapes_single_quotes_in_print_statements() -> None:
         table_resolutions=table_res,
     )
 
-    assert "PRINT 'Tabla [d''bo].[Order''s] creada con exito.';" in ddl
-    assert "PRINT 'Columna [Age''s] agregada con exito a [d''bo].[User''s].';" in ddl
+    assert "PRINT N'Tabla [d''bo].[Order''s] creada con exito.';" in ddl
+    assert "PRINT N'Columna [Age''s] agregada con exito a [d''bo].[User''s].';" in ddl
 
 
 def test_generate_ddl_not_null_column_backfills_nulls() -> None:
