@@ -3,13 +3,20 @@ import hashlib
 from schema_comparator.domain.schema.models import (
     ColumnSnapshot,
     DefinitionAvailability,
+    ForeignKeySnapshot,
+    IndexSnapshot,
     ParameterSnapshot,
+    PrimaryKeySnapshot,
     ProcedureSnapshot,
     SchemaFeature,
     SchemaSnapshot,
     TableSnapshot,
 )
 
+
+# Name given to a primary key SQL Server named itself, so two databases
+# compare equal when only the generated suffix differs.
+AUTO_PRIMARY_KEY_NAME = "PK (autogenerado)"
 
 CATALOG_QUERY_SQL = """
 SELECT
@@ -40,6 +47,89 @@ INNER JOIN INFORMATION_SCHEMA.TABLES t
     ON t.TABLE_SCHEMA = c.TABLE_SCHEMA
    AND t.TABLE_NAME = c.TABLE_NAME
 WHERE t.TABLE_TYPE = 'BASE TABLE'
+""".strip()
+
+# Primary keys, foreign keys and indexes of the base tables. `is_system_named`
+# marks the constraints SQL Server named itself (PK__Users__3213E83F...):
+# that suffix differs from one database to the next, so `build_snapshot`
+# replaces it with a name built from the structure.
+PRIMARY_KEYS_QUERY_SQL = """
+SELECT
+    s.name AS schema_name,
+    t.name AS table_name,
+    kc.name AS constraint_name,
+    kc.is_system_named,
+    c.name AS column_name,
+    ic.key_ordinal
+FROM sys.key_constraints kc
+INNER JOIN sys.tables t ON t.object_id = kc.parent_object_id
+INNER JOIN sys.schemas s ON s.schema_id = t.schema_id
+INNER JOIN sys.index_columns ic
+    ON ic.object_id = kc.parent_object_id AND ic.index_id = kc.unique_index_id
+INNER JOIN sys.columns c
+    ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+WHERE kc.type = 'PK' AND t.is_ms_shipped = 0 AND ic.key_ordinal > 0
+ORDER BY s.name, t.name, ic.key_ordinal
+""".strip()
+
+FOREIGN_KEYS_QUERY_SQL = """
+SELECT
+    s.name AS schema_name,
+    t.name AS table_name,
+    fk.name AS constraint_name,
+    fk.is_system_named,
+    rs.name AS referenced_schema,
+    rt.name AS referenced_table,
+    pc.name AS column_name,
+    rc.name AS referenced_column,
+    fkc.constraint_column_id,
+    fk.delete_referential_action_desc,
+    fk.update_referential_action_desc
+FROM sys.foreign_keys fk
+INNER JOIN sys.tables t ON t.object_id = fk.parent_object_id
+INNER JOIN sys.schemas s ON s.schema_id = t.schema_id
+INNER JOIN sys.tables rt ON rt.object_id = fk.referenced_object_id
+INNER JOIN sys.schemas rs ON rs.schema_id = rt.schema_id
+INNER JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
+INNER JOIN sys.columns pc
+    ON pc.object_id = fkc.parent_object_id AND pc.column_id = fkc.parent_column_id
+INNER JOIN sys.columns rc
+    ON rc.object_id = fkc.referenced_object_id
+   AND rc.column_id = fkc.referenced_column_id
+WHERE t.is_ms_shipped = 0
+ORDER BY s.name, t.name, fk.name, fkc.constraint_column_id
+""".strip()
+
+# Rowstore indexes only (clustered and nonclustered); the primary key is the
+# PK, not an index. A UNIQUE constraint shows up here under its own name.
+INDEXES_QUERY_SQL = """
+SELECT
+    s.name AS schema_name,
+    t.name AS table_name,
+    i.name AS index_name,
+    i.is_unique,
+    i.type AS index_type,
+    i.filter_definition,
+    ISNULL(kc.is_system_named, 0) AS is_system_named,
+    c.name AS column_name,
+    ic.key_ordinal,
+    ic.is_descending_key,
+    ic.is_included_column
+FROM sys.indexes i
+INNER JOIN sys.tables t ON t.object_id = i.object_id
+INNER JOIN sys.schemas s ON s.schema_id = t.schema_id
+INNER JOIN sys.index_columns ic
+    ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+INNER JOIN sys.columns c
+    ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+LEFT JOIN sys.key_constraints kc
+    ON kc.parent_object_id = i.object_id AND kc.unique_index_id = i.index_id
+WHERE i.is_primary_key = 0
+  AND i.is_hypothetical = 0
+  AND i.type IN (1, 2)
+  AND t.is_ms_shipped = 0
+  AND (ic.key_ordinal > 0 OR ic.is_included_column = 1)
+ORDER BY s.name, t.name, i.name, ic.is_included_column, ic.key_ordinal, ic.index_column_id
 """.strip()
 
 PROCEDURES_QUERY_SQL = """
@@ -74,10 +164,142 @@ def _hash_definition(sql: str | None) -> str | None:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
+def _unique_name(name: str, taken: set[str]) -> str:
+    """`name`, or `name #2`, `name #3`... when the table already has it."""
+    candidate, n = name, 1
+    while candidate in taken:
+        n += 1
+        candidate = f"{name} #{n}"
+    taken.add(candidate)
+    return candidate
+
+
+def _column_list(columns: tuple[str, ...]) -> str:
+    return ", ".join(columns)
+
+
+def _primary_keys(rows: list[tuple]) -> dict[tuple[str, str], PrimaryKeySnapshot]:
+    grouped: dict[tuple[str, str], tuple[str, bool, list[str]]] = {}
+    for schema, table, name, is_system_named, column, _ordinal in rows:
+        _, _, columns = grouped.setdefault(
+            (schema, table), (name, bool(is_system_named), [])
+        )
+        columns.append(column)
+    return {
+        key: PrimaryKeySnapshot(
+            name=AUTO_PRIMARY_KEY_NAME if is_system_named else name,
+            columns=tuple(columns),
+        )
+        for key, (name, is_system_named, columns) in grouped.items()
+    }
+
+
+def _foreign_keys(
+    rows: list[tuple],
+) -> dict[tuple[str, str], tuple[ForeignKeySnapshot, ...]]:
+    grouped: dict[tuple[str, str, str], dict] = {}
+    for row in rows:
+        (schema, table, name, is_system_named, ref_schema, ref_table) = row[:6]
+        column, ref_column, _ordinal, on_delete, on_update = row[6:11]
+        fk = grouped.setdefault(
+            (schema, table, name),
+            {
+                "system": bool(is_system_named),
+                "ref_schema": ref_schema,
+                "ref_table": ref_table,
+                "columns": [],
+                "ref_columns": [],
+                "on_delete": on_delete,
+                "on_update": on_update,
+            },
+        )
+        fk["columns"].append(column)
+        fk["ref_columns"].append(ref_column)
+
+    by_table: dict[tuple[str, str], list[ForeignKeySnapshot]] = {}
+    taken: dict[tuple[str, str], set[str]] = {}
+    for (schema, table, name), fk in grouped.items():
+        columns, ref_columns = tuple(fk["columns"]), tuple(fk["ref_columns"])
+        if fk["system"]:
+            name = (
+                f"FK ({_column_list(columns)}) -> "
+                f"{fk['ref_schema']}.{fk['ref_table']} ({_column_list(ref_columns)})"
+            )
+        by_table.setdefault((schema, table), []).append(
+            ForeignKeySnapshot(
+                name=_unique_name(name, taken.setdefault((schema, table), set())),
+                columns=columns,
+                referenced_table=fk["ref_table"],
+                referenced_columns=ref_columns,
+                referenced_schema=fk["ref_schema"],
+                on_delete=_action(fk["on_delete"]),
+                on_update=_action(fk["on_update"]),
+            )
+        )
+    return {key: tuple(fks) for key, fks in by_table.items()}
+
+
+def _action(description: str | None) -> str | None:
+    """`NO_ACTION` -> `NO ACTION`, the way the DDL writes it."""
+    return description.replace("_", " ") if description else None
+
+
+def _indexes(rows: list[tuple]) -> dict[tuple[str, str], tuple[IndexSnapshot, ...]]:
+    grouped: dict[tuple[str, str, str], dict] = {}
+    for row in rows:
+        schema, table, name, is_unique, index_type, filter_sql, is_system_named = row[
+            :7
+        ]
+        column, ordinal, is_descending, is_included = row[7:11]
+        index = grouped.setdefault(
+            (schema, table, name),
+            {
+                "unique": bool(is_unique),
+                "clustered": index_type == 1,
+                "filter": filter_sql,
+                "system": bool(is_system_named),
+                "keys": [],
+                "descending": [],
+                "included": [],
+            },
+        )
+        if is_included:
+            index["included"].append(column)
+        else:
+            index["keys"].append(column)
+            if is_descending:
+                index["descending"].append(column)
+
+    by_table: dict[tuple[str, str], list[IndexSnapshot]] = {}
+    taken: dict[tuple[str, str], set[str]] = {}
+    for (schema, table, name), index in grouped.items():
+        keys = tuple(index["keys"])
+        if index["system"]:
+            name = f"UQ ({_column_list(keys)})"
+        by_table.setdefault((schema, table), []).append(
+            IndexSnapshot(
+                name=_unique_name(name, taken.setdefault((schema, table), set())),
+                columns=keys,
+                is_unique=index["unique"],
+                is_clustered=index["clustered"],
+                descending_columns=tuple(index["descending"]),
+                included_columns=tuple(index["included"]),
+                filter_expression=index["filter"],
+            )
+        )
+    return {
+        key: tuple(sorted(indexes, key=lambda i: i.name))
+        for key, indexes in by_table.items()
+    }
+
+
 def build_snapshot(
     profile_name: str,
     rows: list[tuple],
     proc_rows: list[tuple] | None = None,
+    primary_key_rows: list[tuple] | None = None,
+    foreign_key_rows: list[tuple] | None = None,
+    index_rows: list[tuple] | None = None,
 ) -> SchemaSnapshot:
     """Group and sort raw catalog rows into a deterministic `SchemaSnapshot`."""
     grouped: dict[tuple[str, str], list[ColumnSnapshot]] = {}
@@ -112,11 +334,17 @@ def build_snapshot(
             )
         )
 
+    primary_keys = _primary_keys(primary_key_rows or [])
+    foreign_keys = _foreign_keys(foreign_key_rows or [])
+    indexes = _indexes(index_rows or [])
     tables = tuple(
         TableSnapshot(
             schema_name=schema,
             table_name=table,
             columns=tuple(sorted(cols, key=lambda c: (c.ordinal_position, c.name))),
+            primary_key=primary_keys.get((schema, table)),
+            foreign_keys=foreign_keys.get((schema, table), ()),
+            indexes=indexes.get((schema, table), ()),
         )
         for (schema, table), cols in sorted(grouped.items())
     )
@@ -208,7 +436,9 @@ def build_snapshot(
         provider_id="sqlserver",
         tables=tables,
         procedures=tuple(procedures),
-        extracted_features=frozenset({SchemaFeature.TABLES, SchemaFeature.ROUTINES}),
+        extracted_features=frozenset(
+            {SchemaFeature.TABLES, SchemaFeature.ROUTINES, SchemaFeature.KEYS}
+        ),
     )
 
 

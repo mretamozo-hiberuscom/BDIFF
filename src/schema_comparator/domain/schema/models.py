@@ -7,6 +7,10 @@ from enum import Enum
 class SchemaFeature(str, Enum):
     TABLES = "tables"
     ROUTINES = "routines"
+    # Primary keys, foreign keys and indexes. A provider that does not list
+    # it is not compared on them, so its tables are not reported as having
+    # none.
+    KEYS = "keys"
 
 
 class DefinitionAvailability(str, Enum):
@@ -68,6 +72,12 @@ class IndexSnapshot:
     name: str
     columns: tuple[str, ...]
     is_unique: bool = False
+    # Attributes only SQL Server fills in; the defaults are what a provider
+    # that does not extract them reports, so they never differ by themselves.
+    is_clustered: bool = False
+    descending_columns: tuple[str, ...] = ()
+    included_columns: tuple[str, ...] = ()
+    filter_expression: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,7 +157,7 @@ class SchemaSnapshot:
     provider_id: str = "sqlserver"
     extracted_features: frozenset[SchemaFeature] = field(
         default_factory=lambda: frozenset(
-            {SchemaFeature.TABLES, SchemaFeature.ROUTINES}
+            {SchemaFeature.TABLES, SchemaFeature.ROUTINES, SchemaFeature.KEYS}
         )
     )
     default_schema: str | None = None
