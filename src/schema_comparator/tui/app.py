@@ -4,10 +4,10 @@ filter state, and widget wiring for the interactive findings browser."""
 import io
 import sys
 
-from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
+from textual.events import Resize
 from textual.reactive import reactive
 from textual.widgets import Footer, Input, Label, Static, Tree
 
@@ -17,7 +17,9 @@ from schema_comparator.domain.comparison.models import ComparisonFilters
 from schema_comparator.domain.errors import describe_error
 from schema_comparator.report.write import generate_all_reports
 from schema_comparator.tui.actions import run_comparison
-from schema_comparator.tui.formatting import build_tree_data, header_text
+from schema_comparator.tui.formatting import build_tree_data
+from schema_comparator.tui.modals import HelpModal, QuitModal
+from schema_comparator.tui.theme import OK
 from schema_comparator.tui.widgets import (
     DetailPanel,
     ExcludeEditor,
@@ -26,165 +28,167 @@ from schema_comparator.tui.widgets import (
     SummaryHeader,
 )
 
-_NO_DRIFT_MESSAGE = "No se detectaron diferencias entre los perfiles comparados."
+_NO_DRIFT_MESSAGE = (
+    f"{OK} No se detectaron diferencias entre los perfiles comparados.\n\n"
+    "r  volver a comparar      e  ajustar exclusiones      g  generar reportes"
+)
+
+# Below this width the findings and their detail stack instead of sitting
+# side by side.
+_NARROW_WIDTH = 110
 
 
 class SchemaComparatorApp(App):
-    """Single-screen, findings browser for a `ComparisonResult`
-    with enterprise-grade dashboard styling, in-memory exclude editing,
-    re-run comparison, and report generation."""
+    """Single-screen findings browser for a `ComparisonResult`: summary,
+    findings tree with its detail card, and a drawer with the exclude
+    editor and the activity log. Re-runs the comparison, generates reports
+    and opens the consolidation and routines screens."""
+
+    TITLE = "BDIFF"
 
     DEFAULT_CSS = """
     SchemaComparatorApp {
         background: $background;
         color: $text;
     }
-    
+
+    SummaryHeader {
+        height: auto;
+        padding: 0 2;
+        background: $panel;
+        border-bottom: solid $primary;
+    }
+
+    #content {
+        height: 1fr;
+    }
+
     #main-body {
         layout: horizontal;
         height: 1fr;
     }
-    
+
     #left-container {
-        width: 40%;
+        width: 5fr;
         height: 100%;
-        layout: vertical;
-        border-right: tall $primary-darken-1;
     }
-    
+
     #right-container {
-        width: 60%;
+        width: 4fr;
         height: 100%;
+    }
+
+    SchemaComparatorApp.-narrow #main-body {
         layout: vertical;
     }
-    
+
+    SchemaComparatorApp.-narrow #left-container,
+    SchemaComparatorApp.-narrow #right-container {
+        width: 100%;
+        height: 1fr;
+    }
+
     #filter-input {
         margin: 1 1 0 1;
-        border: tall $primary-darken-2;
-        background: $surface;
     }
-    
-    #filter-input:focus {
-        border: double $accent;
-    }
-    
+
     #findings-tree {
         height: 1fr;
         margin: 0 1 1 1;
-        border: round $primary;
+        border: round $primary-darken-1;
+        border-title-color: $text;
+        border-subtitle-color: $warning;
         scrollbar-gutter: stable;
+        scrollbar-size-horizontal: 0;
     }
-    
+
     #findings-tree:focus {
-        border: double $accent;
+        border: round $accent;
     }
-    
+
     #detail-panel {
         height: 100%;
         margin: 1;
         padding: 1 2;
-        border: round $primary;
+        border: round $primary-darken-1;
         background: $surface;
         scrollbar-gutter: stable;
         overflow-y: auto;
     }
-    
-    #detail-panel:focus {
-        border: double $accent;
+
+    #drawer {
+        display: none;
+        height: 11;
+        background: $panel;
+        border-top: solid $primary;
     }
 
-    #bottom-container {
-        height: 8;
-        layout: horizontal;
-        border-top: tall $primary-darken-1;
-        background: $surface-darken-1;
+    #drawer.-open {
+        display: block;
     }
-    
-    #exclude-container {
-        width: 50%;
+
+    #exclude-container, #log-container {
+        width: 1fr;
         height: 100%;
-        layout: vertical;
         padding: 0 1;
+    }
+
+    #exclude-container {
         border-right: solid $primary-darken-2;
     }
-    
-    #exclude-label {
+
+    .drawer-title {
         text-style: bold;
         color: $accent;
         margin: 1 0 0 1;
     }
-    
+
+    .drawer-hint {
+        color: $text-muted;
+        margin: 0 0 0 1;
+    }
+
     #exclude-editor {
-        margin: 0 1 1 1;
-        border: round $primary;
-        background: $background;
+        margin: 1 1 0 1;
     }
-    
-    #exclude-editor:focus {
-        border: double $accent;
-    }
-    
-    #log-container {
-        width: 50%;
-        height: 100%;
-        layout: vertical;
-        padding: 0 1;
-    }
-    
-    #log-label {
-        text-style: bold;
-        color: $accent;
-        margin: 1 0 0 1;
-    }
-    
+
     #status-log {
         height: 1fr;
         margin: 0 1 1 1;
-        border: round $primary;
+        border: round $primary-darken-1;
         background: $background;
         scrollbar-gutter: stable;
-    }
-    
-    #status-log:focus {
-        border: double $accent;
-    }
-    
-    SummaryHeader {
-        background: $primary;
-        color: $text;
-        text-style: bold;
-        height: 3;
-        content-align: center middle;
-        text-align: center;
-        border-bottom: tall $primary-darken-2;
     }
 
     #no-drift-container {
         align: center middle;
         height: 1fr;
     }
+
     #no-drift-message {
-        text-style: bold;
         color: $success;
-        border: double $success;
+        border: round $success;
         padding: 2 4;
         background: $surface;
-        content-align: center middle;
         text-align: center;
-        height: 7;
-        width: 60;
+        height: auto;
+        width: 76;
+        max-width: 95%;
     }
     """
 
     BINDINGS = [
-        Binding("q,Q", "quit", "Quit"),
-        Binding("escape", "quit", "Quit", show=False),
-        Binding("slash", "focus_filter", "Filter"),
-        Binding("e,E", "focus_exclude_editor", "Editar excludes"),
-        Binding("r,R", "run_comparison", "Re-ejecutar comparación"),
-        Binding("v,V", "open_sp_verification", "Verificar/Reparar SPs"),
-        Binding("g,G", "generate_reports", "Generar reportes"),
-        Binding("d,D", "open_decision_screen", "Consolidar Diferencias"),
+        Binding("c,C", "open_decision_screen", "Consolidar"),
+        Binding("d,D", "open_decision_screen", "Consolidar", show=False),
+        Binding("r,R", "run_comparison", "Recomparar"),
+        Binding("g,G", "generate_reports", "Reportes"),
+        Binding("v,V", "open_sp_verification", "Rutinas"),
+        Binding("e,E", "focus_exclude_editor", "Excluir"),
+        Binding("l,L", "toggle_drawer", "Registro"),
+        Binding("slash", "focus_filter", "Filtrar"),
+        Binding("question_mark,f1", "show_help", "Ayuda"),
+        Binding("q,Q", "request_quit", "Salir"),
+        Binding("escape", "dismiss_open", "Cerrar", show=False),
     ]
 
     filter_text: reactive[str] = reactive("")
@@ -216,7 +220,7 @@ class SchemaComparatorApp(App):
         return Container(
             Vertical(
                 Input(
-                    placeholder="Filtrar por tabla, columna o tipo de diferencia… (Presiona /)",
+                    placeholder="Filtrar por tabla, columna o tipo de diferencia  ( / )",
                     id="filter-input",
                 ),
                 FindingsTree(self._tree_data, id="findings-tree"),
@@ -227,19 +231,48 @@ class SchemaComparatorApp(App):
         )
 
     def compose(self) -> ComposeResult:
-        yield SummaryHeader(Text(header_text(self._result)))
-        yield self._body()
-        with Horizontal(id="bottom-container"):
+        yield SummaryHeader(id="summary-header")
+        yield Container(self._body(), id="content")
+        with Horizontal(id="drawer"):
             with Vertical(id="exclude-container"):
+                yield Label("Excluir tablas", classes="drawer-title")
                 yield Label(
-                    "Excluir tablas (coincidencia de texto, separadas por espacio):",
-                    id="exclude-label",
+                    "Enter aplica y recompara  ·  Esc cierra el cajón",
+                    classes="drawer-hint",
                 )
                 yield ExcludeEditor(self._exclude_patterns, id="exclude-editor")
             with Vertical(id="log-container"):
-                yield Label("Registro de actividad:", id="log-label")
+                yield Label("Registro de actividad", classes="drawer-title")
                 yield StatusLog(id="status-log")
         yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one(SummaryHeader).show(self._result)
+        self._focus_findings()
+
+    def on_resize(self, event: Resize) -> None:
+        self.set_class(event.size.width < _NARROW_WIDTH, "-narrow")
+
+    def _focus_findings(self) -> None:
+        trees = self.query(FindingsTree)
+        if trees:
+            trees.first().focus()
+
+    def _drawer_open(self) -> bool:
+        return self.query_one("#drawer").has_class("-open")
+
+    def _set_drawer(self, is_open: bool) -> None:
+        self.query_one("#drawer").set_class(is_open, "-open")
+
+    def action_toggle_drawer(self) -> None:
+        if self._drawer_open():
+            self._close_drawer()
+        else:
+            self._set_drawer(True)
+
+    def _close_drawer(self) -> None:
+        self._set_drawer(False)
+        self._focus_findings()
 
     def action_focus_filter(self) -> None:
         filter_inputs = self.query("#filter-input")
@@ -247,9 +280,31 @@ class SchemaComparatorApp(App):
             filter_inputs.first().focus()
 
     def action_focus_exclude_editor(self) -> None:
-        editors = self.query("#exclude-editor")
-        if editors:
-            editors.first().focus()
+        self._set_drawer(True)
+        self.query_one(ExcludeEditor).focus()
+
+    def action_show_help(self) -> None:
+        self.push_screen(HelpModal())
+
+    def action_request_quit(self) -> None:
+        def _leave(confirmed: bool | None) -> None:
+            if confirmed:
+                self.exit()
+
+        self.push_screen(QuitModal(), _leave)
+
+    def action_dismiss_open(self) -> None:
+        """Esc closes what is open, from the inside out; it never quits."""
+        focused = self.focused
+        if isinstance(focused, Input) and focused.id == "filter-input":
+            if focused.value:
+                focused.value = ""
+            else:
+                self._focus_findings()
+        elif self._drawer_open():
+            self._close_drawer()
+        else:
+            self.notify("Pulsa q para salir.", timeout=2)
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "filter-input":
@@ -259,6 +314,8 @@ class SchemaComparatorApp(App):
         if event.input.id == "exclude-editor":
             self._exclude_patterns = event.value.split()
             self.action_run_comparison()
+        elif event.input.id == "filter-input":
+            self._focus_findings()
 
     def watch_filter_text(self, filter_text: str) -> None:
         trees = self.query(FindingsTree)
@@ -270,24 +327,32 @@ class SchemaComparatorApp(App):
         if detail_panels:
             detail_panels.first().show(event.node.data)
 
+    def _set_busy(self, busy: bool) -> None:
+        self.query_one("#content").loading = busy
+
     def action_run_comparison(self) -> None:
         if not self._profiles:
-            self.query_one(StatusLog).error(
+            self._log_error(
                 "No hay perfiles cargados; no se puede ejecutar la comparación."
             )
             return
         self.query_one(StatusLog).info("Ejecutando comparación…")
+        self._set_busy(True)
         self._run_id += 1
         run_id = self._run_id
         self.run_worker(
             lambda: self._do_run_comparison(run_id), exclusive=True, thread=True
         )
 
-    def _log_info(self, message: str) -> None:
+    def _log_info(self, message: str, *, toast: str | None = None) -> None:
+        """Write to the log and raise a toast; `toast` replaces the toast text
+        when the log message is long."""
         self.query_one(StatusLog).info(message)
+        self.notify(toast or message, timeout=4)
 
     def _log_error(self, message: str) -> None:
         self.query_one(StatusLog).error(message)
+        self.notify(message, severity="error", timeout=10)
 
     def _do_run_comparison(self, run_id: int) -> None:
         # Worker thread: the UI is only touched through call_from_thread.
@@ -301,10 +366,18 @@ class SchemaComparatorApp(App):
             )
         except Exception as exc:
             self.call_from_thread(
-                self._log_error, f"Falló la comparación: {describe_error(exc)}"
+                self._report_run_failure,
+                f"Falló la comparación: {describe_error(exc)}",
+                run_id,
             )
             return
         self.call_from_thread(self._apply_new_result, new_result, run_id)
+
+    def _report_run_failure(self, message: str, run_id: int) -> None:
+        if run_id == self._run_id:
+            self._set_busy(False)
+            self._focus_findings()
+        self._log_error(message)
 
     def _apply_new_result(
         self, new_result: ComparisonResult, run_id: int | None = None
@@ -316,14 +389,22 @@ class SchemaComparatorApp(App):
         self._tree_data = build_tree_data(new_result)
         if had_findings != bool(self._tree_data.groups):
             self.query_one("#main-body, #no-drift-container").remove()
-            self.mount(self._body(), before="#bottom-container")
+            self.query_one("#content").mount(self._body())
             self.filter_text = ""
         else:
             trees = self.query(FindingsTree)
             if trees:
                 trees.first().populate(self._tree_data)
-        self.query_one(SummaryHeader).update(Text(header_text(new_result)))
-        self._log_info("Comparación actualizada.")
+        self.query_one(SummaryHeader).show(new_result)
+        self._set_busy(False)
+        self.call_after_refresh(self._focus_findings)
+        total = len(new_result.entries)
+        self._log_info(
+            "Comparación actualizada.",
+            toast=f"Comparación actualizada: {total} hallazgos."
+            if total
+            else "Comparación actualizada: sin diferencias.",
+        )
 
     def action_generate_reports(self) -> None:
         self.query_one(StatusLog).info("Generando reportes…")
@@ -333,11 +414,23 @@ class SchemaComparatorApp(App):
         buffer = io.StringIO()
         try:
             generate_all_reports(self._result, out=buffer)
-            self.call_from_thread(self._log_info, buffer.getvalue())
         except Exception as exc:
             self.call_from_thread(
                 self._log_error, f"Falló la generación de reportes: {exc}"
             )
+            return
+        self.call_from_thread(self._report_generated, buffer.getvalue())
+
+    def _report_generated(self, output: str) -> None:
+        self.query_one(StatusLog).info(output)
+        if "[ERROR]" in output:
+            self.notify(
+                "Algún reporte falló; revisa el registro (l).",
+                severity="warning",
+                timeout=8,
+            )
+        else:
+            self.notify("Reportes generados; las rutas están en el registro (l).")
 
     def action_open_decision_screen(self) -> None:
         from schema_comparator.tui.decision_screen import DecisionScreen
@@ -354,7 +447,7 @@ class SchemaComparatorApp(App):
 
         unsupported = unsupported_consolidation_profiles(self._profiles)
         if unsupported:
-            self.query_one(StatusLog).error(
+            self._log_error(
                 str(ConsolidationNotSupportedError.for_profiles(unsupported))
             )
             return
@@ -365,23 +458,22 @@ class SchemaComparatorApp(App):
             if isinstance(e, (ColumnMismatch, MissingColumn, MissingTable))
         ]
         if not relevant_entries:
-            self.query_one(StatusLog).info(
+            self._log_info(
                 "No hay diferencias de tablas, atributos o columnas para consolidar."
             )
             return
 
         def handle_decision_screen_result(result) -> None:
             if result is None:
-                self.query_one(StatusLog).info("Consolidación cancelada.")
+                self._log_info("Consolidación cancelada.")
             elif not result:
-                self.query_one(StatusLog).info(
-                    "Consolidación exitosa. No se generaron archivos SQL."
-                )
+                self._log_info("Consolidación exitosa. No se generaron archivos SQL.")
             else:
                 subfolder = Path(result[0]).parent.name
-                self.query_one(StatusLog).info(
+                self._log_info(
                     f"Consolidación exitosa. Scripts generados en 'scripts-db/{subfolder}/': "
-                    f"{', '.join(Path(f).name for f in result)}"
+                    f"{', '.join(Path(f).name for f in result)}",
+                    toast=f"Scripts generados en scripts-db/{subfolder}/",
                 )
 
         # Los scripts van al directorio de trabajo, igual que reportes/.

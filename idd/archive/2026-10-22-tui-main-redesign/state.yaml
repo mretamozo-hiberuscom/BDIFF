@@ -1,0 +1,246 @@
+{
+  "schema": "idd-state/v1",
+  "change": "tui-main-redesign",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "request": "quiero mejorar la TUI, quiero que hagas un UIUX agradable que sea facil de entender y manejar",
+    "kind": "feature",
+    "summary": "Rediseñar la pantalla principal de la TUI: tarjetas de resumen por tipo, árbol+detalle, cajón de excludes/log, barra de acciones, ayuda, símbolos Unicode sin emojis y módulo compartido de estilo",
+    "acceptance": "La pantalla principal muestra resumen por tipo, hallazgos y detalle, una barra de acciones visible con su significado, y excludes y log en un cajón plegable; ningún texto usa emojis; los atajos actuales siguen funcionando"
+  },
+  "facts": {
+    "coverage": [
+      {
+        "category": "inputs",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/tui/formatting.py",
+          "line": 155
+        }
+      },
+      {
+        "category": "uniqueness",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/tui/formatting.py",
+          "line": 47
+        }
+      },
+      {
+        "category": "persistence",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/tui/app.py",
+          "line": 204
+        }
+      },
+      {
+        "category": "copy",
+        "question": "¿El texto de la TUI usa tuteo (Selecciona) unificando el voseo actual (Seleccioná)?"
+      },
+      {
+        "category": "url-state",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/cli.py",
+          "line": 30
+        }
+      },
+      {
+        "category": "accessibility",
+        "question": "¿Esc cierra primero el cajón o el filtro y solo q sale de la app pidiendo confirmación, y se conservan e r v g d como alias de c, l y ?"
+      },
+      {
+        "category": "errors",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/tui/app.py",
+          "line": 289
+        }
+      }
+    ]
+  },
+  "plan": {
+    "paths": [
+      "README.md",
+      "src/schema_comparator/tui/app.py",
+      "src/schema_comparator/tui/formatting.py",
+      "src/schema_comparator/tui/modals.py",
+      "src/schema_comparator/tui/theme.py",
+      "src/schema_comparator/tui/widgets.py",
+      "tests/unit/tui/test_app.py",
+      "tests/unit/tui/test_formatting.py",
+      "tests/unit/tui/test_widgets.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "component presentation: ADR 0001, 0006 and quality scenario mutation-requires-confirmation, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "conforms",
+      "reason": "Solo cambia la capa de presentación; la TUI sigue invocando casos de uso (run_comparison) sin importar infraestructura nueva"
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "none",
+      "reason": "La pantalla principal no toca la recompilación de rutinas; su modal y confirmación no cambian"
+    },
+    {
+      "kind": "scenario",
+      "id": "mutation-requires-confirmation",
+      "impact": "none",
+      "reason": "Sin cambios en la validación ni recompilación de rutinas"
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "conforms",
+      "reason": "Los errores siguen pasando por describe_error antes de mostrarse en el log"
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "conforms",
+      "reason": "Se retiran los emojis y se usa Unicode simple, más seguro en consolas Windows"
+    }
+  ],
+  "attestations": [
+    {
+      "kind": "adr",
+      "id": "0006",
+      "evidence": "grep de '.commit()' en src: única llamada en sqlserver/sp_validator.py:360; tests/unit/test_cli_robustness.py::test_refresh_without_yes_fails_before_loading_profiles cubre la bandera sin confirmación. Esta change no toca ninguno de los dos.",
+      "recorded_at": "2026-10-22T08:45:41.130Z"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "open-facts",
+      "status": "resolved",
+      "answer": "Esc cierra primero cajón o filtro y q pide confirmación; e r v g d siguen como alias de c, l y ?; tuteo neutro en todo el texto de la TUI",
+      "source": "user"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-22T08:45:34.134Z",
+      "detail": {
+        "tree": "sha256:88b711830adee0cf50883b9afe47900a55256bf32110711b84e73074b3fb82be",
+        "runs": [
+          "run-1",
+          "run-2"
+        ]
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-22T08:45:34.134Z",
+      "detail": {
+        "refs": [
+          "adr:0001 conforms",
+          "adr:0006 none",
+          "scenario:mutation-requires-confirmation none",
+          "scenario:secret-safety conforms",
+          "scenario:windows-first-run conforms"
+        ],
+        "records": []
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-22T08:46:38.834Z",
+      "detail": {
+        "tree": "sha256:88b711830adee0cf50883b9afe47900a55256bf32110711b84e73074b3fb82be",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    }
+  ],
+  "base": "ba4d27b30eac7d3cccc010f0aa677072808f0255",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:c60d4ff2d2489eaa2412d26a2f9cdf12aeaea381d12ce2c1c890b4b2fabb49f8",
+      "tree": "sha256:88b711830adee0cf50883b9afe47900a55256bf32110711b84e73074b3fb82be",
+      "recorded_at": "2026-10-22T08:45:34.134Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:fd9c9c50df06e0193e1fa3d5250e65887770c512d3f45c2148ca0da4475a7d20",
+      "tree": "sha256:88b711830adee0cf50883b9afe47900a55256bf32110711b84e73074b3fb82be",
+      "recorded_at": "2026-10-22T08:45:34.134Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:2fbb55527094c968847649ac99a8edf04853e59dc5e5108df2afb8aeadc03815",
+      "tree": "sha256:88b711830adee0cf50883b9afe47900a55256bf32110711b84e73074b3fb82be",
+      "recorded_at": "2026-10-22T08:46:38.834Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:fd9c9c50df06e0193e1fa3d5250e65887770c512d3f45c2148ca0da4475a7d20",
+      "tree": "sha256:88b711830adee0cf50883b9afe47900a55256bf32110711b84e73074b3fb82be",
+      "recorded_at": "2026-10-22T08:46:38.834Z"
+    }
+  ],
+  "closed_at": "2026-10-22T08:46:44.509Z"
+}

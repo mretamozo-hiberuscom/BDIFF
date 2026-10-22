@@ -5,8 +5,11 @@ No Textual imports and no widget/App state — every function here takes a
 strings, so this module is testable without the `Pilot` harness.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import groupby
+
+from rich.markup import escape
 
 from schema_comparator.compare.models import (
     ColumnMismatch,
@@ -20,6 +23,7 @@ from schema_comparator.compare.models import (
 from schema_comparator.domain.comparison.models import column_label, object_label
 from schema_comparator.report.attributes import format_attributes
 from schema_comparator.report.console import _TYPE_LABELS
+from schema_comparator.tui.theme import SEPARATOR, count_label, kind_style, OK
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,23 +60,36 @@ def build_tree_data(result: ComparisonResult) -> TreeData:
     return TreeData(groups=tuple(groups))
 
 
-def leaf_label(entry: DiffEntry) -> str:
-    """Format leaf label text for tree view."""
+def leaf_parts(entry: DiffEntry) -> tuple[str, str]:
+    """A leaf split into its subject (column or routine, empty for a table)
+    and what is wrong with it."""
     if isinstance(entry, MissingTable):
-        return f"tabla faltante (de {entry.missing_from_profile})"
+        return "", f"tabla faltante (de {entry.missing_from_profile})"
     if isinstance(entry, MissingColumn):
-        return (
-            f"{column_label(entry)}: columna faltante (de {entry.missing_from_profile})"
-        )
+        return column_label(
+            entry
+        ), f"columna faltante (de {entry.missing_from_profile})"
     if isinstance(entry, MissingProcedure):
-        return f"{entry.procedure_name}: rutina/SP faltante (de {entry.missing_from_profile})"
+        return (
+            entry.procedure_name,
+            f"rutina/SP faltante (de {entry.missing_from_profile})",
+        )
     if isinstance(entry, ProcedureMismatch):
         profiles = ", ".join(p for p, _ in entry.values_by_profile)
-        return f"{entry.procedure_name}: discrepancia de código o parámetros entre {profiles}"
+        return (
+            entry.procedure_name,
+            f"discrepancia de código o parámetros entre {profiles}",
+        )
     if isinstance(entry, ColumnMismatch):
         profiles = ", ".join(p for p, _ in entry.values_by_profile)
-        return f"{column_label(entry)}: discrepancia de atributos entre {profiles}"
-    return f"{type(entry).__name__}"
+        return column_label(entry), f"discrepancia de atributos entre {profiles}"
+    return "", f"{type(entry).__name__}"
+
+
+def leaf_label(entry: DiffEntry) -> str:
+    """Format leaf label text for tree view."""
+    subject, description = leaf_parts(entry)
+    return f"{subject}: {description}" if subject else description
 
 
 def _column_heading(entry: MissingColumn | ColumnMismatch) -> str:
@@ -164,3 +181,140 @@ def entry_matches(entry: DiffEntry, filter_text: str) -> bool:
     elif isinstance(entry, (MissingProcedure, ProcedureMismatch)):
         haystacks.append(entry.procedure_name)
     return any(needle in haystack.lower() for haystack in haystacks)
+
+
+def profiles_markup(result: ComparisonResult) -> str:
+    """Rich markup naming the compared profiles."""
+    names = f" {SEPARATOR} ".join(escape(p) for p in result.compared_profiles)
+    return f"{len(result.compared_profiles)} perfiles: {names}"
+
+
+def summary_markup(result: ComparisonResult) -> str:
+    """Rich markup with one coloured chip per kind of finding, or the
+    all-clear when there is none."""
+    counts = header_counts(result)
+    chips = [
+        f"[{kind_style(t).color}]{kind_style(t).symbol}[/] "
+        f"[bold]{count_label(n, kind_style(t))}[/bold]"
+        for t, n in counts.items()
+        if n > 0
+    ]
+    if not chips:
+        return f"[green]{OK}[/] [bold]Sin diferencias[/bold]"
+    objects = len({entry.qualified_name for entry in result.entries})
+    chips.append(
+        f"[dim]{SEPARATOR} {len(result.entries)} hallazgos en {objects} objetos[/dim]"
+    )
+    return "   ".join(chips)
+
+
+def _group_equal(pairs: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Merge profiles that share the same text: `("a, c", text)`."""
+    grouped: dict[str, list[str]] = {}
+    for profile, text in pairs:
+        grouped.setdefault(text, []).append(profile)
+    return [(", ".join(profiles), text) for text, profiles in grouped.items()]
+
+
+def _definition_lines(pairs: Iterable[tuple[str, str]]) -> list[str]:
+    return [
+        f"  [bold]{escape(profiles)}:[/bold] [green]{escape(text)}[/]"
+        for profiles, text in _group_equal(pairs)
+    ]
+
+
+def _routine_text(snapshot) -> str:
+    params = (
+        ", ".join(f"{p.name} {p.data_type}" for p in snapshot.parameters)
+        or "sin parámetros"
+    )
+    return f"{snapshot.routine_type} ({params})"
+
+
+def _field(label: str, value: str, color: str | None = None) -> str:
+    shown = f"[{color}]{escape(value)}[/]" if color else escape(value)
+    return f"[bold]{label}[/bold] {shown}"
+
+
+def detail_markup(entry: DiffEntry) -> str:
+    """Rich markup card of one finding. Profiles that share a definition
+    are listed together, so a 2-against-1 split reads at a glance."""
+    style = kind_style(entry)
+    title = f"[bold {style.color}]{style.symbol} {style.singular.capitalize()}[/]"
+    lines = [title, ""]
+
+    if isinstance(entry, ColumnMismatch):
+        lines.append(_field("Tabla  ", object_label(entry)))
+        lines.append(_field("Columna", column_label(entry), style.color))
+        definitions = _definition_lines(
+            (profile, format_attributes(attrs))
+            for profile, attrs in entry.values_by_profile
+        )
+        lines += ["", f"[bold underline]Definiciones distintas ({len(definitions)})[/]"]
+        lines += definitions
+        hint = "Pulsa [bold]c[/bold] para decidir cuál es la correcta."
+    elif isinstance(entry, MissingColumn):
+        lines.append(_field("Tabla  ", object_label(entry)))
+        lines.append(_field("Columna", column_label(entry), style.color))
+        lines.append(_field("Falta en", entry.missing_from_profile, "red"))
+        lines += ["", "[bold underline]Existe en[/]"]
+        lines += _definition_lines(
+            (profile, format_attributes(attrs))
+            for profile, attrs in entry.present_attributes
+        )
+        hint = "Pulsa [bold]c[/bold] para agregarla o eliminarla."
+    elif isinstance(entry, MissingTable):
+        lines.append(_field("Tabla  ", object_label(entry), style.color))
+        lines.append(_field("Falta en", entry.missing_from_profile, "red"))
+        lines += ["", "[bold underline]Existe en[/]"]
+        lines += _definition_lines(
+            (profile, f"{len(columns)} columnas")
+            for profile, columns in entry.present_columns
+        )
+        hint = "Pulsa [bold]c[/bold] para crearla o eliminarla."
+    elif isinstance(entry, MissingProcedure):
+        lines.append(_field("Rutina ", object_label(entry), style.color))
+        lines.append(_field("Falta en", entry.missing_from_profile, "red"))
+        lines += ["", "[bold underline]Existe en[/]"]
+        lines += _definition_lines(
+            (profile, _routine_text(snapshot))
+            for profile, snapshot in entry.present_procedures
+        )
+        hint = "Pulsa [bold]v[/bold] para validar y reparar rutinas."
+    elif isinstance(entry, ProcedureMismatch):
+        lines.append(_field("Rutina ", object_label(entry), style.color))
+        lines += ["", "[bold underline]Definiciones distintas[/]"]
+        lines += _definition_lines(
+            (
+                profile,
+                f"{_routine_text(snapshot)} | hash "
+                f"{snapshot.definition_hash[:10] if snapshot.definition_hash else 'sin hash'}",
+            )
+            for profile, snapshot in entry.values_by_profile
+        )
+        hint = "Pulsa [bold]v[/bold] para validar y reparar rutinas."
+    else:
+        lines.append(_field("Objeto ", object_label(entry)))
+        hint = ""
+
+    if hint:
+        lines += ["", f"[dim]{hint}[/dim]"]
+    return "\n".join(lines)
+
+
+def group_markup(group: TableGroup) -> str:
+    """Rich markup card of every finding of one table or routine."""
+    lines = [
+        f"[bold]{escape(group.qualified_label)}[/bold]",
+        f"[dim]{len(group.entries)} hallazgos[/dim]",
+        "",
+    ]
+    for entry in group.entries:
+        style = kind_style(entry)
+        subject, description = leaf_parts(entry)
+        subject_markup = f"[bold]{escape(subject)}[/bold]: " if subject else ""
+        lines.append(
+            f"[{style.color}]{style.symbol}[/] {subject_markup}{escape(description)}"
+        )
+    lines += ["", "[dim]Elige uno para ver su detalle.[/dim]"]
+    return "\n".join(lines)

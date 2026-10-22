@@ -54,6 +54,8 @@ async def test_tui_does_not_open_consolidation_for_other_engines() -> None:
         await pilot.pause()
 
         assert not isinstance(app.screen, DecisionScreen)
+        await pilot.press("l")
+        await pilot.pause()
         log = app.query_one(StatusLog)
         assert any(
             "solo está disponible para SQL Server" in str(line) for line in log.lines
