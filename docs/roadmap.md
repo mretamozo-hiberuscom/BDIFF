@@ -76,7 +76,7 @@ común vive en `tui/theme.py` y `tui/modals.py`).
 |---|---|---|
 | 1 | `tui-main-redesign`: resumen por tipo, árbol y detalle, cajón de exclusiones y registro, ayuda | Hecho (PR #24) |
 | 2 | `tui-consolidation-redesign`: formulario de decisiones con resumen y avance por tabla; incluye las propuestas 1 y 2 (confirmación de `DROP` con `ConfirmModal`, destinos limitados) | Hecho |
-| 3 | `tui-routines-redesign`: pantalla de rutinas (`v`) con el mismo estilo | Pendiente |
+| 3 | `tui-routines-redesign`: pantalla de rutinas (`v`) con resumen, detalle por rutina, `ConfirmModal` con el conteo real de rutinas recompilables y ayuda `?` | Hecho |
 
 ## Próximas propuestas — por este orden
 
