@@ -7,6 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from rich.markup import escape
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
@@ -21,25 +22,34 @@ from textual.widgets import (
     RadioButton,
     RadioSet,
     SelectionList,
+    Static,
 )
 
 from schema_comparator.compare.consolidation import ColumnAction, TableAction
-from schema_comparator.compare.models import ColumnMismatch
+from schema_comparator.compare.models import (
+    ColumnMismatch,
+    DiffEntry,
+    MissingColumn,
+    MissingTable,
+)
 from schema_comparator.config.models import ConnectionProfile
-from schema_comparator.compare.models import DiffEntry
 from schema_comparator.report.attributes import format_attributes
 from schema_comparator.tui.decision_model import (
     ColumnOptions,
     DecisionEntry,
+    DropItem,
     MergedMissingColumn,
     MergedMissingTable,
     build_resolutions,
     default_destinations,
     destination_choices,
+    drops_in,
     group_findings,
     may_lose_data,
     needs_fill_value,
 )
+from schema_comparator.tui.modals import ConfirmModal
+from schema_comparator.tui.theme import FAIL, OK, SEPARATOR, kind_style
 
 __all__ = [
     "ColumnResolutionWidget",
@@ -47,6 +57,38 @@ __all__ = [
     "MergedMissingColumn",
     "MergedMissingTable",
 ]
+
+
+_KIND_OF_CARD = {
+    MergedMissingTable: MissingTable,
+    MergedMissingColumn: MissingColumn,
+    ColumnMismatch: ColumnMismatch,
+}
+
+
+def _card_symbol(entry: DecisionEntry) -> Text:
+    """The symbol of the kind of finding a card resolves, in its colour."""
+    style = kind_style(_KIND_OF_CARD[type(entry)])
+    return Text(f"{style.symbol} ", style=f"bold {style.color}")
+
+
+def _plural(count: int, singular: str, plural: str) -> str:
+    return f"{count} {singular if count == 1 else plural}"
+
+
+def _drops_markup(drops: tuple[DropItem, ...]) -> str:
+    lines = [
+        f"  [red]{FAIL}[/] {escape(item.kind)} [bold]{escape(item.name)}[/bold]"
+        f" en {escape(', '.join(item.profiles))}"
+        for item in drops
+    ]
+    return (
+        "El script va a eliminar:\n"
+        + "\n".join(lines)
+        + "\n\nAntes de cada DROP copia los datos a un respaldo en el esquema"
+        " [bold]bdiff_respaldo[/bold] y genera un script de deshacer."
+        " BDIFF no ejecuta nada: revisa los scripts antes de aplicarlos."
+    )
 
 
 def _fill_destinations(
@@ -73,6 +115,7 @@ class DecisionScreen(Screen):
         background: $panel;
     }
     #decision-title {
+        width: 100%;
         text-align: center;
         background: $primary;
         color: $text;
@@ -81,12 +124,18 @@ class DecisionScreen(Screen):
         content-align: center middle;
         border-bottom: tall $primary-darken-2;
     }
+    #decision-summary {
+        height: 1;
+        padding: 0 2;
+        background: $surface-darken-1;
+        color: $text-muted;
+    }
     #decision-body {
         layout: horizontal;
         height: 1fr;
     }
     #left-panel {
-        width: 35%;
+        width: 40%;
         height: 100%;
         border-right: tall $primary-darken-1;
     }
@@ -98,7 +147,7 @@ class DecisionScreen(Screen):
         border: double $accent;
     }
     #right-panel {
-        width: 65%;
+        width: 60%;
         height: 100%;
         padding: 1 2;
         background: $surface;
@@ -163,6 +212,7 @@ class DecisionScreen(Screen):
         self.repo_root = repo_root
         self.profile_names = tuple(p.name for p in self.profiles)
         self.table_by_id: dict[str, str] = {}
+        self._table_labels: dict[str, Label] = {}
 
         # One decision card per merged finding; every decision starts as
         # (None, ()) — "do nothing" — until the user picks a target.
@@ -177,18 +227,22 @@ class DecisionScreen(Screen):
     def compose(self) -> ComposeResult:
         with Container(id="decision-container"):
             yield Label(
-                "Fase de Decisiones: Consolidación de Esquemas", id="decision-title"
+                "Consolidar esquemas: decide qué corregir y genera los scripts",
+                id="decision-title",
             )
+            yield Static("", id="decision-summary")
             with Container(id="decision-body"):
                 with Vertical(id="left-panel"):
-                    yield Label("Tablas con discrepancias", classes="panel-title")
+                    yield Label("Tablas", classes="panel-title")
                     yield ListView(id="findings-list")
                 with Vertical(id="right-panel"):
                     yield Label(
-                        "Selecciona una tabla de la lista", id="empty-state-label"
+                        "Elige una tabla de la lista para decidir cada hallazgo.\n"
+                        "Marca la definición correcta y los perfiles donde aplicarla.",
+                        id="empty-state-label",
                     )
             with Horizontal(id="footer-panel"):
-                yield Button("Cancelar [Esc]", variant="error", id="btn-cancel")
+                yield Button("Cancelar [Esc]", variant="default", id="btn-cancel")
                 yield Button(
                     "Verificar SPs [V]",
                     variant="default",
@@ -204,19 +258,51 @@ class DecisionScreen(Screen):
 
     def on_mount(self) -> None:
         self.populate_list()
+        self.refresh_status()
+
+    def _is_decided(self, card: DecisionEntry) -> bool:
+        target, destinations = self.decisions.get(card, (None, ()))
+        return target is not None and bool(destinations)
+
+    def _table_label(self, tbl_key: str) -> Text:
+        cards = self.display_groups[tbl_key]
+        decided = sum(self._is_decided(card) for card in cards)
+        label = Text()
+        label.append(f"{OK} " if decided else "  ", style="bold green")
+        label.append(tbl_key, style="bold")
+        label.append(
+            f"  {SEPARATOR} {_plural(len(cards), 'hallazgo', 'hallazgos')}",
+            style="dim",
+        )
+        return label
+
+    def refresh_status(self) -> None:
+        """Re-draw the table list and the summary line from the decisions."""
+        for item_id, tbl_key in self.table_by_id.items():
+            self._table_labels[item_id].update(self._table_label(tbl_key))
+        total = sum(len(cards) for cards in self.display_groups.values())
+        decided = sum(self._is_decided(card) for card in self.decisions)
+        drops = len(drops_in(self._resolutions()))
+        summary = f"{decided} de {total} hallazgos con decisión"
+        if drops:
+            summary += f"  {SEPARATOR}  {drops} DROP"
+        self.query_one("#decision-summary", Static).update(summary)
+
+    def _resolutions(self):
+        return build_resolutions(self.decisions, self.column_options)
 
     def populate_list(self) -> None:
         list_view = self.query_one("#findings-list", ListView)
         list_view.clear()
         self.table_by_id.clear()
+        self._table_labels.clear()
 
         for i, tbl_key in enumerate(self.table_keys):
-            entries = self.display_groups[tbl_key]
-            title = f" 📋 {tbl_key} ({len(entries)} hallazgo{'s' if len(entries) > 1 else ''})"
             item_id = f"table-item-{i}"
-            item = ListItem(Label(escape(title)), id=item_id)
-            list_view.append(item)
+            label = Label(self._table_label(tbl_key))
+            list_view.append(ListItem(label, id=item_id))
             self.table_by_id[item_id] = tbl_key
+            self._table_labels[item_id] = label
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if event.item and event.item.id in self.table_by_id:
@@ -230,7 +316,7 @@ class DecisionScreen(Screen):
         # Header title for selected table
         right_panel.mount(
             Label(
-                f"[bold underline]Consolidación de Tabla:[/bold underline] [cyan]{escape(tbl_key)}[/cyan]",
+                Text.assemble(("Tabla  ", "dim"), (tbl_key, "bold cyan")),
                 classes="table-header-title",
             )
         )
@@ -249,7 +335,25 @@ class DecisionScreen(Screen):
             self.action_generate_sql()
 
     def action_back(self) -> None:
-        self.dismiss(None)
+        if not any(self._is_decided(card) for card in self.decisions):
+            self.dismiss(None)
+            return
+
+        def discard(confirmed: bool | None) -> None:
+            if confirmed:
+                self.dismiss(None)
+
+        self.app.push_screen(
+            ConfirmModal(
+                "¿Descartar las decisiones?",
+                "Has marcado correcciones que todavía no se han generado."
+                " Si sales ahora se pierden.",
+                confirm_label="Descartar",
+                cancel_label="Seguir decidiendo",
+                severity="warning",
+            ),
+            discard,
+        )
 
     def action_open_sp_verification(self) -> None:
         from schema_comparator.tui.procedure_screen import ProcedureVerificationScreen
@@ -264,15 +368,37 @@ class DecisionScreen(Screen):
         )
 
     def action_generate_sql(self) -> None:
-        from schema_comparator.compare.consolidation import write_sql_scripts
-
-        resolutions = build_resolutions(self.decisions, self.column_options)
+        resolutions = self._resolutions()
         if resolutions.is_empty():
             self.app.notify(
                 "No se seleccionó ninguna corrección para generar SQL.",
                 severity="warning",
             )
             return
+
+        drops = drops_in(resolutions)
+        if not drops:
+            self._write_scripts(resolutions)
+            return
+
+        def generate(confirmed: bool | None) -> None:
+            if confirmed:
+                self._write_scripts(resolutions)
+
+        self.app.push_screen(
+            ConfirmModal(
+                "¿Generar scripts con DROP?",
+                _drops_markup(drops),
+                confirm_label="Generar",
+                cancel_label="Cancelar",
+                severity="danger",
+                focus_cancel=True,
+            ),
+            generate,
+        )
+
+    def _write_scripts(self, resolutions) -> None:
+        from schema_comparator.compare.consolidation import write_sql_scripts
 
         try:
             generated_files = write_sql_scripts(
@@ -358,6 +484,19 @@ class ColumnResolutionWidget(Container):
 
         return options
 
+    def _destination_title(self, target: object) -> str:
+        if isinstance(self.entry, MergedMissingTable):
+            return (
+                "[bold]Eliminar tabla en:[/bold]"
+                if target is TableAction.DROP
+                else "[bold]Crear tabla en:[/bold]"
+            )
+        return (
+            "[bold]Eliminar columna en:[/bold]"
+            if target is ColumnAction.DROP
+            else "[bold]Aplicar corrección en:[/bold] (Espacio marca o desmarca)"
+        )
+
     def _radio_set(self, target: object) -> RadioSet:
         active_index = len(self.options) - 1
         for i, (value, _) in enumerate(self.options):
@@ -377,7 +516,7 @@ class ColumnResolutionWidget(Container):
         selection_list = SelectionList(classes="profile-selection-list")
         _fill_destinations(
             selection_list,
-            destination_choices(self.entry, target, self.decision_screen.profile_names),
+            destination_choices(self.entry, target),
             selected_profiles,
         )
         selection_list.disabled = target is None
@@ -410,10 +549,7 @@ class ColumnResolutionWidget(Container):
                     yield Label(f"[dim]Columnas: {col_preview}[/dim]")
 
             yield Label(
-                "[bold]Eliminar tabla en:[/bold]"
-                if target is TableAction.DROP
-                else "[bold]Crear tabla en:[/bold]",
-                classes="dest-label",
+                self._destination_title(target), classes="dest-label dest-title"
             )
             yield self._selection_list(target, selected_profiles)
             return
@@ -432,12 +568,7 @@ class ColumnResolutionWidget(Container):
 
         yield Label("[bold]Seleccionar definición correcta:[/bold]")
         yield self._radio_set(target)
-        yield Label(
-            "[bold]Eliminar columna en:[/bold]"
-            if target is ColumnAction.DROP
-            else "[bold]Aplicar corrección en:[/bold] (Presiona [Espacio] para marcar/desmarcar)",
-            classes="dest-label",
-        )
+        yield Label(self._destination_title(target), classes="dest-label dest-title")
         yield self._selection_list(target, selected_profiles)
 
         options = self.decision_screen.column_options.get(self.entry, ColumnOptions())
@@ -498,23 +629,26 @@ class ColumnResolutionWidget(Container):
             return
 
         target, _ = self.options[idx]
+        self.query_one(".dest-title", Label).update(self._destination_title(target))
         selection_list = self.query_one(SelectionList)
         if target is None:
             selection_list.disabled = True
             selection_list.deselect_all()
             self.decision_screen.decisions[self.entry] = (None, ())
             self._refresh_data_controls(None, ())
+            self.decision_screen.refresh_status()
             return
 
         defaults = default_destinations(self.entry, target)
         selection_list.disabled = False
         _fill_destinations(
             selection_list,
-            destination_choices(self.entry, target, self.decision_screen.profile_names),
+            destination_choices(self.entry, target),
             defaults,
         )
         self.decision_screen.decisions[self.entry] = (target, defaults)
         self._refresh_data_controls(target, defaults)
+        self.decision_screen.refresh_status()
 
     def handle_selection_change(self, selected_items: list[str]) -> None:
         """Handle selected profiles changes from the selection list."""
@@ -523,3 +657,4 @@ class ColumnResolutionWidget(Container):
             target, _ = decision
             self.decision_screen.decisions[self.entry] = (target, tuple(selected_items))
             self._refresh_data_controls(target, tuple(selected_items))
+            self.decision_screen.refresh_status()
