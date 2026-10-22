@@ -1,0 +1,204 @@
+{
+  "schema": "idd-state/v1",
+  "change": "tui-routines-redesign",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "request": "quiero mejorar la TUI, BDIFF hace muchas cosas, quiero que hagas un UIUX agradable que sea facil de entender y manejar",
+    "kind": "feature",
+    "summary": "Rediseñar la pantalla de rutinas (v) de la TUI con el estilo común: ConfirmModal, símbolos sin emojis, resumen y estados claros",
+    "acceptance": "La pantalla de rutinas usa theme/ConfirmModal, muestra un resumen de resultados, avisa con la cantidad real de rutinas a recompilar y mantiene las tres operaciones (validar, recompilar, guardar script) sin ejecutar cambios sin confirmación"
+  },
+  "facts": {
+    "coverage": [
+      {
+        "category": "inputs",
+        "question": "¿Se mantiene una sola tabla o se pasa a resumen por perfil + detalle? ¿Se añade filtro «solo problemas» y la tecla ? de ayuda a las teclas v, r, s y Esc?"
+      },
+      {
+        "category": "uniqueness",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/tui/procedure_screen.py",
+          "line": 264
+        }
+      },
+      {
+        "category": "persistence",
+        "question": "¿Generar script (s) pide confirmación o solo avisa de la carpeta scripts-db/<fecha>/repair_sps, y usa el resultado de recompilar cuando existe?"
+      },
+      {
+        "category": "copy",
+        "cite": {
+          "kind": "request",
+          "text": "UIUX agradable que sea facil de entender y manejar"
+        }
+      },
+      {
+        "category": "url-state",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/tui/app.py",
+          "line": 500
+        }
+      },
+      {
+        "category": "accessibility",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/tui/theme.py",
+          "line": 23
+        }
+      },
+      {
+        "category": "errors",
+        "question": "El modal dice «N rutinas no firmadas» pero N cuenta todas las validadas, incluidas firmadas y fallos de conexión: ¿contar solo las recompilables y avisar cuántas se omiten? ¿Foco inicial en Confirmar o en Cancelar? ¿La validación sigue lanzándose sola al abrir (conecta a las bases)?"
+      }
+    ]
+  },
+  "plan": {
+    "paths": [
+      "docs/roadmap.md",
+      "src/schema_comparator/tui/modals.py",
+      "src/schema_comparator/tui/procedure_screen.py",
+      "tests/unit/tui/test_procedure_screen.py",
+      "tests/unit/tui/test_tui_state.py"
+    ],
+    "work_units": 1,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "component presentation: ADR 0001, 0006 and quality scenario mutation-requires-confirmation, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "conforms",
+      "reason": "Solo cambia la capa de presentación (tui/); la lógica de recompilación sigue en infrastructure y no se importa nada nuevo hacia el dominio."
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "conforms",
+      "reason": "La recompilación sigue exigiendo ConfirmModal antes de abrir conexiones; el modal pasa a mostrar el conteo real de rutinas recompilables."
+    },
+    {
+      "kind": "scenario",
+      "id": "mutation-requires-confirmation",
+      "impact": "conforms",
+      "reason": "Ninguna escritura sin confirmación explícita: se conserva y se prueba la confirmación."
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "conforms",
+      "reason": "Los errores por perfil se siguen mostrando escapados y sin cadena de conexión."
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "none",
+      "reason": "Sin cambios de consola ni codificación; solo símbolos Unicode ya usados en la TUI."
+    }
+  ],
+  "attestations": [
+    {
+      "kind": "adr",
+      "id": "0006",
+      "evidence": "grep de '.commit()' en src: única llamada en sqlserver/sp_validator.py:360, solo alcanzable vía refresh_modules_mutating, que la pantalla invoca únicamente tras ConfirmModal (test_recompile_runs_only_after_explicit_confirmation y ..._cancel_is_the_default). tests/unit/test_cli_robustness.py:27 cubre --refresh-modules sin --yes.",
+      "recorded_at": "2026-10-22T10:03:36.193Z"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "open-facts",
+      "status": "resolved",
+      "answer": "Resumen+tabla+detalle; recompilar cuenta solo recompilables con foco en Cancelar; validación automática al abrir; script sin confirmación con ruta persistente y ayuda ?, sin filtro",
+      "source": "user"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-22T10:03:18.337Z",
+      "detail": {
+        "tree": "sha256:0950535302e70c46acd31588ccb9585fa5f61a914e0c6747399fbca30fb6d59b",
+        "runs": [
+          "run-1",
+          "run-2"
+        ]
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-22T10:03:18.337Z",
+      "detail": {
+        "refs": [
+          "adr:0001 conforms",
+          "adr:0006 conforms",
+          "scenario:mutation-requires-confirmation conforms",
+          "scenario:secret-safety conforms",
+          "scenario:windows-first-run none"
+        ],
+        "records": []
+      }
+    }
+  ],
+  "base": "0191a8505c9b48ef468c85296d885587c321a58e",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:979515abd4861a431155b0d74e6d9a8889df9b4cd4514bf745e9ca0da3c1013e",
+      "tree": "sha256:0950535302e70c46acd31588ccb9585fa5f61a914e0c6747399fbca30fb6d59b",
+      "recorded_at": "2026-10-22T10:03:18.337Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:6a7101492bc6beb7249d9886f667f8c85c5324acad1791552da89545bbeccc63",
+      "tree": "sha256:0950535302e70c46acd31588ccb9585fa5f61a914e0c6747399fbca30fb6d59b",
+      "recorded_at": "2026-10-22T10:03:18.337Z"
+    }
+  ],
+  "closed_at": "2026-10-22T10:03:40.665Z"
+}
