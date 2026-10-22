@@ -49,7 +49,7 @@ async def test_tree_and_detail_panel_show_identifiers_literally() -> None:
     async with app.run_test() as pilot:
         tree = app.query_one(FindingsTree)
         group = tree.root.children[0]
-        assert group.label.plain == f"dbo.{_TABLE}"
+        assert group.label.plain == f"dbo.{_TABLE}  (1)"
         leaf = group.children[0]
         assert _COLUMN in leaf.label.plain
         assert "qa[/red]" in leaf.label.plain
@@ -67,6 +67,7 @@ async def test_status_log_shows_messages_literally() -> None:
     app = SchemaComparatorApp(_result(), profiles=_profiles())
 
     async with app.run_test() as pilot:
+        await pilot.press("l")
         log = app.query_one(StatusLog)
         log.error("Falló [/bold] algo")
         log.info("Ruta reportes/[x]")

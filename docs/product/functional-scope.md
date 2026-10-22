@@ -24,9 +24,10 @@
 **Explorar y consolidar (TUI)**
 
 - Con `--tui` en una terminal interactiva, el desarrollador navega los
-  hallazgos, filtra, re-ejecuta (`r`), genera reportes (`g`), decide la
-  consolidación (`d`) y obtiene scripts T-SQL e `impact_report.md` en
-  `scripts-db/<timestamp>/`.
+  hallazgos, filtra (`/`), excluye tablas (`e`), re-ejecuta (`r`), genera
+  reportes (`g`), decide la consolidación (`c`, antes `d`) y obtiene scripts
+  T-SQL e `impact_report.md` en `scripts-db/<timestamp>/`. `Esc` cierra lo
+  abierto y `q` sale con confirmación; `?` muestra la ayuda.
 
 **Validar y reparar rutinas (SQL Server)**
 

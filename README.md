@@ -75,6 +75,26 @@ Códigos de salida: `0` sin diferencias, `1` con diferencias o fallos de
 validación, `2` error o uso incorrecto (p. ej. `--refresh-modules` sin
 `--yes`, que se rechaza antes de conectar).
 
+## Interfaz interactiva (TUI)
+
+`--tui` abre un panel con el resumen por tipo de hallazgo arriba, los
+hallazgos agrupados por tabla a la izquierda y el detalle del seleccionado a
+la derecha. Las exclusiones y el registro de actividad están en un cajón que
+se abre con `e` o `l`. Pulsa `?` para ver la ayuda dentro de la aplicación.
+
+| Tecla | Acción |
+|---|---|
+| `↑` `↓` | Recorre los hallazgos. |
+| `/` | Filtra por tabla, columna o tipo de diferencia. |
+| `c` | Consolidar: decide qué corregir y genera los scripts (antes `d`, que sigue funcionando). |
+| `r` | Recompara con las exclusiones actuales. |
+| `e` | Abre el cajón para excluir tablas; `Enter` recompara. |
+| `l` | Abre o cierra el registro de actividad. |
+| `g` | Genera los reportes HTML, PDF y Excel. |
+| `v` | Valida y repara rutinas (SQL Server). |
+| `Esc` | Cierra lo que esté abierto (filtro, cajón); no sale de la aplicación. |
+| `q` | Sale, pidiendo confirmación. |
+
 ## Salidas
 
 - `reportes/<AAAAMMDD_HHMMSS>/schema-diff-report-<ts>.{html,pdf,xlsx}`.

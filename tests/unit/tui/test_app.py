@@ -34,10 +34,10 @@ async def test_app_shows_header_with_profiles_and_counts() -> None:
         header = app.query_one(SummaryHeader)
         rendered = str(header.render())
 
-    assert "a, b, c" in rendered
-    assert "Tablas faltantes: 1" in rendered
-    assert "Columnas faltantes: 1" in rendered
-    assert "Discrepancias de columnas: 1" in rendered
+    assert "a · b · c" in rendered
+    assert "1 tabla faltante" in rendered
+    assert "1 columna faltante" in rendered
+    assert "1 discrepancia de columna" in rendered
 
 
 @pytest.mark.asyncio
@@ -59,7 +59,7 @@ async def test_app_tree_shows_one_group_per_table() -> None:
         tree = app.query_one(FindingsTree)
         labels = [str(child.label) for child in tree.root.children]
 
-    assert labels == ["sales.Invoice", "sales.Payment"]
+    assert labels == ["sales.Invoice  (2)", "sales.Payment  (1)"]
 
 
 @pytest.mark.asyncio
@@ -90,7 +90,7 @@ async def test_app_collapsing_group_hides_findings_keeps_header() -> None:
         await pilot.pause()
 
         assert not invoice_group.is_expanded
-        assert str(invoice_group.label) == "sales.Invoice"
+        assert str(invoice_group.label) == "sales.Invoice  (2)"
 
 
 @pytest.mark.asyncio
@@ -103,7 +103,7 @@ async def test_app_filter_input_hides_non_matching_findings() -> None:
         tree = app.query_one(FindingsTree)
         group_labels = [str(child.label) for child in tree.root.children]
 
-    assert group_labels == ["sales.Invoice"]
+    assert group_labels == ["sales.Invoice  (1)"]
     assert len(tree.root.children[0].children) == 1
 
 
@@ -119,7 +119,7 @@ async def test_app_clearing_filter_restores_all_findings() -> None:
         tree = app.query_one(FindingsTree)
         group_labels = [str(child.label) for child in tree.root.children]
 
-    assert group_labels == ["sales.Invoice", "sales.Payment"]
+    assert group_labels == ["sales.Invoice  (2)", "sales.Payment  (1)"]
 
 
 @pytest.mark.asyncio
@@ -139,28 +139,6 @@ async def test_app_selecting_leaf_updates_detail_panel() -> None:
 
     assert "a: decimal(10,2), NOT NULL" in rendered
     assert "b: decimal(12,2), NOT NULL" in rendered
-
-
-@pytest.mark.asyncio
-async def test_app_quit_key_exits_app() -> None:
-    app = SchemaComparatorApp(comparison_result_with_findings())
-
-    async with app.run_test() as pilot:
-        await pilot.press("q")
-        await pilot.pause()
-
-    assert not app.is_running
-
-
-@pytest.mark.asyncio
-async def test_app_escape_key_exits_app() -> None:
-    app = SchemaComparatorApp(comparison_result_with_findings())
-
-    async with app.run_test() as pilot:
-        await pilot.press("escape")
-        await pilot.pause()
-
-    assert not app.is_running
 
 
 def test_run_tui_catches_app_exception_and_reports_to_stderr(capsys) -> None:
@@ -277,6 +255,8 @@ async def test_run_comparison_failure_leaves_previous_result_and_logs_error() ->
             await pilot.press("r")
             await pilot.pause()
             await app.workers.wait_for_complete()
+            await pilot.press("l")
+            await pilot.pause()
             log = app.query_one(StatusLog)
 
             assert app._result is original_result
@@ -309,6 +289,8 @@ async def test_pressing_g_calls_generate_reports_with_string_io_and_logs_output(
             await pilot.press("g")
             await pilot.pause()
             await app.workers.wait_for_complete()
+            await pilot.press("l")
+            await pilot.pause()
             log = app.query_one(StatusLog)
 
             assert isinstance(captured["out"], io.StringIO)
@@ -334,6 +316,8 @@ async def test_generate_reports_single_format_failure_does_not_crash_app() -> No
             await pilot.press("g")
             await pilot.pause()
             await app.workers.wait_for_complete()
+            await pilot.press("l")
+            await pilot.pause()
             log = app.query_one(StatusLog)
 
             assert app.is_running
