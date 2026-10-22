@@ -75,18 +75,19 @@ común vive en `tui/theme.py` y `tui/modals.py`).
 | # | Cambio IDD | Estado |
 |---|---|---|
 | 1 | `tui-main-redesign`: resumen por tipo, árbol y detalle, cajón de exclusiones y registro, ayuda | Hecho (PR #24) |
-| 2 | `tui-consolidation-redesign`: formulario de decisiones con resumen previo a generar y avance por tabla; incluye las propuestas 1 y 2 de abajo (confirmación de `DROP` con `ConfirmModal`, destinos limitados) | Siguiente sesión |
+| 2 | `tui-consolidation-redesign`: formulario de decisiones con resumen y avance por tabla; incluye las propuestas 1 y 2 (confirmación de `DROP` con `ConfirmModal`, destinos limitados) | Hecho |
 | 3 | `tui-routines-redesign`: pantalla de rutinas (`v`) con el mismo estilo | Pendiente |
 
 ## Próximas propuestas — por este orden
 
-Las tres que se retoman en la siguiente sesión.
+Las propuestas 1 y 2 ya se hicieron con `tui-consolidation-redesign`; queda la
+tercera.
 
-| # | Cambio | Por qué en este orden |
+| # | Cambio | Estado |
 |---|---|---|
-| 1 | Confirmación en la TUI para `DROP` en la consolidación | El script ya respalda los datos y genera su deshacer; falta el modal que pida confirmación antes de generar un script con `DROP`. Es el cambio más pequeño y cierra la tanda del generador. |
-| 2 | Destinos de una discrepancia de columna limitados a los perfiles que la tienen | Hoy se ofrecen todos los perfiles, también los que ya están bien o no tienen la columna; el script aborta con un mensaje claro, pero la TUI no debería ofrecerlo. |
-| 3 | Extracción de PK, FK e índices (SQL Server primero, luego el resto) | Es lo que más amplía la comparación, y la que más trabajo lleva. La comparación ya es correcta (`advanced-object-equality`); falta extraerlos. |
+| 1 | Confirmación en la TUI para `DROP` en la consolidación | Hecho |
+| 2 | Destinos de una discrepancia de columna limitados a los perfiles que la tienen | Hecho |
+| 3 | Extracción de PK, FK e índices (SQL Server primero, luego el resto) | Pendiente. Es lo que más amplía la comparación y la que más trabajo lleva; la comparación ya es correcta (`advanced-object-equality`), falta extraerlos. |
 
 ## Siguiente — funcionalidad
 

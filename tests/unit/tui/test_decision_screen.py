@@ -380,6 +380,8 @@ async def test_decision_screen_generates_drop_table_sql() -> None:
             await pilot.pause()
             await pilot.press("g")
             await pilot.pause()
+            await pilot.press("y")
+            await pilot.pause()
 
         scripts_dir = list((tmp_path / "scripts-db").glob("*"))[0]
         content = (scripts_dir / "profileA.sql").read_text(encoding="utf-8")
@@ -432,6 +434,8 @@ async def test_missing_column_drop_targets_only_present_profiles_and_generates_s
             radio_sets[0].children[3].value = True
             await pilot.pause()
             await pilot.press("g")
+            await pilot.pause()
+            await pilot.press("y")
             await pilot.pause()
 
         scripts_dir = list((tmp_path / "scripts-db").glob("*"))[0]
@@ -567,6 +571,8 @@ async def test_multiprofile_missing_table_drop_only_targets_present_profile() ->
 
             await pilot.press("g")
             await pilot.pause()
+            await pilot.press("y")
+            await pilot.pause()
 
         base_dir = tmp_path / "scripts-db"
         assert base_dir.exists(), "No se generaron scripts SQL"
@@ -696,6 +702,8 @@ async def test_multiprofile_missing_column_drop_only_targets_present_profile() -
 
             await pilot.press("g")
             await pilot.pause()
+            await pilot.press("y")
+            await pilot.pause()
 
         base_dir = tmp_path / "scripts-db"
         assert base_dir.exists(), "No se generaron scripts SQL"
@@ -749,3 +757,183 @@ async def test_column_card_asks_for_fill_value_and_loss_only_when_needed() -> No
             card.query_one(RadioSet).children[1].value = True
             await pilot.pause()
             assert fill.display and not loss.display
+
+
+async def _open_card(pilot, screen, index: int) -> None:
+    list_view = screen.query_one("#findings-list", ListView)
+    list_view.focus()
+    list_view.index = index
+    await pilot.press("enter")
+    await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_generating_a_drop_asks_before_writing_anything() -> None:
+    from schema_comparator.tui.modals import ConfirmModal
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        app = DummyApp(_sample_entries(), _sample_profiles(), tmp_path)
+
+        async with app.run_test() as pilot:
+            screen = app.screen
+            await _open_card(pilot, screen, 0)
+            screen.query_one(RadioSet).children[1].value = True
+            await pilot.pause()
+            await pilot.press("g")
+            await pilot.pause()
+
+            modal = app.screen
+            assert isinstance(modal, ConfirmModal)
+            body = str(modal.query_one("#confirm-body").render())
+            assert "dbo.logs" in body
+            assert "profileA" in body
+            assert not (tmp_path / "scripts-db").exists()
+            assert modal.focused is modal.query_one("#btn-cancel")
+
+            await pilot.press("escape")
+            await pilot.pause()
+
+            assert app.screen is screen
+            assert not (tmp_path / "scripts-db").exists()
+            assert app.dismissed_result is None
+
+
+@pytest.mark.asyncio
+async def test_generating_without_drops_does_not_ask() -> None:
+    from schema_comparator.tui.modals import ConfirmModal
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        app = DummyApp(_sample_entries(), _sample_profiles(), Path(tmp_dir))
+
+        async with app.run_test() as pilot:
+            screen = app.screen
+            await _open_card(pilot, screen, 1)
+            screen.query(RadioSet).first().children[0].value = True
+            await pilot.pause()
+            await pilot.press("g")
+            await pilot.pause()
+
+            assert not isinstance(app.screen, ConfirmModal)
+
+        assert app.dismissed_result
+
+
+@pytest.mark.asyncio
+async def test_leaving_with_decisions_asks_before_discarding_them() -> None:
+    from schema_comparator.tui.modals import ConfirmModal
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        app = DummyApp(_sample_entries(), _sample_profiles(), Path(tmp_dir))
+
+        async with app.run_test() as pilot:
+            screen = app.screen
+            await _open_card(pilot, screen, 1)
+            screen.query(RadioSet).first().children[0].value = True
+            await pilot.pause()
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+
+            await pilot.press("n")
+            await pilot.pause()
+            assert app.screen is screen
+            assert app.dismissed_result is None
+
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.press("y")
+            await pilot.pause()
+
+        assert app.dismissed_result is None
+        assert not app.is_running
+
+
+@pytest.mark.asyncio
+async def test_leaving_without_decisions_does_not_ask() -> None:
+    from schema_comparator.tui.modals import ConfirmModal
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        app = DummyApp(_sample_entries(), _sample_profiles(), Path(tmp_dir))
+
+        async with app.run_test() as pilot:
+            assert isinstance(app.screen, DecisionScreen)
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, ConfirmModal)
+
+        assert not app.is_running
+
+
+@pytest.mark.asyncio
+async def test_a_mismatch_offers_only_profiles_that_differ_from_the_choice() -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        app = DummyApp(_sample_entries(), _sample_profiles(), Path(tmp_dir))
+
+        async with app.run_test() as pilot:
+            screen = app.screen
+            await _open_card(pilot, screen, 1)
+            mismatch_radio = screen.query(RadioSet).first()
+            mismatch_radio.children[0].value = True
+            await pilot.pause()
+
+            options = screen.query(SelectionList).first().options
+            assert [o.value for o in options] == ["profileB"]
+            assert screen.decisions[_sample_entries()[0]] == (
+                _sample_entries()[0].values_by_profile[0][1],
+                ("profileB",),
+            )
+
+
+@pytest.mark.asyncio
+async def test_the_summary_counts_decisions_and_drops() -> None:
+    from textual.widgets import Static
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        app = DummyApp(_sample_entries(), _sample_profiles(), Path(tmp_dir))
+
+        async with app.run_test() as pilot:
+            screen = app.screen
+            summary = screen.query_one("#decision-summary", Static)
+            assert "0 de 3" in str(summary.render())
+
+            await _open_card(pilot, screen, 0)
+            screen.query_one(RadioSet).children[1].value = True
+            await pilot.pause()
+
+            text = str(summary.render())
+            assert "1 de 3" in text
+            assert "1 DROP" in text
+
+
+@pytest.mark.asyncio
+async def test_the_table_list_uses_plain_symbols_not_emoji() -> None:
+    from textual.widgets import Label
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        app = DummyApp(_sample_entries(), _sample_profiles(), Path(tmp_dir))
+
+        async with app.run_test() as _pilot:
+            list_view = app.screen.query_one("#findings-list", ListView)
+            for item in list_view.children:
+                assert "\U0001f4cb" not in str(item.query_one(Label).render())
+
+
+@pytest.mark.asyncio
+async def test_the_destination_title_follows_the_chosen_action() -> None:
+    from textual.widgets import Label
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        app = DummyApp(_sample_entries(), _sample_profiles(), Path(tmp_dir))
+
+        async with app.run_test() as pilot:
+            screen = app.screen
+            await _open_card(pilot, screen, 0)
+            title = screen.query_one(".dest-title", Label)
+            assert "Crear tabla" in str(title.render())
+
+            screen.query_one(RadioSet).children[1].value = True
+            await pilot.pause()
+
+            assert "Eliminar tabla" in str(title.render())

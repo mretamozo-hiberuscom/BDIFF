@@ -130,29 +130,24 @@ def _present_profiles(entry: DecisionEntry) -> tuple[str, ...]:
     return tuple(profile for profile, _ in entry.values_by_profile)
 
 
-def destination_choices(
-    entry: DecisionEntry, target: object, all_profiles: tuple[str, ...]
-) -> tuple[str, ...]:
+def destination_choices(entry: DecisionEntry, target: object) -> tuple[str, ...]:
     """Profiles a decision may be applied to: where the object exists for a
-    DROP, where it is missing otherwise (any profile for a mismatch)."""
+    DROP; where it is missing for a missing table or column; where a column
+    exists with a different definition for a mismatch fix."""
     if target is TableAction.DROP or target is ColumnAction.DROP:
         return _present_profiles(entry)
     if isinstance(entry, (MergedMissingTable, MergedMissingColumn)):
         return entry.missing_from_profiles
-    return all_profiles
+    return tuple(
+        profile for profile, attrs in entry.values_by_profile if attrs != target
+    )
 
 
 def default_destinations(entry: DecisionEntry, target: object) -> tuple[str, ...]:
     """Profiles preselected when the user picks `target`."""
     if target is None:
         return ()
-    if target is TableAction.DROP or target is ColumnAction.DROP:
-        return _present_profiles(entry)
-    if isinstance(entry, ColumnMismatch):
-        return tuple(
-            profile for profile, attrs in entry.values_by_profile if attrs != target
-        )
-    return entry.missing_from_profiles
+    return destination_choices(entry, target)
 
 
 @dataclass(frozen=True)
@@ -208,7 +203,7 @@ def build_resolutions(
     options: dict[DecisionEntry, ColumnOptions] | None = None,
 ) -> Resolutions:
     """Resolutions for every decision with a target and destinations; each
-    destination outside `destination_choices` is dropped. `options` carries
+    destination outside `destination_choices` is ignored. `options` carries
     the fill value and accepted loss of column fixes; a blank fill value
     counts as none."""
     options = options or {}
@@ -216,12 +211,8 @@ def build_resolutions(
     for entry, (target, destinations) in decisions.items():
         if target is None or not destinations:
             continue
-        if isinstance(entry, ColumnMismatch) and target is not ColumnAction.DROP:
-            # A mismatch fix may target any profile the user ticked.
-            dests = tuple(destinations)
-        else:
-            allowed = set(destination_choices(entry, target, ()))
-            dests = tuple(d for d in destinations if d in allowed)
+        allowed = set(destination_choices(entry, target))
+        dests = tuple(d for d in destinations if d in allowed)
         if not dests:
             continue
         schema, table = entry.qualified_name
@@ -298,3 +289,29 @@ def build_resolutions(
                 )
             )
     return result
+
+
+@dataclass(frozen=True)
+class DropItem:
+    """One object a script will drop, and the profiles it is dropped from."""
+
+    kind: str
+    name: str
+    profiles: tuple[str, ...]
+
+
+def drops_in(resolutions: Resolutions) -> tuple[DropItem, ...]:
+    """The DROPs the user must confirm before scripts are written."""
+    tables = tuple(
+        DropItem("tabla", f"{r.schema_name}.{r.table_name}", r.profiles_to_update)
+        for r in resolutions.table_deletions
+    )
+    columns = tuple(
+        DropItem(
+            "columna",
+            f"{r.schema_name}.{r.table_name}.{r.column_name}",
+            r.profiles_to_update,
+        )
+        for r in resolutions.column_deletions
+    )
+    return tables + columns

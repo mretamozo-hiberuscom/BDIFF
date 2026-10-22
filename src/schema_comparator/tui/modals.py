@@ -15,7 +15,8 @@ class ConfirmModal(ModalScreen[bool]):
     """Asks the user to confirm an action; dismisses with True or False.
 
     `body` is Rich markup. Enter activates the focused button, which
-    starts on the confirm one; Esc and N always cancel.
+    starts on the confirm one (on the cancel one with `focus_cancel`, for
+    actions that cannot be undone); Esc and N always cancel.
     """
 
     DEFAULT_CSS = """
@@ -63,6 +64,7 @@ class ConfirmModal(ModalScreen[bool]):
         confirm_label: str = "Aceptar",
         cancel_label: str = "Cancelar",
         severity: str = "primary",
+        focus_cancel: bool = False,
     ) -> None:
         super().__init__()
         self._title = title
@@ -70,6 +72,7 @@ class ConfirmModal(ModalScreen[bool]):
         self._confirm_label = confirm_label
         self._cancel_label = cancel_label
         self._severity = severity
+        self._focus_cancel = focus_cancel
 
     def compose(self) -> ComposeResult:
         variant = {"warning": "warning", "danger": "error"}.get(
@@ -83,7 +86,9 @@ class ConfirmModal(ModalScreen[bool]):
                 yield Button(self._confirm_label, id="btn-confirm", variant=variant)
 
     def on_mount(self) -> None:
-        self.query_one("#btn-confirm", Button).focus()
+        self.query_one(
+            "#btn-cancel" if self._focus_cancel else "#btn-confirm", Button
+        ).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.dismiss(event.button.id == "btn-confirm")

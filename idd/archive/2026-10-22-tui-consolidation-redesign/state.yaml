@@ -1,0 +1,250 @@
+{
+  "schema": "idd-state/v1",
+  "change": "tui-consolidation-redesign",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "request": "quiero que hagas un UIUX agradable que sea facil de entender y manejar",
+    "kind": "feature",
+    "summary": "Rediseñar la pantalla de consolidación de la TUI: tarjetas por tabla con símbolos y estado de decisión, modal de confirmación antes de generar scripts con DROP, destinos de una discrepancia de columna limitados a los perfiles que la tienen y difieren, y confirmación al descartar decisiones",
+    "acceptance": "Con un DROP marcado, Generar SQL abre un modal que lista lo que se elimina por perfil y no escribe scripts hasta confirmar; una discrepancia solo ofrece como destino los perfiles que tienen la columna con atributos distintos del elegido; Esc/Cancelar con decisiones pide confirmación; la pantalla usa los símbolos y el tuteo del tema común sin emojis"
+  },
+  "facts": {
+    "coverage": [
+      {
+        "category": "inputs",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/tui/decision_model.py",
+          "line": 133
+        }
+      },
+      {
+        "category": "uniqueness",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/tui/decision_model.py",
+          "line": 206
+        }
+      },
+      {
+        "category": "persistence",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/compare/consolidation.py",
+          "line": 351
+        }
+      },
+      {
+        "category": "copy",
+        "cite": {
+          "kind": "request",
+          "text": "UIUX agradable que sea facil de entender"
+        }
+      },
+      {
+        "category": "url-state",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/tui/decision_screen.py",
+          "line": 171
+        }
+      },
+      {
+        "category": "accessibility",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/tui/decision_screen.py",
+          "line": 147
+        }
+      },
+      {
+        "category": "errors",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/tui/decision_screen.py",
+          "line": 287
+        }
+      }
+    ]
+  },
+  "plan": {
+    "paths": [
+      "README.md",
+      "docs/product/functional-scope.md",
+      "docs/roadmap.md",
+      "src/schema_comparator/tui/decision_model.py",
+      "src/schema_comparator/tui/decision_screen.py",
+      "src/schema_comparator/tui/modals.py",
+      "tests/unit/tui/test_decision_screen.py"
+    ],
+    "work_units": 3,
+    "decision": false,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "multi-unit-or-decision",
+      "reason": "declared 3 work units",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "component presentation: ADR 0001, 0006 and quality scenario mutation-requires-confirmation, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "conforms",
+      "reason": "Solo cambia la capa tui; la lógica de destinos y de resumen de DROP vive en decision_model sin importar Textual"
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "none",
+      "reason": "El modal de DROP confirma la generación de un script que BDIFF no ejecuta; no añade escrituras en bases comparadas"
+    },
+    {
+      "kind": "scenario",
+      "id": "mutation-requires-confirmation",
+      "impact": "conforms",
+      "reason": "La generación de scripts con DROP pasa a exigir confirmación explícita en la TUI antes de escribir nada"
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "none",
+      "reason": "Los textos nuevos solo nombran perfiles, tablas y columnas, no cadenas de conexión"
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "none",
+      "reason": "Solo texto y widgets Unicode simples, sin dependencias ni rutas nuevas"
+    }
+  ],
+  "attestations": [
+    {
+      "kind": "adr",
+      "id": "0006",
+      "evidence": "grep de .commit() en src: solo sp_validator.py; el cambio no añade escrituras, solo un modal que confirma generar scripts",
+      "recorded_at": "2026-10-22T09:34:58.346Z"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "living-doc",
+      "signal": "multi-unit-or-decision",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-1"
+      ]
+    }
+  ],
+  "gates": [],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-22T09:34:49.887Z",
+      "detail": {
+        "refs": [
+          "adr:0001 conforms",
+          "adr:0006 none",
+          "scenario:mutation-requires-confirmation conforms",
+          "scenario:secret-safety none",
+          "scenario:windows-first-run none"
+        ],
+        "records": []
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-22T09:35:55.417Z",
+      "detail": {
+        "tree": "sha256:0bab4c2336aa3637ef072cb4ae9f8ccc55bb00fe20fe3e26c0207461bfa553cd",
+        "runs": [
+          "run-3",
+          "run-4"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "living-doc-current",
+      "obligation": "living-doc",
+      "recorded_at": "2026-10-22T09:35:58.239Z"
+    }
+  ],
+  "base": "c56490a22bf3b55a596a267c3b1a17e48c374cea",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 1,
+      "output_sha256": "sha256:91d02d7cbbf1e5910c909dbc567dfa491e4124096a8aad6c721fbc2a6329c386",
+      "tree": "sha256:0bab4c2336aa3637ef072cb4ae9f8ccc55bb00fe20fe3e26c0207461bfa553cd",
+      "recorded_at": "2026-10-22T09:34:49.887Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 1,
+      "output_sha256": "sha256:ffb32ed3180647d793da635bc40b9d539207c56ff47e571f34748dd914fe50db",
+      "tree": "sha256:0bab4c2336aa3637ef072cb4ae9f8ccc55bb00fe20fe3e26c0207461bfa553cd",
+      "recorded_at": "2026-10-22T09:34:49.887Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:4d73a86a23eb8ceb0b8b33b62e989a390df7f05c382074db9a0d651be24d749a",
+      "tree": "sha256:0bab4c2336aa3637ef072cb4ae9f8ccc55bb00fe20fe3e26c0207461bfa553cd",
+      "recorded_at": "2026-10-22T09:35:55.417Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:fd9c9c50df06e0193e1fa3d5250e65887770c512d3f45c2148ca0da4475a7d20",
+      "tree": "sha256:0bab4c2336aa3637ef072cb4ae9f8ccc55bb00fe20fe3e26c0207461bfa553cd",
+      "recorded_at": "2026-10-22T09:35:55.417Z"
+    }
+  ],
+  "closed_at": "2026-10-22T09:35:58.239Z"
+}
