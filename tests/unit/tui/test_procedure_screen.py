@@ -1,19 +1,31 @@
 """Unit tests for ProcedureVerificationScreen and procedure TUI components."""
 
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+from textual.app import App
+from textual.widgets import Button, DataTable, Static
+
 from schema_comparator.config.models import ConnectionProfile
 from schema_comparator.domain.schema.models import ProcedureSnapshot, ParameterSnapshot
 from schema_comparator.domain.comparison.models import (
     MissingProcedure,
     ProcedureMismatch,
 )
+from schema_comparator.infrastructure.providers.sqlserver.routine_runner import (
+    RoutineRun,
+)
 from schema_comparator.infrastructure.providers.sqlserver.sp_validator import (
+    ModuleRefreshResult,
     RoutineIdentity,
     RoutineValidationResult,
     RoutineValidationStatus,
     SignatureStatus,
     clean_sql_error_message,
+    refresh_modules_mutating,
 )
+from schema_comparator.tui.modals import ConfirmModal, HelpModal
 from schema_comparator.tui.formatting import leaf_label, detail_text, entry_matches
 from schema_comparator.tui.procedure_screen import ProcedureVerificationScreen
 
@@ -168,3 +180,181 @@ def test_clean_sql_error_message():
     simple_err = "Dependencias con referencias no resueltas: dbo.TablaInexistente"
     assert clean_sql_error_message(simple_err) == simple_err
     assert clean_sql_error_message(None) == "Error desconocido"
+
+
+# -- routines screen, driven through the real app ---------------------------
+
+
+class _Host(App):
+    def __init__(self, screen: ProcedureVerificationScreen) -> None:
+        super().__init__()
+        self._screen = screen
+
+    def on_mount(self) -> None:
+        self.push_screen(self._screen)
+
+
+def _screen(tmp_path: Path) -> ProcedureVerificationScreen:
+    prof = ConnectionProfile(name="p1", connection_string="Server=x;Database=db;")
+    return ProcedureVerificationScreen(profiles=(prof,), repo_root=tmp_path)
+
+
+def _validation_run(*results: RoutineValidationResult) -> dict[str, RoutineRun]:
+    return {"p1": RoutineRun(results=results)}
+
+
+_UNSIGNED = RoutineValidationResult(
+    routine=RoutineIdentity("dbo", "p_unsigned"),
+    status=RoutineValidationStatus.INVALID,
+    signature_status=SignatureStatus.UNSIGNED,
+    error_message="Falta [dbo].[t]",
+)
+_SIGNED = RoutineValidationResult(
+    routine=RoutineIdentity("dbo", "p_signed"),
+    status=RoutineValidationStatus.VALID,
+    signature_status=SignatureStatus.SIGNED,
+)
+
+
+@pytest.mark.asyncio
+async def test_screen_validates_on_open_and_shows_summary_and_detail(tmp_path: Path):
+    screen = _screen(tmp_path)
+    with patch(
+        "schema_comparator.tui.procedure_screen.run_routines",
+        return_value=_validation_run(_UNSIGNED, _SIGNED),
+    ):
+        async with _Host(screen).run_test() as pilot:
+            await screen.workers.wait_for_complete()
+            await pilot.pause()
+
+            table = screen.query_one(DataTable)
+            assert table.row_count == 2
+            header = str(screen.query_one("#routines-header", Static).render())
+            assert "✔ 1" in header and "✖ 1" in header
+            # The first row is selected and its detail is shown.
+            detail = str(screen.query_one("#routine-detail", Static).render())
+            assert "p_unsigned" in detail and "Falta [dbo].[t]" in detail
+
+
+@pytest.mark.asyncio
+async def test_recompile_asks_with_real_count_and_cancel_is_the_default(
+    tmp_path: Path,
+):
+    screen = _screen(tmp_path)
+    with patch(
+        "schema_comparator.tui.procedure_screen.run_routines",
+        return_value=_validation_run(_UNSIGNED, _SIGNED),
+    ) as m_run:
+        async with _Host(screen).run_test() as pilot:
+            await screen.workers.wait_for_complete()
+            await pilot.pause()
+            m_run.reset_mock()
+
+            await pilot.press("r")
+            await pilot.pause()
+
+            modal = screen.app.screen
+            assert isinstance(modal, ConfirmModal)
+            body = str(modal.query_one("#confirm-body", Static).render())
+            assert "1 rutina sin firma" in body
+            assert "Se omiten 1 firmadas" in body
+            assert modal.query_one("#btn-cancel", Button).has_focus
+
+            # Enter on the default button cancels: nothing is written.
+            await pilot.press("enter")
+            await pilot.pause()
+            assert not isinstance(screen.app.screen, ConfirmModal)
+            m_run.assert_not_called()
+            assert screen._refresh_results == {}
+
+
+@pytest.mark.asyncio
+async def test_recompile_runs_only_after_explicit_confirmation(tmp_path: Path):
+    screen = _screen(tmp_path)
+    refreshed = {
+        "p1": RoutineRun(
+            results=(ModuleRefreshResult.success(RoutineIdentity("dbo", "p_unsigned")),)
+        )
+    }
+    with patch(
+        "schema_comparator.tui.procedure_screen.run_routines",
+        return_value=_validation_run(_UNSIGNED),
+    ) as m_run:
+        async with _Host(screen).run_test() as pilot:
+            await screen.workers.wait_for_complete()
+            await pilot.pause()
+
+            m_run.return_value = refreshed
+            await pilot.press("r")
+            await pilot.pause()
+            await pilot.press("y")
+            await screen.workers.wait_for_complete()
+            await pilot.pause()
+
+            assert m_run.call_args.args[2] is refresh_modules_mutating
+            assert "p1" in screen._refresh_results
+            assert "recompiladas" in str(
+                screen.query_one("#routines-header", Static).render()
+            )
+
+
+@pytest.mark.asyncio
+async def test_recompile_without_validation_or_unsigned_routines_does_not_ask(
+    tmp_path: Path,
+):
+    screen = _screen(tmp_path)
+    with patch(
+        "schema_comparator.tui.procedure_screen.run_routines",
+        return_value=_validation_run(_SIGNED),
+    ):
+        async with _Host(screen).run_test() as pilot:
+            await screen.workers.wait_for_complete()
+            await pilot.pause()
+
+            await pilot.press("r")
+            await pilot.pause()
+
+            assert not isinstance(screen.app.screen, ConfirmModal)
+            assert "No hay rutinas sin firma" in str(
+                screen.query_one("#sp-status", Static).render()
+            )
+
+
+@pytest.mark.asyncio
+async def test_help_opens_with_the_routines_card_and_esc_returns(tmp_path: Path):
+    screen = _screen(tmp_path)
+    with patch(
+        "schema_comparator.tui.procedure_screen.run_routines",
+        return_value=_validation_run(),
+    ):
+        async with _Host(screen).run_test() as pilot:
+            await screen.workers.wait_for_complete()
+            await pilot.pause()
+
+            await pilot.press("question_mark")
+            await pilot.pause()
+            assert isinstance(screen.app.screen, HelpModal)
+            await pilot.press("escape")
+            await pilot.pause()
+            assert screen.app.screen is screen
+
+
+@pytest.mark.asyncio
+async def test_script_message_shows_where_it_was_saved_without_running_anything(
+    tmp_path: Path,
+):
+    screen = _screen(tmp_path)
+    with patch(
+        "schema_comparator.tui.procedure_screen.run_routines",
+        return_value=_validation_run(_UNSIGNED),
+    ):
+        async with _Host(screen).run_test() as pilot:
+            await screen.workers.wait_for_complete()
+            await pilot.pause()
+
+            await pilot.press("s")
+            await pilot.pause()
+
+            status = str(screen.query_one("#sp-status", Static).render())
+            assert "Script guardado en scripts-db/" in status
+            assert list((tmp_path / "scripts-db").glob("*/repair_sps.sql"))

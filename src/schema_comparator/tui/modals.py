@@ -137,8 +137,27 @@ Nunca ejecuta cambios por ti: los scripts los revisas y ejecutas tú.
 """
 
 
+ROUTINES_HELP = """[bold]Para qué sirve[/bold]
+Comprueba que las rutinas y vistas de SQL Server no tengan dependencias rotas
+y, si lo decides, recompila sus metadatos.
+
+[bold]Atajos[/bold]
+  [bold]v[/bold]  validar dependencias (solo lectura)
+  [bold]r[/bold]  recompilar metadatos (pide confirmación)
+  [bold]s[/bold]  guardar el script de reparación en scripts-db/
+  [bold]Esc[/bold] volver
+
+[bold]Qué hace cada acción[/bold]
+  Validar nunca modifica nada.
+  Recompilar ejecuta sp_refreshsqlmodule solo en rutinas sin firma;
+  las firmadas se omiten para no perder su firma.
+  Guardar script escribe archivos; no los ejecuta.
+"""
+
+
 class HelpModal(ModalScreen[None]):
-    """What BDIFF does, the usual flow and every key."""
+    """What BDIFF does, the usual flow and every key; any other card of
+    help (title and Rich markup) can be shown the same way."""
 
     DEFAULT_CSS = """
     HelpModal {
@@ -167,10 +186,15 @@ class HelpModal(ModalScreen[None]):
 
     BINDINGS = [Binding("escape,question_mark,enter,q", "close", "Cerrar")]
 
+    def __init__(self, title: str = "Ayuda de BDIFF", body: str = _HELP) -> None:
+        super().__init__()
+        self._title = title
+        self._body = body
+
     def compose(self) -> ComposeResult:
         with Vertical(id="help-dialog"):
-            yield Label("Ayuda de BDIFF", id="help-title")
-            yield Static(Text.from_markup(_HELP))
+            yield Label(self._title, id="help-title")
+            yield Static(Text.from_markup(self._body))
             yield Label("Pulsa Esc para cerrar", id="help-close")
 
     def action_close(self) -> None:

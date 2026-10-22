@@ -1,14 +1,15 @@
-"""Interactive TUI Screen for verifying procedure dependencies and explicit module refresh."""
+"""Interactive TUI screen for verifying routine dependencies and explicitly
+refreshing their metadata."""
 
 import datetime
 from pathlib import Path
 
 from rich.markup import escape
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
-from textual.screen import ModalScreen, Screen
-from textual.widgets import Button, DataTable, Footer, Header, Label, Static
+from textual.screen import Screen
+from textual.widgets import DataTable, Footer, Static
 
 from schema_comparator.compare.consolidation import assign_script_filenames
 from schema_comparator.config.models import ConnectionProfile
@@ -31,73 +32,29 @@ from schema_comparator.infrastructure.providers.sqlserver.sp_validator import (
     refresh_modules_mutating,
     validate_routines_read_only,
 )
-
-
-class ConfirmRefreshModal(ModalScreen[bool]):
-    """Confirmation modal dialog for mutating sp_refreshsqlmodule operation."""
-
-    DEFAULT_CSS = """
-    ConfirmRefreshModal {
-        align: center middle;
-    }
-    #confirm-dialog {
-        width: 60;
-        height: auto;
-        border: thick $warning;
-        background: $surface;
-        padding: 1 2;
-    }
-    #confirm-title {
-        text-style: bold;
-        color: $warning;
-        margin-bottom: 1;
-    }
-    #confirm-buttons {
-        margin-top: 1;
-        align-horizontal: center;
-    }
-    #confirm-buttons Button {
-        margin: 0 1;
-    }
-    """
-
-    def __init__(self, routine_count: int) -> None:
-        super().__init__()
-        self._routine_count = routine_count
-
-    def compose(self) -> ComposeResult:
-        with Vertical(id="confirm-dialog"):
-            yield Label(
-                "⚠️ Operación Mutante: Recompilación de Metadatos", id="confirm-title"
-            )
-            yield Static(
-                f"Estás a punto de ejecutar [bold]sp_refreshsqlmodule[/bold] sobre {self._routine_count} rutinas no firmadas.\n\n"
-                "Esta operación modifica metadatos en la base de datos y requiere permisos ALTER.\n"
-                "¿Deseas proceder con la recompilación?"
-            )
-            with Horizontal(id="confirm-buttons"):
-                yield Button("Sí, Recompilar", id="btn-confirm", variant="warning")
-                yield Button("Cancelar", id="btn-cancel", variant="primary")
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-confirm":
-            self.dismiss(True)
-        else:
-            self.dismiss(False)
+from schema_comparator.tui.modals import ROUTINES_HELP, ConfirmModal, HelpModal
+from schema_comparator.tui.routine_model import (
+    RoutineRow,
+    detail_markup,
+    refresh_confirmation_body,
+    refresh_plan,
+    refresh_rows,
+    summary_markup,
+    validation_rows,
+)
+from schema_comparator.tui.theme import FAIL, OK, SEPARATOR, WARN
 
 
 class ProcedureVerificationScreen(Screen):
-    """Interactive screen for checking, validating, and compiling procedures/views."""
+    """Validates routine dependencies (read-only), recompiles metadata after
+    an explicit confirmation and saves the repair scripts."""
 
     BINDINGS = [
-        Binding("escape", "app.pop_screen", "Volver", show=True),
-        Binding(
-            "v,V", "validate_read_only", "Validar dependencias (Lectura)", show=True
-        ),
-        Binding(
-            "r,R", "request_module_refresh", "Actualizar metadatos (Mutante)", show=True
-        ),
-        Binding("s,S", "generate_script", "Generar Script SQL", show=True),
+        Binding("escape", "app.pop_screen", "Volver"),
+        Binding("v,V", "validate_read_only", "Validar"),
+        Binding("r,R", "request_module_refresh", "Recompilar"),
+        Binding("s,S", "generate_script", "Guardar script"),
+        Binding("question_mark,f1", "show_help", "Ayuda"),
     ]
 
     DEFAULT_CSS = """
@@ -106,35 +63,33 @@ class ProcedureVerificationScreen(Screen):
         color: $text;
     }
 
-    #sp-header-container {
-        height: 3;
-        background: $primary-darken-1;
-        color: $text;
-        content-align: center middle;
-        text-style: bold;
+    #routines-header {
+        height: auto;
+        padding: 0 2;
+        background: $panel;
+        border-bottom: solid $primary;
     }
 
     #sp-table {
         height: 1fr;
-        margin: 1;
+        margin: 1 1 0 1;
         border: round $primary;
     }
 
-    #sp-actions {
-        height: 3;
-        margin: 0 1 1 1;
-        layout: horizontal;
-    }
-
-    #sp-actions Button {
-        margin-right: 2;
+    #routine-detail {
+        height: auto;
+        min-height: 5;
+        max-height: 10;
+        margin: 0 1;
+        padding: 0 1;
+        border: round $primary-darken-2;
+        overflow-y: auto;
     }
 
     #sp-status {
-        height: 3;
-        margin: 0 1;
-        color: $accent;
-        text-style: bold;
+        height: auto;
+        min-height: 1;
+        margin: 0 2;
     }
     """
 
@@ -150,49 +105,82 @@ class ProcedureVerificationScreen(Screen):
         self._exclude_patterns = [p.lower() for p in (exclude_patterns or [])]
         self._validation_results: dict[str, tuple[RoutineValidationResult, ...]] = {}
         self._refresh_results: dict[str, tuple[ModuleRefreshResult, ...]] = {}
+        self._rows: list[RoutineRow] = []
         # One validation or refresh at a time: results of a mutating refresh
         # must never be overwritten by a validation started meanwhile.
         self._busy = False
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
-        yield Static(
-            "Verificación de Dependencias y Recompilación de Rutinas SQL Server",
-            id="sp-header-container",
-        )
-        yield DataTable(id="sp-table")
-        yield Label(
-            "V: Validar dependencias (Solo lectura) | R: Recompilar (Mutante) | S: Guardar script",
-            id="sp-status",
-        )
-        with Horizontal(id="sp-actions"):
-            yield Button(
-                "Validar dependencias [V]", id="btn-validate", variant="primary"
-            )
-            yield Button(
-                "Recompilar metadatos [R]", id="btn-refresh", variant="warning"
-            )
-            yield Button("Generar Script SQL [S]", id="btn-script", variant="success")
-            yield Button("Volver [Esc]", id="btn-close")
+        yield Static(id="routines-header")
+        yield DataTable(id="sp-table", cursor_type="row", zebra_stripes=True)
+        yield Static(Text.from_markup(detail_markup(None)), id="routine-detail")
+        yield Static(id="sp-status")
         yield Footer()
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
-        table.add_columns(
-            "Perfil", "Esquema", "Rutina / Vista", "Estado Dependencias", "Detalle"
-        )
-        table.cursor_type = "row"
+        table.add_columns("Perfil", "Rutina / vista", "Estado")
+        table.border_title = "Rutinas"
+        self._show_header(summary="[dim]Aún sin validar.[/dim]")
         self.action_validate_read_only()
+
+    # -- drawing ---------------------------------------------------------
+
+    def _show_header(self, *, summary: str) -> None:
+        names = ", ".join(escape(p.name) for p in self._profiles)
+        headers = self.query("#routines-header")
+        if headers:
+            headers.first().update(
+                Text.from_markup(f"[bold]Rutinas[/bold]  [dim]{names}[/dim]\n{summary}")
+            )
 
     def _set_status(self, markup: str) -> None:
         status_labels = self.query("#sp-status")
         if status_labels:
-            status_labels.first().update(markup)
+            status_labels.first().update(Text.from_markup(markup))
+
+    def _notify(self, message: str, severity: str = "information") -> None:
+        if self.is_attached:
+            self.notify(message, severity=severity)
+
+    def _show_rows(
+        self, rows: list[RoutineRow], *, title: str, recompiled: bool
+    ) -> None:
+        self._rows = rows
+        self._show_header(summary=summary_markup(rows, recompiled=recompiled))
+        tables = self.query(DataTable)
+        if not tables:
+            return
+        table = tables.first()
+        table.clear()
+        table.border_title = title
+        for index, row in enumerate(rows):
+            name = Text(
+                row.profile if row.is_connection_failure else row.qualified_name
+            )
+            table.add_row(
+                Text(row.profile),
+                name if not row.is_connection_failure else Text("—", style="dim"),
+                Text.from_markup(row.state_markup),
+                key=str(index),
+            )
+        self._show_detail(rows[0] if rows else None)
+
+    def _show_detail(self, row: RoutineRow | None) -> None:
+        panels = self.query("#routine-detail")
+        if panels:
+            panels.first().update(Text.from_markup(detail_markup(row)))
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        index = event.cursor_row
+        self._show_detail(self._rows[index] if 0 <= index < len(self._rows) else None)
+
+    # -- busy guard ------------------------------------------------------
 
     def _refuse_if_busy(self) -> bool:
         if self._busy:
             self._set_status(
-                "[bold yellow]⏳ Hay una operación en curso; espera a que termine.[/bold yellow]"
+                f"[yellow]{WARN} Hay una operación en curso; espera a que termine.[/yellow]"
             )
         return self._busy
 
@@ -203,11 +191,13 @@ class ProcedureVerificationScreen(Screen):
         self._set_status(status)
         self.run_worker(work, exclusive=True, thread=True)
 
+    # -- validation (read-only) ------------------------------------------
+
     def action_validate_read_only(self) -> None:
         """Run read-only dependency validation across profiles without mutating DB."""
         self._start(
             self._do_validate_read_only,
-            "🔍 Ejecutando validación de dependencias (solo lectura)...",
+            f"[dim]{SEPARATOR} Validando dependencias (solo lectura)…[/dim]",
         )
 
     def _do_validate_read_only(self) -> None:
@@ -238,71 +228,62 @@ class ProcedureVerificationScreen(Screen):
         self._update_table_view_validation()
 
     def _update_table_view_validation(self) -> None:
-        tables = self.query(DataTable)
-        if not tables:
-            return
-        table = tables.first()
-        table.clear()
-        total_objects = 0
-        total_invalid = 0
+        rows = validation_rows(self._validation_results)
+        self._show_rows(rows, title="Validación de dependencias", recompiled=False)
+        routines = [row for row in rows if not row.is_connection_failure]
+        if not rows:
+            self._set_status(
+                f"[yellow]{WARN} No hay rutinas que evaluar en los perfiles SQL Server.[/yellow]"
+            )
+        elif any(row.is_problem for row in rows):
+            self._set_status(
+                f"[dim]{SEPARATOR} {len(routines)} evaluadas. "
+                "Recorre la lista para ver el detalle de cada problema.[/dim]"
+            )
+        else:
+            self._set_status(
+                f"[green]{OK} Todas las dependencias son resolubles "
+                f"({len(routines)} evaluadas).[/green]"
+            )
 
-        for profile_name, res_list in sorted(self._validation_results.items()):
-            for r in res_list:
-                total_objects += 1
-                if r.status == RoutineValidationStatus.VALID:
-                    status_str = "[green]✅ Dependencias resolubles[/green]"
-                    err_str = "-"
-                elif r.status == RoutineValidationStatus.INVALID:
-                    total_invalid += 1
-                    status_str = "[bold red]❌ Dependencia no resuelta[/bold red]"
-                    err_str = r.error_message or "Error de referencia"
-                else:
-                    total_invalid += 1
-                    status_str = "[bold yellow]⚠️ No verificable[/bold yellow]"
-                    err_str = r.error_message or "Error desconocido"
-
-                table.add_row(
-                    escape(profile_name),
-                    escape(r.routine.schema_name),
-                    escape(r.routine.object_name),
-                    status_str,
-                    escape(err_str),
-                )
-
-        status_labels = self.query("#sp-status")
-        if status_labels:
-            if total_invalid > 0:
-                status_labels.first().update(
-                    f"[bold red]❌ {total_invalid} rutina(s) con dependencias no resueltas de {total_objects} evaluadas.[/bold red]"
-                )
-            else:
-                status_labels.first().update(
-                    f"[bold green]✅ Todas las dependencias son resolubles ({total_objects} evaluadas).[/bold green]"
-                )
+    # -- refresh (mutating, always confirmed) ----------------------------
 
     def action_request_module_refresh(self) -> None:
-        """Prompt confirmation modal before executing mutating sp_refreshsqlmodule."""
+        """Ask for confirmation before executing the mutating sp_refreshsqlmodule."""
         if self._refuse_if_busy():
             return
-        total_targets = sum(len(res) for res in self._validation_results.values())
-        if total_targets == 0:
-            status_labels = self.query("#sp-status")
-            if status_labels:
-                status_labels.first().update(
-                    "[bold yellow]⚠️ No se han encontrado rutinas para recompilar. Ejecuta primero la validación [V].[/bold yellow]"
-                )
+        if not self._validation_results:
+            self._set_status(
+                f"[yellow]{WARN} Valida primero con [bold]v[/bold]: así sabrás qué se recompilaría.[/yellow]"
+            )
+            return
+        plan = refresh_plan(self._validation_results)
+        if plan.is_empty:
+            self._set_status(
+                f"[yellow]{WARN} No hay rutinas sin firma que recompilar.[/yellow]"
+            )
             return
 
-        def _on_modal_result(confirmed: bool) -> None:
+        def _on_modal_result(confirmed: bool | None) -> None:
             if confirmed:
                 self._execute_module_refresh()
 
-        self.app.push_screen(ConfirmRefreshModal(total_targets), _on_modal_result)
+        self.app.push_screen(
+            ConfirmModal(
+                "Recompilar metadatos de rutinas",
+                refresh_confirmation_body(plan),
+                confirm_label="Recompilar",
+                cancel_label="Cancelar",
+                severity="warning",
+                focus_cancel=True,
+            ),
+            _on_modal_result,
+        )
 
     def _execute_module_refresh(self) -> None:
         self._start(
             self._do_refresh_modules,
-            "🔄 Recompilando metadatos en bases de datos con confirmación...",
+            f"[dim]{SEPARATOR} Recompilando metadatos de las rutinas sin firma…[/dim]",
         )
 
     def _do_refresh_modules(self) -> None:
@@ -332,55 +313,30 @@ class ProcedureVerificationScreen(Screen):
         self._update_table_view_refresh()
 
     def _update_table_view_refresh(self) -> None:
-        tables = self.query(DataTable)
-        if not tables:
-            return
-        table = tables.first()
-        table.clear()
-        total_objects = 0
-        total_failures = 0
+        rows = refresh_rows(self._refresh_results)
+        self._show_rows(rows, title="Recompilación de metadatos", recompiled=True)
+        failures = sum(1 for row in rows if row.is_problem)
+        if failures:
+            self._set_status(
+                f"[red]{FAIL} {failures} de {len(rows)} no se pudieron recompilar.[/red] "
+                "Guarda el script con [bold]s[/bold] para revisarlas."
+            )
+        else:
+            self._set_status(
+                f"[green]{OK} Metadatos recompilados ({len(rows)} procesadas).[/green]"
+            )
 
-        for profile_name, res_list in sorted(self._refresh_results.items()):
-            for r in res_list:
-                total_objects += 1
-                if r.is_success:
-                    status_str = "[green]✅ Recompilado[/green]"
-                    err_str = "-"
-                else:
-                    total_failures += 1
-                    status_str = "[bold red]❌ Fallo recompilación[/bold red]"
-                    err_str = r.error_message or "Error desconocido"
-
-                table.add_row(
-                    escape(profile_name),
-                    escape(r.routine.schema_name),
-                    escape(r.routine.object_name),
-                    status_str,
-                    escape(err_str),
-                )
-
-        status_labels = self.query("#sp-status")
-        if status_labels:
-            if total_failures > 0:
-                status_labels.first().update(
-                    f"[bold red]❌ {total_failures} rutina(s) fallaron durante la recompilación de {total_objects} procesadas.[/bold red]"
-                )
-            else:
-                status_labels.first().update(
-                    f"[bold green]✅ Todas las metadatos de rutinas no firmadas fueron recompiladas ({total_objects} procesadas).[/bold green]"
-                )
+    # -- script ----------------------------------------------------------
 
     def action_generate_script(self) -> None:
         """Generate repair T-SQL scripts in scripts-db/<folder>/repair_sps/ separated per database profile."""
         if self._refuse_if_busy():
             return
-        status_labels = self.query("#sp-status")
 
         if not self._validation_results and not self._refresh_results:
-            if status_labels:
-                status_labels.first().update(
-                    "[bold red]❌ Realiza una validación [V] antes de generar el script.[/bold red]"
-                )
+            self._set_status(
+                f"[red]{FAIL} Valida primero con [bold]v[/bold] antes de guardar el script.[/red]"
+            )
             return
 
         ts = datetime.datetime.now()
@@ -405,31 +361,26 @@ class ProcedureVerificationScreen(Screen):
                 )
                 written_profile_files.append(safe_filename)
             except Exception as exc:
-                if status_labels:
-                    status_labels.first().update(
-                        f"[bold red]❌ Error al escribir el script para {escape(profile_name)}: {escape(str(exc))}[/bold red]"
-                    )
+                self._set_status(
+                    f"[red]{FAIL} Error al escribir el script de {escape(profile_name)}: {escape(str(exc))}[/red]"
+                )
                 return
 
         master_script_path = output_dir / "repair_sps.sql"
         try:
             master_script_path.write_text(scripts.master, encoding=SQL_SCRIPT_ENCODING)
-            if status_labels:
-                status_labels.first().update(
-                    f"✅ Scripts generados en: scripts-db/{folder_name}/repair_sps/ ({len(written_profile_files)} archivo(s) por BD + repair_sps.sql)"
-                )
         except Exception as exc:
-            if status_labels:
-                status_labels.first().update(
-                    f"[bold red]❌ Error al escribir el script maestro de reparación: {escape(str(exc))}[/bold red]"
-                )
+            self._set_status(
+                f"[red]{FAIL} Error al escribir el script maestro de reparación: {escape(str(exc))}[/red]"
+            )
+            return
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-validate":
-            self.action_validate_read_only()
-        elif event.button.id == "btn-refresh":
-            self.action_request_module_refresh()
-        elif event.button.id == "btn-script":
-            self.action_generate_script()
-        elif event.button.id == "btn-close":
-            self.app.pop_screen()
+        location = f"scripts-db/{folder_name}/"
+        self._set_status(
+            f"[green]{OK} Script guardado en {escape(location)}[/green] "
+            f"[dim]({len(written_profile_files)} por base + repair_sps.sql; no se ejecutó nada)[/dim]"
+        )
+        self._notify(f"Script guardado en {location}")
+
+    def action_show_help(self) -> None:
+        self.app.push_screen(HelpModal("Ayuda de rutinas", ROUTINES_HELP))
