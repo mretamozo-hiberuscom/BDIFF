@@ -12,7 +12,8 @@ están en `docs/architecture/component-map.yaml`.
 | [0004](0004-configuration-v2-and-backwards-compatibility.md) | Configuración v2 (`profiles:`) y retrocompatibilidad | accepted |
 | [0005](0005-decoupled-write-only-script-generation.md) | Generación de scripts sin ejecución automática | accepted, ampliada por 0006 |
 | [0006](0006-mantenimiento-de-metadatos-con-confirmacion.md) | Mantenimiento de metadatos con confirmación explícita | accepted |
-| [0007](0007-identidad-normalizada-de-objetos.md) | Identidad normalizada de objetos entre bases | accepted |
+| [0007](0007-identidad-normalizada-de-objetos.md) | Identidad normalizada de objetos entre bases | accepted, ampliada por 0008 |
+| [0008](0008-claves-con-nombre-autogenerado-y-columnas-canonicas.md) | Claves con nombre autogenerado y columnas canónicas | accepted |
 
 Las decisiones tecnológicas (drivers, librerías) viven en el registro
 tecnológico de `docs/architecture/technical-baseline.md`; las decisiones de

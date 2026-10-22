@@ -16,7 +16,7 @@
 | Proveedores PostgreSQL, MySQL, MariaDB, SQLite (solo lectura), Oracle | Funcionan; MySQL pierde parámetros de tipo |
 | Carga diferida de drivers (sin libodbc arranca para otros motores) | Hecho |
 | Comparación N-way con identidad normalizada (ADR 0007) | Hecho |
-| PK, FK, índices | Comparación correcta; sin extracción en ningún proveedor |
+| PK, FK, índices | Comparación correcta; extracción solo en SQL Server |
 | Modo semántico entre motores | En el motor, sin acceso desde CLI/TUI |
 | Reportes consola (segura en Windows), HTML, PDF, Excel | Hecho |
 | TUI: hallazgos, consolidación T-SQL (solo SQL Server), rutinas | Hecho |
@@ -87,7 +87,7 @@ tercera.
 |---|---|---|
 | 1 | Confirmación en la TUI para `DROP` en la consolidación | Hecho |
 | 2 | Destinos de una discrepancia de columna limitados a los perfiles que la tienen | Hecho |
-| 3 | Extracción de PK, FK e índices (SQL Server primero, luego el resto) | Pendiente. Es lo que más amplía la comparación y la que más trabajo lleva; la comparación ya es correcta (`advanced-object-equality`), falta extraerlos. |
+| 3 | Extracción de PK, FK e índices (SQL Server primero, luego el resto) | SQL Server hecho (`sqlserver-keys-and-indexes`): PK, FK e índices rowstore con orden, INCLUDE, filtro y acciones; nombres autogenerados comparados por estructura. Pendiente en PostgreSQL, MySQL/MariaDB, Oracle y SQLite; los índices columnstore, XML y espaciales no se extraen. Sin scripts de consolidación para estos hallazgos. |
 
 ## Siguiente — funcionalidad
 
