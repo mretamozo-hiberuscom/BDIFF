@@ -1,0 +1,327 @@
+{
+  "schema": "idd-state/v1",
+  "change": "sqlserver-keys-and-indexes",
+  "mode": "idd",
+  "status": "closed",
+  "intent": {
+    "request": "Extracción de PK, FK e índices (SQL Server primero, luego el resto)",
+    "kind": "feature",
+    "summary": "Extraer PK, FK e índices de SQL Server a TableSnapshot para que la comparación ya existente los detecte",
+    "acceptance": "Dos bases SQL Server que difieren en una PK, FK o índice producen el hallazgo correspondiente; si son iguales no hay falsos positivos, incluidas las restricciones con nombre autogenerado"
+  },
+  "facts": {
+    "coverage": [
+      {
+        "category": "inputs",
+        "question": "¿Qué atributos entran en la igualdad de un índice: solo columnas y unicidad (hoy) o también clustered/nonclustered, orden ASC/DESC, columnas INCLUDE y filtro? ¿Y de una FK: acciones ON DELETE/UPDATE, y si está deshabilitada o NOCHECK?"
+      },
+      {
+        "category": "uniqueness",
+        "question": "SQL Server nombra PK, UNIQUE y FK sin nombre como PK__tabla__3213E83F...: el sufijo difiere entre bases y daría un falso hallazgo en cada tabla. ¿Se ignora el nombre cuando es autogenerado (is_system_named) o se compara siempre?"
+      },
+      {
+        "category": "persistence",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/infrastructure/providers/sqlserver/introspector.py",
+          "line": 14
+        }
+      },
+      {
+        "category": "copy",
+        "cite": {
+          "kind": "request",
+          "text": "PK, FK e índices"
+        }
+      },
+      {
+        "category": "url-state",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/compare/engine.py",
+          "line": 213
+        }
+      },
+      {
+        "category": "accessibility",
+        "cite": {
+          "kind": "path",
+          "path": "src/schema_comparator/tui/theme.py",
+          "line": 23
+        }
+      },
+      {
+        "category": "errors",
+        "question": "Si el login no tiene permiso para ver los metadatos de sys.indexes/sys.foreign_keys el resultado sale vacío sin error y aparecería como PK/FK/índices faltantes. ¿Se aborta con error claro, se avisa y se omite la comparación, o se asume lo que haya?"
+      }
+    ]
+  },
+  "plan": {
+    "paths": [
+      "docs/roadmap.md",
+      "src/schema_comparator/compare/describe.py",
+      "src/schema_comparator/domain/schema/models.py",
+      "src/schema_comparator/infrastructure/providers/sqlserver/introspector.py",
+      "src/schema_comparator/infrastructure/providers/sqlserver/provider.py",
+      "src/schema_comparator/report/presentation.py",
+      "src/schema_comparator/tui/formatting.py",
+      "tests/integration/test_extraction_live.py",
+      "tests/unit/compare/test_describe.py",
+      "tests/unit/infrastructure/test_sqlserver_provider.py",
+      "tests/unit/tui/test_formatting.py"
+    ],
+    "work_units": 3,
+    "decision": true,
+    "operations": []
+  },
+  "signals": [
+    {
+      "id": "always",
+      "reason": "every change with a resolved intent",
+      "source": "declaration"
+    },
+    {
+      "id": "multi-unit-or-decision",
+      "reason": "declared 3 work units",
+      "source": "declaration"
+    },
+    {
+      "id": "adr-or-quality-attribute",
+      "reason": "components compare, domain, presentation, providers, report: ADR 0001, 0002, 0003, 0005, 0006, 0007 and quality scenario mutation-requires-confirmation, no-false-drift, optional-drivers, secret-safety, windows-first-run",
+      "source": "declaration"
+    }
+  ],
+  "impacts": [
+    {
+      "kind": "adr",
+      "id": "0001",
+      "impact": "conforms",
+      "reason": "Los cambios caen en las capas esperadas: modelo en domain, consultas en infrastructure y redacción en report/tui; domain no importa nada nuevo."
+    },
+    {
+      "kind": "adr",
+      "id": "0002",
+      "impact": "conforms",
+      "reason": "No toca el registro de proveedores ni la carga diferida; solo el proveedor SQL Server amplía sus consultas."
+    },
+    {
+      "kind": "adr",
+      "id": "0003",
+      "impact": "conforms",
+      "reason": "El modo y el modelo de tipos no cambian; las claves solo se comparan entre perfiles cuyo proveedor las extrae (SchemaFeature.KEYS), igual que las rutinas, para no inventar faltantes entre motores."
+    },
+    {
+      "kind": "adr",
+      "id": "0005",
+      "impact": "conforms",
+      "reason": "Solo consultas SELECT de catálogo; no se genera ni ejecuta DDL, y los hallazgos de claves son informativos."
+    },
+    {
+      "kind": "adr",
+      "id": "0006",
+      "impact": "conforms",
+      "reason": "No añade escrituras: ningún commit() nuevo ni operación de mantenimiento."
+    },
+    {
+      "kind": "adr",
+      "id": "0007",
+      "impact": "amends",
+      "reason": "Levanta la limitación 'las columnas de PK, FK e índices no se normalizan todavía' (identity.py las canonicaliza) y añade que los nombres de restricción autogenerados se comparan por estructura.",
+      "record": "docs/architecture/decisions/0008-claves-con-nombre-autogenerado-y-columnas-canonicas.md"
+    },
+    {
+      "kind": "scenario",
+      "id": "mutation-requires-confirmation",
+      "impact": "none",
+      "reason": "No hay operaciones de escritura nuevas."
+    },
+    {
+      "kind": "scenario",
+      "id": "no-false-drift",
+      "impact": "conforms",
+      "reason": "Nombres autogenerados por estructura, columnas canonicalizadas sin distinguir mayúsculas y claves comparadas solo entre proveedores que las extraen; probado contra SQL Server real con sufijos distintos."
+    },
+    {
+      "kind": "scenario",
+      "id": "optional-drivers",
+      "impact": "none",
+      "reason": "No añade imports de drivers; los módulos nuevos solo usan el dominio y el reporte."
+    },
+    {
+      "kind": "scenario",
+      "id": "secret-safety",
+      "impact": "conforms",
+      "reason": "Un fallo de consulta de claves se traduce con translate_query_error y un test comprueba que no incluye la cadena de conexión."
+    },
+    {
+      "kind": "scenario",
+      "id": "windows-first-run",
+      "impact": "none",
+      "reason": "Sin cambios de consola, codificación ni arranque."
+    }
+  ],
+  "attestations": [
+    {
+      "kind": "adr",
+      "id": "0006",
+      "evidence": "grep de '.commit()' en src: única llamada en sqlserver/sp_validator.py (refresh_modules_mutating), sin cambios; este cambio solo añade SELECT de catálogo (test_key_queries_are_read_only_catalog_selects y test_sql_server_provider_only_runs_read_only_catalog_queries). tests/unit/test_cli_robustness.py cubre --refresh-modules sin --yes.",
+      "recorded_at": "2026-10-22T11:24:04.923Z"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "checks-pass",
+      "signal": "always",
+      "status": "satisfied",
+      "evidence": [
+        "ev-2"
+      ]
+    },
+    {
+      "id": "living-doc",
+      "signal": "multi-unit-or-decision",
+      "status": "satisfied",
+      "evidence": [
+        "ev-4"
+      ]
+    },
+    {
+      "id": "adr-impact-declaration",
+      "signal": "adr-or-quality-attribute",
+      "status": "satisfied",
+      "evidence": [
+        "ev-3"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "open-facts",
+      "status": "resolved",
+      "answer": "Índices completo (columnas+orden/DESC, unicidad, clustered, INCLUDE, filtro); FK columnas+referenciada+acciones sin estado; nombre autogenerado se compara por estructura con nombre sintético; fallo de consulta aborta con error claro",
+      "source": "user"
+    },
+    {
+      "id": "adr-amend-or-contradict",
+      "status": "resolved",
+      "reason": "ADR 0007 amends: Levanta la limitación 'las columnas de PK, FK e índices no se normalizan todavía' (identity.py las canonicaliza) y añade que los nombres de restricción autogenerados se comparan por estructura.",
+      "answer": "Sí, crear la ADR 0008 que amplía la 0007",
+      "source": "user"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-1",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-22T11:19:05.189Z",
+      "detail": {
+        "tree": "sha256:564347edafb4eba169043007ec0ecb1f923471efd195f3a697c88bb21fd2183c",
+        "runs": [
+          "run-1",
+          "run-2"
+        ]
+      }
+    },
+    {
+      "id": "ev-2",
+      "kind": "check-run",
+      "obligation": "checks-pass",
+      "recorded_at": "2026-10-22T11:23:57.879Z",
+      "detail": {
+        "tree": "sha256:74fe3bda17f7947d02b0a91111b85fb62458ba991bd491b24494e928d2ed36c3",
+        "runs": [
+          "run-4",
+          "run-5"
+        ]
+      }
+    },
+    {
+      "id": "ev-3",
+      "kind": "adr-impact-declaration",
+      "obligation": "adr-impact-declaration",
+      "recorded_at": "2026-10-22T11:23:57.879Z",
+      "detail": {
+        "refs": [
+          "adr:0001 conforms",
+          "adr:0002 conforms",
+          "adr:0003 conforms",
+          "adr:0005 conforms",
+          "adr:0006 conforms",
+          "adr:0007 amends",
+          "scenario:mutation-requires-confirmation none",
+          "scenario:no-false-drift conforms",
+          "scenario:optional-drivers none",
+          "scenario:secret-safety conforms",
+          "scenario:windows-first-run none"
+        ],
+        "records": [
+          "docs/architecture/decisions/0008-claves-con-nombre-autogenerado-y-columnas-canonicas.md"
+        ]
+      }
+    },
+    {
+      "id": "ev-4",
+      "kind": "living-doc-current",
+      "obligation": "living-doc",
+      "recorded_at": "2026-10-22T11:24:04.975Z"
+    }
+  ],
+  "base": "de6c8b9b4a7d95b7bfd14b598119b6d85013ba52",
+  "runs": [
+    {
+      "id": "run-1",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:40b6149a1653d2599d4eb5074604bc81363f0490cb27f1a974a3ac5826257ce3",
+      "tree": "sha256:564347edafb4eba169043007ec0ecb1f923471efd195f3a697c88bb21fd2183c",
+      "recorded_at": "2026-10-22T11:19:05.189Z"
+    },
+    {
+      "id": "run-2",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:b93de32ae4b6f3259a044f9f50e884f8b03c5e2114b3c741a38ca6a4af6c2a4d",
+      "tree": "sha256:564347edafb4eba169043007ec0ecb1f923471efd195f3a697c88bb21fd2183c",
+      "recorded_at": "2026-10-22T11:19:05.189Z"
+    },
+    {
+      "id": "run-3",
+      "purpose": "fitness",
+      "ref": "adr:0007",
+      "command": "python -m pytest -q tests/unit/compare/test_identity_normalization.py",
+      "exit_code": 0,
+      "output_sha256": "sha256:0085d2fe770f9c904745927c3e33bba2ea49faad98932efd37127c7ae5f11fd8",
+      "tree": "sha256:564347edafb4eba169043007ec0ecb1f923471efd195f3a697c88bb21fd2183c",
+      "recorded_at": "2026-10-22T11:19:05.189Z"
+    },
+    {
+      "id": "run-4",
+      "purpose": "checks",
+      "name": "test",
+      "command": "python -m pytest -q",
+      "exit_code": 0,
+      "output_sha256": "sha256:74cdc8b0476272fb5434fe1ae1b04e9d08387e95eb06b04777108319955ae67f",
+      "tree": "sha256:74fe3bda17f7947d02b0a91111b85fb62458ba991bd491b24494e928d2ed36c3",
+      "recorded_at": "2026-10-22T11:23:57.879Z"
+    },
+    {
+      "id": "run-5",
+      "purpose": "checks",
+      "name": "lint",
+      "command": "python -m ruff check . && python -m ruff format --check .",
+      "exit_code": 0,
+      "output_sha256": "sha256:b93de32ae4b6f3259a044f9f50e884f8b03c5e2114b3c741a38ca6a4af6c2a4d",
+      "tree": "sha256:74fe3bda17f7947d02b0a91111b85fb62458ba991bd491b24494e928d2ed36c3",
+      "recorded_at": "2026-10-22T11:23:57.879Z"
+    }
+  ],
+  "assumptions": [
+    "Los hallazgos de PK, FK e índices hoy se muestran con el texto genérico 'Discrepancia en <Clase>' (report/presentation.py:215, tui/formatting.py:86); se hacen legibles en este cambio porque sin ello la extracción solo produce ruido. La consolidación (scripts) de estos hallazgos queda fuera."
+  ],
+  "closed_at": "2026-10-22T11:24:04.975Z"
+}

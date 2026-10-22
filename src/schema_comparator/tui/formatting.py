@@ -23,6 +23,12 @@ from schema_comparator.compare.models import (
 from schema_comparator.domain.comparison.models import column_label, object_label
 from schema_comparator.report.attributes import format_attributes
 from schema_comparator.report.console import _TYPE_LABELS
+from schema_comparator.report.keys import (
+    KEY_MISMATCH_TYPES,
+    key_subject,
+    key_summary,
+    key_values,
+)
 from schema_comparator.tui.theme import SEPARATOR, count_label, kind_style, OK
 
 
@@ -83,6 +89,8 @@ def leaf_parts(entry: DiffEntry) -> tuple[str, str]:
     if isinstance(entry, ColumnMismatch):
         profiles = ", ".join(p for p, _ in entry.values_by_profile)
         return column_label(entry), f"discrepancia de atributos entre {profiles}"
+    if isinstance(entry, KEY_MISMATCH_TYPES):
+        return key_subject(entry), key_summary(entry)
     return "", f"{type(entry).__name__}"
 
 
@@ -139,6 +147,12 @@ def detail_text(entry: DiffEntry) -> str:
             lines.append(
                 f"  {profile}: {p_snap.routine_type} | Params: [{params_str}] | Hash: {hash_str}"
             )
+        return "\n".join(lines)
+
+    if isinstance(entry, KEY_MISMATCH_TYPES):
+        lines = [f"{key_subject(entry)} de {object_label(entry)}", ""]
+        for profile, text in key_values(entry, missing="no existe"):
+            lines.append(f"  {profile}: {text}")
         return "\n".join(lines)
 
     if isinstance(entry, MissingTable):
@@ -293,6 +307,13 @@ def detail_markup(entry: DiffEntry) -> str:
             for profile, snapshot in entry.values_by_profile
         )
         hint = "Pulsa [bold]v[/bold] para validar y reparar rutinas."
+    elif isinstance(entry, KEY_MISMATCH_TYPES):
+        lines.append(_field("Tabla  ", object_label(entry)))
+        lines.append(_field("Objeto ", key_subject(entry), style.color))
+        definitions = _definition_lines(key_values(entry, missing="no existe"))
+        lines += ["", f"[bold underline]Definiciones distintas ({len(definitions)})[/]"]
+        lines += definitions
+        hint = "Informativo: BDIFF aún no genera scripts para claves e índices."
     else:
         lines.append(_field("Objeto ", object_label(entry)))
         hint = ""

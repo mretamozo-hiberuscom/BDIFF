@@ -9,6 +9,9 @@ from schema_comparator.domain.comparison.type_equivalences import (
 )
 from schema_comparator.domain.schema.models import (
     ColumnSnapshot,
+    IndexSnapshot,
+    PrimaryKeySnapshot,
+    SchemaFeature,
     SchemaSnapshot,
     TableSnapshot,
 )
@@ -78,3 +81,46 @@ def test_semantic_comparison_still_flags_length_and_attribute_mismatches() -> No
         e for e in semantic_res.entries if isinstance(e, ColumnMismatch)
     ]
     assert len(semantic_mismatches) == 1
+
+
+def _keyed_snapshot(name: str, provider: str, features, keyed: bool) -> SchemaSnapshot:
+    column = ColumnSnapshot("id", "int", None, 10, 0, False, 1)
+    table = TableSnapshot(
+        "dbo",
+        "users",
+        (column,),
+        primary_key=PrimaryKeySnapshot("PK_users", ("id",)) if keyed else None,
+        indexes=(IndexSnapshot("IX_users", ("id",)),) if keyed else (),
+    )
+    return SchemaSnapshot(
+        name,
+        tables=(table,),
+        provider_id=provider,
+        extracted_features=frozenset(features),
+    )
+
+
+def test_keys_are_not_compared_against_a_provider_that_does_not_extract_them() -> None:
+    sqlserver = _keyed_snapshot(
+        "mssql",
+        "sqlserver",
+        {SchemaFeature.TABLES, SchemaFeature.KEYS},
+        keyed=True,
+    )
+    postgres = _keyed_snapshot("pg", "postgresql", {SchemaFeature.TABLES}, keyed=False)
+
+    result = compare_snapshots(
+        [sqlserver, postgres], mode=ComparisonMode.SEMANTIC_EQUIVALENT
+    )
+
+    assert result.entries == ()
+
+
+def test_keys_are_compared_between_providers_that_extract_them() -> None:
+    features = {SchemaFeature.TABLES, SchemaFeature.KEYS}
+    a = _keyed_snapshot("a", "sqlserver", features, keyed=True)
+    b = _keyed_snapshot("b", "sqlserver", features, keyed=False)
+
+    kinds = {type(e).__name__ for e in compare_snapshots([a, b]).entries}
+
+    assert kinds == {"PrimaryKeyMismatch", "IndexMismatch"}

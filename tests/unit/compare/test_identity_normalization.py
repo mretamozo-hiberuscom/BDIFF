@@ -14,7 +14,13 @@ from schema_comparator.compare.models import (
     MissingTable,
 )
 from schema_comparator.domain.comparison.models import column_label, object_label
-from schema_comparator.domain.schema.models import ProcedureSnapshot, SchemaSnapshot
+from schema_comparator.domain.schema.models import (
+    ForeignKeySnapshot,
+    IndexSnapshot,
+    PrimaryKeySnapshot,
+    ProcedureSnapshot,
+    SchemaSnapshot,
+)
 
 
 def _snapshot(name, *tables, default_schema=None, provider="sqlserver", procs=()):
@@ -190,3 +196,59 @@ def test_console_html_excel_and_tui_show_every_spelling() -> None:
     assert detail_text(result.entries[0]).startswith(
         "Columna: dbo.Users / dbo.users → Email / email"
     )
+
+
+def _keyed_orders(orders: str, customers: str, spell) -> tuple:
+    """Orders (PK, FK, index) and Customers, every identifier spelled by
+    `spell`."""
+    return (
+        replace(
+            make_table(
+                "dbo",
+                orders,
+                make_column(spell("Id")),
+                make_column(spell("CustomerId")),
+            ),
+            primary_key=PrimaryKeySnapshot("PK_orders", (spell("Id"),)),
+            foreign_keys=(
+                ForeignKeySnapshot(
+                    "FK_orders_customers",
+                    (spell("CustomerId"),),
+                    customers,
+                    (spell("Id"),),
+                    "dbo",
+                ),
+            ),
+            indexes=(
+                IndexSnapshot(
+                    "IX_orders",
+                    (spell("CustomerId"),),
+                    descending_columns=(spell("CustomerId"),),
+                    included_columns=(spell("Id"),),
+                ),
+            ),
+        ),
+        make_table("dbo", customers, make_column(spell("Id"))),
+    )
+
+
+def test_key_and_index_columns_match_ignoring_the_case_of_column_and_table_names() -> (
+    None
+):
+    dev = _snapshot("dev", *_keyed_orders("Orders", "Customers", lambda c: c))
+    prod = _snapshot("prod", *_keyed_orders("orders", "customers", lambda c: c.lower()))
+
+    assert compare_snapshots([dev, prod]).entries == ()
+
+
+def test_a_real_difference_in_key_columns_is_still_reported() -> None:
+    dev = _snapshot("dev", *_keyed_orders("Orders", "Customers", lambda c: c))
+    orders, customers = _keyed_orders("orders", "customers", lambda c: c.lower())
+    orders = replace(
+        orders, primary_key=PrimaryKeySnapshot("PK_orders", ("customerid",))
+    )
+    prod = _snapshot("prod", orders, customers)
+
+    kinds = {type(entry).__name__ for entry in compare_snapshots([dev, prod]).entries}
+
+    assert kinds == {"PrimaryKeyMismatch"}

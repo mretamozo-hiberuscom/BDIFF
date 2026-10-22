@@ -51,6 +51,14 @@ class SqlServerProvider:
                 try:
                     cursor.execute(introspector.CATALOG_QUERY_SQL)
                     rows = cursor.fetchall()
+                    # A failing query aborts: comparing with keys or indexes
+                    # missing would report them as absent from this database.
+                    cursor.execute(introspector.PRIMARY_KEYS_QUERY_SQL)
+                    primary_key_rows = cursor.fetchall()
+                    cursor.execute(introspector.FOREIGN_KEYS_QUERY_SQL)
+                    foreign_key_rows = cursor.fetchall()
+                    cursor.execute(introspector.INDEXES_QUERY_SQL)
+                    index_rows = cursor.fetchall()
                     try:
                         cursor.execute(introspector.PROCEDURES_QUERY_SQL)
                         proc_rows = cursor.fetchall()
@@ -72,4 +80,11 @@ class SqlServerProvider:
                 installed_drivers=connection.installed_sqlserver_drivers(),
             ) from exc
 
-        return introspector.build_snapshot(profile.name, rows, proc_rows=proc_rows)
+        return introspector.build_snapshot(
+            profile.name,
+            rows,
+            proc_rows=proc_rows,
+            primary_key_rows=primary_key_rows,
+            foreign_key_rows=foreign_key_rows,
+            index_rows=index_rows,
+        )
