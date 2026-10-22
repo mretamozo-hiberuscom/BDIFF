@@ -28,6 +28,10 @@
   reportes (`g`), decide la consolidación (`c`, antes `d`) y obtiene scripts
   T-SQL e `impact_report.md` en `scripts-db/<timestamp>/`. `Esc` cierra lo
   abierto y `q` sale con confirmación; `?` muestra la ayuda.
+- En la consolidación, cada hallazgo ofrece solo los perfiles donde se puede
+  aplicar, un resumen muestra cuántos tienen decisión y cuántos `DROP`, y
+  generar scripts con `DROP` exige confirmar un aviso que lista lo que se
+  elimina. Salir con decisiones marcadas también pide confirmación.
 
 **Validar y reparar rutinas (SQL Server)**
 

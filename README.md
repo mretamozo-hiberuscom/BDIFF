@@ -95,6 +95,13 @@ se abre con `e` o `l`. Pulsa `?` para ver la ayuda dentro de la aplicación.
 | `Esc` | Cierra lo que esté abierto (filtro, cajón); no sale de la aplicación. |
 | `q` | Sale, pidiendo confirmación. |
 
+En la pantalla de consolidación eliges, por tabla, qué definición es la
+correcta y en qué perfiles aplicarla. Un hallazgo solo ofrece los perfiles
+donde tiene sentido (una discrepancia, los que tienen la columna con otra
+definición). Con `g` se generan los scripts; si alguno contiene un `DROP`, un
+aviso lista qué se elimina y de qué perfiles, y no se escribe nada hasta que lo
+confirmes. `Esc` pide confirmación si ya marcaste decisiones.
+
 ## Salidas
 
 - `reportes/<AAAAMMDD_HHMMSS>/schema-diff-report-<ts>.{html,pdf,xlsx}`.
