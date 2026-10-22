@@ -14,6 +14,7 @@ from dataclasses import dataclass, replace
 from typing import TypeVar
 
 from schema_comparator.domain.schema.models import (
+    ForeignKeySnapshot,
     ProcedureSnapshot,
     SchemaSnapshot,
     TableSnapshot,
@@ -79,6 +80,21 @@ def _canonical_names(
     return canonical, {k: tuple(v) for k, v in spellings.items()}
 
 
+def _column_mapper(
+    column_names: dict[tuple, tuple[str, ...]],
+) -> Callable[[str], str]:
+    """Canonical spelling of a column name as a key, a foreign key or an
+    index mentions it; a name no column of the table has stays as it is."""
+
+    def canonical(name: str) -> str:
+        for key in (("exact", name), (name.casefold(),)):
+            if key in column_names:
+                return column_names[key][0]
+        return name
+
+    return canonical
+
+
 def _joined(spellings: tuple[tuple[str, ...], ...]) -> tuple[str, ...]:
     return tuple(".".join(s) for s in spellings) if len(spellings) > 1 else ()
 
@@ -108,7 +124,9 @@ def canonicalize(snapshots: Sequence[SchemaSnapshot]) -> CanonicalSnapshots:
             tables_by_key.setdefault(table_key, {})[profile] = table
 
     column_variants: ColumnVariants = {}
-    renamed_tables: dict[str, list[TableSnapshot]] = {p: [] for p in by_profile}
+    keyed_columns_by_table: dict[tuple, dict[str, list]] = {}
+    column_names_by_table: dict[tuple, dict[tuple, tuple[str, ...]]] = {}
+    column_mappers: dict[tuple, Callable[[str], str]] = {}
     for table_key, table_by_profile in tables_by_key.items():
         keyed_columns = _keys(
             {p: t.columns for p, t in table_by_profile.items()},
@@ -123,7 +141,66 @@ def canonicalize(snapshots: Sequence[SchemaSnapshot]) -> CanonicalSnapshots:
             if variants := _joined(spellings):
                 column = column_names[column_key][0]
                 column_variants[(schema_name, table_name, column)] = variants
+        keyed_columns_by_table[table_key] = keyed_columns
+        column_names_by_table[table_key] = column_names
+        column_mappers[table_key] = _column_mapper(column_names)
+
+    def referenced_table_key(profile: str, table: TableSnapshot, fk) -> tuple | None:
+        schema = (
+            table.schema_name if fk.referenced_schema is None else fk.referenced_schema
+        )
+        sk = _schema_key(by_profile[profile], schema)
+        for key in (
+            ("exact", sk, fk.referenced_table),
+            (sk, fk.referenced_table.casefold()),
+        ):
+            if key in column_mappers:
+                return key
+        return None
+
+    def canonical_keys(profile: str, table: TableSnapshot, own: Callable[[str], str]):
+        """The table's PK, FKs and indexes spelled with canonical names."""
+
+        def own_columns(names: tuple[str, ...]) -> tuple[str, ...]:
+            return tuple(own(n) for n in names)
+
+        def foreign_key(fk: ForeignKeySnapshot) -> ForeignKeySnapshot:
+            ref_key = referenced_table_key(profile, table, fk)
+            if ref_key is None:
+                return replace(fk, columns=own_columns(fk.columns))
+            ref_schema, ref_table = table_names[ref_key]
+            ref = column_mappers[ref_key]
+            return replace(
+                fk,
+                columns=own_columns(fk.columns),
+                referenced_table=ref_table,
+                referenced_columns=tuple(ref(n) for n in fk.referenced_columns),
+                referenced_schema=None if fk.referenced_schema is None else ref_schema,
+            )
+
+        return {
+            "primary_key": None
+            if table.primary_key is None
+            else replace(
+                table.primary_key, columns=own_columns(table.primary_key.columns)
+            ),
+            "foreign_keys": tuple(foreign_key(fk) for fk in table.foreign_keys),
+            "indexes": tuple(
+                replace(
+                    index,
+                    columns=own_columns(index.columns),
+                    descending_columns=own_columns(index.descending_columns),
+                    included_columns=own_columns(index.included_columns),
+                )
+                for index in table.indexes
+            ),
+        }
+
+    renamed_tables: dict[str, list[TableSnapshot]] = {p: [] for p in by_profile}
+    for table_key, table_by_profile in tables_by_key.items():
+        schema_name, table_name = table_names[table_key]
         for profile, table in table_by_profile.items():
+            column_names = column_names_by_table[table_key]
             renamed_tables[profile].append(
                 replace(
                     table,
@@ -131,8 +208,9 @@ def canonicalize(snapshots: Sequence[SchemaSnapshot]) -> CanonicalSnapshots:
                     table_name=table_name,
                     columns=tuple(
                         replace(c, name=column_names[k][0])
-                        for k, c in keyed_columns[profile]
+                        for k, c in keyed_columns_by_table[table_key][profile]
                     ),
+                    **canonical_keys(profile, table, column_mappers[table_key]),
                 )
             )
 

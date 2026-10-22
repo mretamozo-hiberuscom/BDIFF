@@ -458,8 +458,15 @@ def compare_snapshots(
     column_entries = _evaluate_columns(
         union, presence, table_index, profile_names, mode=mode
     )
-    advanced_entries = _evaluate_advanced_objects(
-        union, presence, table_index, profile_names
+    # Only providers that extract keys and indexes take part; the others
+    # would show every key as missing.
+    keyed_profiles = tuple(
+        s.profile_name for s in snapshots if SchemaFeature.KEYS in s.extracted_features
+    )
+    advanced_entries = (
+        _evaluate_advanced_objects(union, presence, table_index, keyed_profiles)
+        if len(keyed_profiles) > 1
+        else ()
     )
     procedure_entries = _evaluate_procedures(
         snapshots, profile_names, routine_policy=routine_policy
