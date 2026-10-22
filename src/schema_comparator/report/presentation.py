@@ -17,6 +17,7 @@ from schema_comparator.compare.models import (
 from schema_comparator.domain.comparison.models import column_label
 from schema_comparator.domain.schema.models import ProcedureSnapshot
 from schema_comparator.report.attributes import MISSING_MARKER, format_attributes
+from schema_comparator.report.keys import KEY_MISMATCH_TYPES, key_subject, key_values
 
 FINDING_TYPE_LABELS: dict[type, str] = {
     MissingTable: "Tabla faltante",
@@ -212,7 +213,20 @@ def _present_finding(
             cells_by_profile=cells,
         )
 
-    # Generic fallback for PK, FK, Index mismatches
+    if isinstance(first, KEY_MISMATCH_TYPES):
+        values = dict(key_values(first))
+        for p in profiles:
+            cells[p] = values.get(p, "Presente")
+        return FindingView(
+            schema_name=schema_name,
+            object_name=object_name,
+            object_kind="Tabla",
+            detail_name=key_subject(first),
+            finding_type=finding_type,
+            cells_by_profile=cells,
+        )
+
+    # Any other kind of finding: name it, nothing more is known.
     for p in profiles:
         cells[p] = f"Discrepancia en {type(first).__name__}"
     return FindingView(
