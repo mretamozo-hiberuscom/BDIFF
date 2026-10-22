@@ -66,6 +66,18 @@ contra SQL Server 2022 real (fixture Docker en `tests/integration/conftest.py`).
 | 7 | `drop-backups` | Respaldo en `bdiff_respaldo` antes de cada `DROP` y diario de dependencias eliminadas. |
 | 8 | `undo-scripts` | `<perfil>.deshacer.sql` que revierte cada paso con datos, índices y restricciones. |
 
+## Rediseño de la TUI — en curso
+
+Objetivo: una TUI fácil de entender y de manejar. Símbolos Unicode sin emojis,
+tuteo neutro, `Esc` cierra lo abierto y `q` confirma la salida (el estilo
+común vive en `tui/theme.py` y `tui/modals.py`).
+
+| # | Cambio IDD | Estado |
+|---|---|---|
+| 1 | `tui-main-redesign`: resumen por tipo, árbol y detalle, cajón de exclusiones y registro, ayuda | Hecho (PR #24) |
+| 2 | `tui-consolidation-redesign`: formulario de decisiones con resumen previo a generar y avance por tabla; incluye las propuestas 1 y 2 de abajo (confirmación de `DROP` con `ConfirmModal`, destinos limitados) | Siguiente sesión |
+| 3 | `tui-routines-redesign`: pantalla de rutinas (`v`) con el mismo estilo | Pendiente |
+
 ## Próximas propuestas — por este orden
 
 Las tres que se retoman en la siguiente sesión.
